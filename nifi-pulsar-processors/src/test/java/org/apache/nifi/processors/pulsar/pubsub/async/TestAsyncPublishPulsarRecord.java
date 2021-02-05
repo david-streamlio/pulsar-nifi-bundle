@@ -21,9 +21,11 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.io.UnsupportedEncodingException;
 import java.util.List;
 
 import org.apache.nifi.processors.pulsar.AbstractPulsarProducerProcessor;
+import org.apache.nifi.processors.pulsar.pubsub.PublishPulsar;
 import org.apache.nifi.processors.pulsar.pubsub.PublishPulsarRecord;
 import org.apache.nifi.processors.pulsar.pubsub.TestPublishPulsarRecord;
 import org.apache.nifi.util.MockFlowFile;
@@ -36,12 +38,7 @@ public class TestAsyncPublishPulsarRecord extends TestPublishPulsarRecord {
 
     @Test
     public void pulsarClientExceptionTest() throws PulsarClientException {
-       when(mockClientService.getMockProducer().sendAsync(Matchers.argThat(new ArgumentMatcher<byte[]>() {
-            @Override
-            public boolean matches(byte[] argument) {
-                return true;
-            }
-        }))).thenThrow(RuntimeException.class);
+       when(mockClientService.getMockTypedMessageBuilder().sendAsync()).thenThrow(RuntimeException.class);
 
        final String content = "Mary Jane, 32";
 
@@ -58,9 +55,10 @@ public class TestAsyncPublishPulsarRecord extends TestPublishPulsarRecord {
         * this cycle. Therefore, we set the number of iterations below to some very large number to ensure
         * that this cycle does complete on these builds
         */
-       runner.run(500, false, true);
+       runner.run(5000, false, true);
 
-       verify(mockClientService.getMockProducer(), times(1)).sendAsync("\"Mary Jane\",\"32\"\n".getBytes());
+       verify(mockClientService.getMockTypedMessageBuilder(), times(1)).value("\"Mary Jane\",\"32\"\n".getBytes());
+       verify(mockClientService.getMockTypedMessageBuilder(), times(1)).sendAsync();
 
        List<MockFlowFile> results = runner.getFlowFilesForRelationship(PublishPulsarRecord.REL_FAILURE);
        assertEquals(1, results.size());
@@ -80,7 +78,8 @@ public class TestAsyncPublishPulsarRecord extends TestPublishPulsarRecord {
         runner.run();
         runner.assertAllFlowFilesTransferred(PublishPulsarRecord.REL_FAILURE);
 
-        verify(mockClientService.getMockProducer(), times(0)).send(content.getBytes());
+        verify(mockClientService.getMockTypedMessageBuilder(), times(0)).value(content.getBytes());
+        verify(mockClientService.getMockTypedMessageBuilder(), times(0)).sendAsync();
     }
 
     @Test
@@ -100,7 +99,8 @@ public class TestAsyncPublishPulsarRecord extends TestPublishPulsarRecord {
         result.assertAttributeEquals(PublishPulsarRecord.MSG_COUNT, "1");
         result.assertAttributeEquals(PublishPulsarRecord.TOPIC_NAME, TOPIC_NAME);
 
-        verify(mockClientService.getMockProducer(), times(1)).sendAsync("\"Mary Jane\",\"32\"\n".getBytes());
+        verify(mockClientService.getMockTypedMessageBuilder(), times(1)).value("\"Mary Jane\",\"32\"\n".getBytes());
+        verify(mockClientService.getMockTypedMessageBuilder(), times(1)).sendAsync();
     }
 
     @Test
@@ -124,9 +124,10 @@ public class TestAsyncPublishPulsarRecord extends TestPublishPulsarRecord {
         result.assertAttributeEquals(PublishPulsarRecord.MSG_COUNT, "3");
         result.assertAttributeEquals(PublishPulsarRecord.TOPIC_NAME, TOPIC_NAME);
 
-        verify(mockClientService.getMockProducer(), times(1)).sendAsync("\"Mary Jane\",\"32\"\n".getBytes());
-        verify(mockClientService.getMockProducer(), times(1)).sendAsync("\"John Doe\",\"35\"\n".getBytes());
-        verify(mockClientService.getMockProducer(), times(1)).sendAsync("\"Busta Move\",\"26\"\n".getBytes());
+        verify(mockClientService.getMockTypedMessageBuilder(), times(1)).value("\"Mary Jane\",\"32\"\n".getBytes());
+        verify(mockClientService.getMockTypedMessageBuilder(), times(1)).value("\"John Doe\",\"35\"\n".getBytes());
+        verify(mockClientService.getMockTypedMessageBuilder(), times(1)).value("\"Busta Move\",\"26\"\n".getBytes());
+        verify(mockClientService.getMockTypedMessageBuilder(), times(3)).sendAsync();
     }
 
     @Test
@@ -151,6 +152,23 @@ public class TestAsyncPublishPulsarRecord extends TestPublishPulsarRecord {
         result.assertAttributeEquals(PublishPulsarRecord.MSG_COUNT, "98634");
         result.assertAttributeEquals(PublishPulsarRecord.TOPIC_NAME, TOPIC_NAME);
 
-        verify(mockClientService.getMockProducer(), times(98634)).sendAsync("\"Mary Jane\",\"32\"\n".getBytes());
+        verify(mockClientService.getMockTypedMessageBuilder(), times(98634)).value("\"Mary Jane\",\"32\"\n".getBytes());
+        verify(mockClientService.getMockTypedMessageBuilder(), times(98634)).sendAsync();
+    }
+
+    @Test
+    public void mappedPropertiesTest() throws UnsupportedEncodingException, PulsarClientException {
+        runner.setProperty(PublishPulsar.ASYNC_ENABLED, Boolean.toString(true));
+
+        super.doMappedPropertiesTest();
+        verify(mockClientService.getMockTypedMessageBuilder()).sendAsync();
+    }
+
+    @Test
+    public void messageKeyTest() throws UnsupportedEncodingException {
+        runner.setProperty(PublishPulsar.ASYNC_ENABLED, Boolean.toString(true));
+
+        super.doMessageKeyTest();
+        verify(mockClientService.getMockTypedMessageBuilder(), times(2)).sendAsync();
     }
 }

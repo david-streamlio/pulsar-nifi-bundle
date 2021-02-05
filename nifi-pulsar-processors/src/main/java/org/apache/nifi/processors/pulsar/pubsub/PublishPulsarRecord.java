@@ -25,8 +25,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
-import org.apache.commons.io.IOUtils;
-import org.apache.commons.lang3.tuple.Pair;
+import org.apache.commons.compress.utils.IOUtils;
+import org.apache.commons.lang3.tuple.Triple;
 import org.apache.nifi.annotation.behavior.InputRequirement;
 import org.apache.nifi.annotation.behavior.TriggerWhenEmpty;
 import org.apache.nifi.annotation.behavior.WritesAttribute;
@@ -39,6 +39,7 @@ import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSession;
 import org.apache.nifi.processor.exception.ProcessException;
 import org.apache.nifi.processors.pulsar.AbstractPulsarProducerProcessor;
+import org.apache.nifi.processors.pulsar.MessageTuple;
 import org.apache.nifi.schema.access.SchemaNotFoundException;
 import org.apache.nifi.serialization.MalformedRecordException;
 import org.apache.nifi.serialization.RecordReader;
@@ -133,10 +134,12 @@ public class PublishPulsarRecord extends AbstractPulsarProducerProcessor<byte[]>
             final RecordReader reader = readerFactory.createRecordReader(flowFile, in, getLogger());
             final RecordSet recordSet = reader.createRecordSet();
             final RecordSchema schema = writerFactory.getSchema(attributes, recordSet.getSchema());
+            final String key = getMessageKey(context, flowFile);
+            final Map<String, String> properties = getMappedMessageProperties(context, flowFile);
             final boolean asyncFlag = (context.getProperty(ASYNC_ENABLED).isSet() && context.getProperty(ASYNC_ENABLED).asBoolean());
 
             try {
-                messagesSent.addAndGet(send(producer, writerFactory, schema, reader, topic, asyncFlag));
+                messagesSent.addAndGet(send(producer, writerFactory, schema, reader, topic, key, properties, asyncFlag));
                 IOUtils.closeQuietly(in);
                 session.putAttribute(flowFile, MSG_COUNT, messagesSent.get() + "");
                 session.putAttribute(flowFile, TOPIC_NAME, topic);
@@ -148,13 +151,17 @@ public class PublishPulsarRecord extends AbstractPulsarProducerProcessor<byte[]>
             }
 
         } catch (final SchemaNotFoundException | MalformedRecordException | IOException e) {
-            IOUtils.closeQuietly(in);
+        	IOUtils.closeQuietly(in);
             session.transfer(flowFile, REL_FAILURE);
         }
     }
 
-    private int send(final Producer<byte[]> producer, final RecordSetWriterFactory writerFactory, final RecordSchema schema, final RecordReader reader,
-            String topic, boolean asyncFlag) throws IOException, SchemaNotFoundException, InterruptedException {
+    private int send(
+            final Producer<byte[]> producer,
+            final RecordSetWriterFactory writerFactory,
+            final RecordSchema schema,
+            final RecordReader reader,
+            String topic, String key, Map<String, String> properties, boolean asyncFlag) throws IOException, SchemaNotFoundException, InterruptedException {
 
         final RecordSet recordSet = reader.createRecordSet();
         final ByteArrayOutputStream baos = new ByteArrayOutputStream(1024);
@@ -171,9 +178,9 @@ public class PublishPulsarRecord extends AbstractPulsarProducerProcessor<byte[]>
                     writer.flush();
                 }
                 if (asyncFlag) {
-                   workQueue.put(Pair.of(topic, baos.toByteArray()));
+                   workQueue.put(new MessageTuple<>(topic, key, properties, baos.toByteArray()));
                 } else {
-                  producer.send(baos.toByteArray());
+                   send(producer, key, properties, baos.toByteArray());
                 }
             }
             return recordCount;

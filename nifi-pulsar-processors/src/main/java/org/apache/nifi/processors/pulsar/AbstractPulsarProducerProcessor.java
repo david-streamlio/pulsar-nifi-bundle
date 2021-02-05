@@ -17,12 +17,16 @@
 package org.apache.nifi.processors.pulsar;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -30,12 +34,12 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.apache.commons.collections4.CollectionUtils;
-import org.apache.commons.lang3.tuple.Pair;
 import org.apache.nifi.annotation.lifecycle.OnScheduled;
 import org.apache.nifi.annotation.lifecycle.OnStopped;
 import org.apache.nifi.annotation.lifecycle.OnUnscheduled;
 import org.apache.nifi.components.AllowableValue;
 import org.apache.nifi.components.PropertyDescriptor;
+import org.apache.nifi.components.Validator;
 import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.processor.AbstractProcessor;
@@ -47,10 +51,12 @@ import org.apache.nifi.pulsar.PulsarClientService;
 import org.apache.nifi.pulsar.cache.PulsarClientLRUCache;
 import org.apache.nifi.util.StringUtils;
 import org.apache.pulsar.client.api.CompressionType;
+import org.apache.pulsar.client.api.MessageId;
 import org.apache.pulsar.client.api.MessageRoutingMode;
 import org.apache.pulsar.client.api.Producer;
 import org.apache.pulsar.client.api.ProducerBuilder;
 import org.apache.pulsar.client.api.PulsarClientException;
+import org.apache.pulsar.client.api.TypedMessageBuilder;
 
 public abstract class AbstractPulsarProducerProcessor<T> extends AbstractProcessor {
 
@@ -207,6 +213,26 @@ public abstract class AbstractPulsarProducerProcessor<T> extends AbstractProcess
             .defaultValue("1000")
             .build();
 
+    public static final PropertyDescriptor MAPPED_MESSAGE_PROPERTIES = new PropertyDescriptor.Builder()
+            .name("MAPPED_MESSAGE_PROPERTIES")
+            .displayName("Mapped Message Properties")
+            .description("A comma-delimited list of message properties to set based on FlowFile attributes. "
+                    + " Syntax for an individual property entry is <property name>[=<source attribute name>]."
+                    + " If the optional source attribute name is omitted, it is assumed to be the same as the property.")
+            .required(false)
+            .addValidator(Validator.VALID)
+            .defaultValue("")
+            .build();
+
+    public static final PropertyDescriptor MESSAGE_KEY = new PropertyDescriptor.Builder()
+            .name("MESSAGE_KEY")
+            .displayName("Message Key")
+            .description("The key of the outgoing message.")
+            .required(false)
+            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
+            .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
+            .build();
+
     protected static final List<PropertyDescriptor> PROPERTIES;
     protected static final Set<Relationship> RELATIONSHIPS;
 
@@ -224,6 +250,8 @@ public abstract class AbstractPulsarProducerProcessor<T> extends AbstractProcess
         properties.add(MESSAGE_ROUTING_MODE);
         properties.add(MESSAGE_DEMARCATOR);
         properties.add(PENDING_MAX_MESSAGES);
+        properties.add(MAPPED_MESSAGE_PROPERTIES);
+        properties.add(MESSAGE_KEY);
         PROPERTIES = Collections.unmodifiableList(properties);
 
         final Set<Relationship> relationships = new HashSet<>();
@@ -254,8 +282,8 @@ public abstract class AbstractPulsarProducerProcessor<T> extends AbstractProcess
 
     private int maxRequests = 1;
 
-    protected BlockingQueue<Pair<String,T>> workQueue;
-    protected BlockingQueue<Pair<String,T>> failureQueue;
+    protected BlockingQueue<MessageTuple<T>> workQueue;
+    protected BlockingQueue<MessageTuple<T>> failureQueue;
     protected List<AsyncPublisher> asyncPublishers;
 
     @OnScheduled
@@ -267,10 +295,10 @@ public abstract class AbstractPulsarProducerProcessor<T> extends AbstractProcess
             setPublisherPool(Executors.newFixedThreadPool(maxRequests));
             setAsyncPublishers(new LinkedList<AsyncPublisher>());
             // Limit the depth of the work queue to 500 per worker, to prevent long shutdown times.
-            workQueue = new LinkedBlockingQueue<Pair<String,T>>(500 * maxRequests);
+            workQueue = new LinkedBlockingQueue<>(500 * maxRequests);
 
             if (context.hasConnection(REL_FAILURE)) {
-                failureQueue = new LinkedBlockingQueue<Pair<String,T>>();
+                failureQueue = new LinkedBlockingQueue<>();
                 trackFailures.set(true);
             } else {
                 trackFailures.set(false);
@@ -345,15 +373,15 @@ public abstract class AbstractPulsarProducerProcessor<T> extends AbstractProcess
            return;
         }
 
-        Pair<String,T> failure = failureQueue.poll();
+        MessageTuple<T> failure = failureQueue.poll();
 
         while (failure != null) {
             FlowFile flowFile = session.create();
-            final byte[] value = (byte[]) failure.getValue();
+            final byte[] value = (byte[]) failure.getContent();
             flowFile = session.write(flowFile, out -> {
                  out.write(value);
             });
-            session.putAttribute(flowFile, TOPIC_NAME, failure.getKey());
+            session.putAttribute(flowFile, TOPIC_NAME, failure.getTopic());
             session.transfer(flowFile, REL_FAILURE);
             failure = failureQueue.poll();
         }
@@ -432,6 +460,32 @@ public abstract class AbstractPulsarProducerProcessor<T> extends AbstractProcess
        this.publisherPool = publisherPool;
     }
 
+    protected String getMessageKey(ProcessContext context, final FlowFile ff) {
+        String key = context.getProperty(MESSAGE_KEY).evaluateAttributeExpressions(ff).getValue();
+
+        if (!StringUtils.isBlank(key)) {
+            return key;
+        }
+
+        return null;
+    }
+
+    protected Map<String, String> getMappedMessageProperties(ProcessContext context, final FlowFile ff) {
+        String mappings = context.getProperty(MAPPED_MESSAGE_PROPERTIES).getValue();
+
+        return PropertyMappingUtils.getMappedValues(mappings, (a) -> ff.getAttribute(a));
+    }
+
+    protected MessageId send(Producer<T> producer, String key, Map<String, String> properties, T value) throws PulsarClientException {
+        TypedMessageBuilder<T> tmb = producer.newMessage().properties(properties).value(value);
+
+        if (key != null) {
+            tmb = tmb.key(key);
+        }
+
+        return tmb.send();
+    }
+
     private final class AsyncPublisher implements Runnable {
         private boolean keepRunning = true;
         private boolean completed = false;
@@ -454,21 +508,31 @@ public abstract class AbstractPulsarProducerProcessor<T> extends AbstractProcess
             }
         }
 
+        private CompletableFuture<MessageId> sendAsync(Producer<T> producer, String key, Map<String, String> properties, T value) {
+            TypedMessageBuilder<T> tmb = producer.newMessage().properties(properties).value(value);
+
+            if (key != null) {
+                tmb = tmb.key(key);
+            }
+
+            return tmb.sendAsync();
+        }
+
         private void process() {
             try {
-                Pair<String,T> item = workQueue.take();
-                Producer<T> producer = getProducers().get(item.getLeft());
+                MessageTuple<T> item = workQueue.take();
+                Producer<T> producer = getProducers().get(item.getTopic());
 
                 if (!trackFailures.get()) {
                     // We don't care about failures, so just fire & forget
-                    producer.sendAsync(item.getValue());
+                    sendAsync(producer, item.getKey(), item.getProperties(), item.getContent());
                 } else if (producer == null || !producer.isConnected()) {
                     // We cannot get a valid producer, so add the item to the failure queue
                     failureQueue.put(item);
                 } else {
                     try {
                         // Send the item asynchronously and confirm we get a messageId back from Pulsar.
-                        if (producer.sendAsync(item.getValue()).join() == null) {
+                        if (sendAsync(producer, item.getKey(), item.getProperties(), item.getContent()).join() == null) {
                             // No messageId indicates failure
                             failureQueue.put(item);
                         }

@@ -26,6 +26,7 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ExecutionException;
@@ -167,7 +168,7 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<byte[]>
                consumeAsync(consumer, context, session);
                handleAsync(context, session, consumer, readerFactory, writerFactory, demarcator);
             } else {
-               consumeMessages(session, consumer, getMessages(consumer, maxMessages), readerFactory, writerFactory, demarcator);
+               consumeMessages(context, session, consumer, getMessages(consumer, maxMessages), readerFactory, writerFactory, demarcator);
             }
         } catch (PulsarClientException e) {
             getLogger().error("Unable to consume from Pulsar Topic ", e);
@@ -201,6 +202,7 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<byte[]>
      * All of the messages passed in shall be routed to either SUCCESS or PARSE_FAILURE, allowing us to acknowledge
      * the receipt of the messages to Pulsar, so they are not re-sent.
      *
+     * @param context - The current ProcessContext
      * @param session - The current ProcessSession.
      * @param consumer - The Pulsar consumer.
      * @param messages - A list of messages.
@@ -208,59 +210,104 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<byte[]>
      * @param writerFactory - The factory used to write the messages.
      * @throws PulsarClientException if there is an issue communicating with Apache Pulsar.
      */
-    private void consumeMessages(ProcessSession session, final Consumer<byte[]> consumer, final List<Message<byte[]>> messages,
+    private void consumeMessages(ProcessContext context, ProcessSession session, final Consumer<byte[]> consumer, final List<Message<byte[]>> messages,
             final RecordReaderFactory readerFactory, RecordSetWriterFactory writerFactory, final byte[] demarcator) throws PulsarClientException {
 
        if (CollectionUtils.isEmpty(messages)) {
           return;
        }
 
-       FlowFile flowFile = session.create();
-       RecordSchema schema = getSchema(flowFile, readerFactory, messages.get(0));
+       RecordSchema schema = null;
        final BlockingQueue<Message<byte[]>> parseFailures = new LinkedBlockingQueue<Message<byte[]>>();
-       OutputStream rawOut = session.write(flowFile);
-       final RecordSetWriter writer = getRecordWriter(writerFactory, schema, rawOut);
+       FlowFile flowFile = null;
+       OutputStream rawOut = null;
+       RecordSetWriter writer = null;
 
-       // We were unable to determine the schema, therefore we cannot parse the messages
-       if (schema == null || writer == null) {
-          parseFailures.addAll(messages);
+       Map<String, String> lastAttributes = null;
+       Message<byte[]> lastMessage = null;
+       Map<String, String> currentAttributes = null;
 
-          // We aren't going to write any records to the FlowFile, so remove it and close the associated output stream
-          session.remove(flowFile);
-          IOUtils.closeQuietly(rawOut);
-          getLogger().error("Unable create a record writer to consume from the Pulsar topic");
-       } else {
-           try {
-               writer.beginRecordSet();
-               messages.forEach(msg ->{
-                   final InputStream in = new ByteArrayInputStream(msg.getValue());
-                   try {
-                       RecordReader r = readerFactory.createRecordReader(flowFile, in, getLogger());
-                       for (Record record = r.nextRecord(); record != null; record = r.nextRecord()) {
-                          writer.write(record);
-                       }
-                   } catch (MalformedRecordException | IOException | SchemaNotFoundException e) {
-                      parseFailures.add(msg);
+       try {
+           for (Message<byte[]> msg : messages) {
+               currentAttributes = getMappedFlowFileAttributes(context, msg);
+               byte[] msgValue = msg.getValue();
+
+               // if the current message's mapped attribute values differ from the previous set's,
+               // write out the active record set and clear various references so that we'll start a new one
+               if (lastMessage != null && !lastAttributes.equals(currentAttributes)) {
+                   WriteResult result = writer.finishRecordSet();
+                   IOUtils.closeQuietly(writer);
+                   IOUtils.closeQuietly(rawOut);
+
+                   if (result != WriteResult.EMPTY) {
+                       flowFile = session.putAllAttributes(flowFile, result.getAttributes());
+                       flowFile = session.putAttribute(flowFile, MSG_COUNT, result.getRecordCount() + "");
+                       session.getProvenanceReporter().receive(flowFile, getPulsarClientService().getPulsarBrokerRootURL() + "/" + consumer.getTopic());
+                       session.transfer(flowFile, REL_SUCCESS);
+                   } else {
+                       session.rollback();
                    }
-               });
 
-               WriteResult result = writer.finishRecordSet();
-               IOUtils.closeQuietly(writer);
-               IOUtils.closeQuietly(rawOut);
+                   handleFailures(session, parseFailures, demarcator);
+                   parseFailures.clear();
+                   consumer.acknowledgeCumulative(lastMessage);
 
-               if (result != WriteResult.EMPTY) {
-                   session.putAllAttributes(flowFile, result.getAttributes());
-                   session.putAttribute(flowFile, MSG_COUNT, result.getRecordCount() + "");
-                   session.getProvenanceReporter().receive(flowFile, getPulsarClientService().getPulsarBrokerRootURL() + "/" + consumer.getTopic());
-                   session.transfer(flowFile, REL_SUCCESS);
-               } else {
-                   // We were able to parse the records, but unable to write them to the FlowFile
-                   session.rollback();
+                   lastAttributes = null;
+                   lastMessage = null;
                }
 
-           } catch (IOException e) {
-              getLogger().error("Unable to consume from Pulsar topic ", e);
+               // if there's no record set actively being written, begin one
+               if (lastMessage == null) {
+                   flowFile = session.create();
+                   flowFile = session.putAllAttributes(flowFile, currentAttributes);
+                   schema = getSchema(flowFile, readerFactory, msgValue);
+                   rawOut = session.write(flowFile);
+                   writer = getRecordWriter(writerFactory, schema, rawOut);
+
+                   if (schema == null || writer == null) {
+                       parseFailures.add(msg);
+                       session.remove(flowFile);
+                       IOUtils.closeQuietly(rawOut);
+                       getLogger().error("Unable to create a record writer to consume from the Pulsar topic");
+
+                       continue;
+                   }
+
+                   writer.beginRecordSet();
+               }
+
+               lastAttributes = currentAttributes;
+               lastMessage = msg;
+
+               // write each of records in the current message to the active record set. These will each
+               // have the same mapped flowfile attribute values, which means that it's ok that they are all placed
+               // in the same output flowfile.
+               final InputStream in = new ByteArrayInputStream(msgValue);
+               try {
+                   RecordReader r = readerFactory.createRecordReader(flowFile, in, getLogger());
+                   for (Record record = r.nextRecord(); record != null; record = r.nextRecord()) {
+                       writer.write(record);
+                   }
+               } catch (MalformedRecordException | IOException | SchemaNotFoundException e) {
+                   parseFailures.add(msg);
+               }
            }
+
+           WriteResult result = writer.finishRecordSet();
+           IOUtils.closeQuietly(writer);
+           IOUtils.closeQuietly(rawOut);
+
+           if (result != WriteResult.EMPTY) {
+               flowFile = session.putAllAttributes(flowFile, result.getAttributes());
+               flowFile = session.putAttribute(flowFile, MSG_COUNT, result.getRecordCount() + "");
+               session.getProvenanceReporter().receive(flowFile, getPulsarClientService().getPulsarBrokerRootURL() + "/" + consumer.getTopic());
+               session.transfer(flowFile, REL_SUCCESS);
+           } else {
+               // We were able to parse the records, but unable to write them to the FlowFile
+               session.rollback();
+           }
+       } catch (IOException e) {
+           getLogger().error("Unable to consume from Pulsar topic ", e);
        }
 
        handleFailures(session, parseFailures, demarcator);
@@ -279,8 +326,10 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<byte[]>
         try {
            for (int idx = 0; idx < parseFailures.size(); idx++) {
               Message<byte[]> msg = parseFailures.poll(0, TimeUnit.MILLISECONDS);
-              if (msg.getValue() != null && msg.getValue().length > 0) {
-                 rawOut.write(msg.getValue());
+              byte[] msgValue = msg.getValue();
+
+              if (msgValue != null && msgValue.length > 0) {
+                 rawOut.write(msgValue);
                  if (idx < parseFailures.size() - 2) {
                    rawOut.write(demarcator);
                  }
@@ -310,7 +359,7 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<byte[]>
                  if (done != null) {
                     List<Message<byte[]>> messages = done.get();
                     if (CollectionUtils.isNotEmpty(messages)) {
-                      consumeMessages(session, consumer, messages, readerFactory, writerFactory, demarcator);
+                      consumeMessages(context, session, consumer, messages, readerFactory, writerFactory, demarcator);
                     }
                  }
              } while (done != null);
@@ -320,12 +369,12 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<byte[]>
         }
     }
 
-    private RecordSchema getSchema(FlowFile flowFile, RecordReaderFactory readerFactory, Message<byte[]> msg) {
+    private RecordSchema getSchema(FlowFile flowFile, RecordReaderFactory readerFactory, byte[] msgValue) {
         RecordSchema schema = null;
         InputStream in = null;
 
         try {
-            in = new ByteArrayInputStream(msg.getValue());
+            in = new ByteArrayInputStream(msgValue);
             schema = readerFactory.createRecordReader(flowFile, in, getLogger()).getSchema();
         } catch (MalformedRecordException | IOException | SchemaNotFoundException e) {
            return null;

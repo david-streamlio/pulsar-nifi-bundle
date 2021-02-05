@@ -24,6 +24,7 @@ import static org.mockito.Mockito.when;
 
 import java.util.List;
 
+import org.apache.nifi.processors.pulsar.pubsub.ConsumePulsar;
 import org.apache.nifi.processors.pulsar.pubsub.ConsumePulsarRecord;
 import org.apache.nifi.processors.pulsar.pubsub.TestConsumePulsarRecord;
 import org.apache.nifi.util.MockFlowFile;
@@ -141,5 +142,12 @@ public class TestAsyncConsumePulsarRecord extends TestConsumePulsarRecord {
 
        String flowFileContents = new String(runner.getContentAsByteArray(results.get(0)));
        assertTrue(flowFileContents.startsWith(expected.toString(), 0));
+    }
+
+    @Test
+    public void mappedAttributesTest() throws PulsarClientException {
+        runner.setProperty(ConsumePulsar.ASYNC_ENABLED, Boolean.toString(true));
+
+        super.doMappedAttributesTest();
     }
 }

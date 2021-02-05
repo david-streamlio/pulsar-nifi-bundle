@@ -28,6 +28,7 @@ import java.util.concurrent.TimeUnit;
 import org.apache.nifi.processors.pulsar.pubsub.ConsumePulsar;
 import org.apache.nifi.processors.pulsar.pubsub.TestConsumePulsar;
 import org.apache.nifi.util.MockFlowFile;
+import org.apache.pulsar.client.api.Message;
 import org.apache.pulsar.client.api.PulsarClientException;
 import org.junit.Test;
 
@@ -36,7 +37,7 @@ public class TestSyncConsumePulsar extends TestConsumePulsar {
     @Test
     public void nullMessageTest() throws PulsarClientException {
         when(mockClientService.getMockConsumer().receive(0, TimeUnit.SECONDS)).thenReturn(mockMessage).thenReturn(null);
-        when(mockMessage.getData()).thenReturn(null);
+        when(mockMessage.getValue()).thenReturn(null);
         mockClientService.setMockMessage(mockMessage);
 
         runner.setProperty(ConsumePulsar.TOPICS, "foo");
@@ -72,7 +73,7 @@ public class TestSyncConsumePulsar extends TestConsumePulsar {
     @Test
     public void emptyMessageTest() throws PulsarClientException {
         when(mockClientService.getMockConsumer().receive(0, TimeUnit.SECONDS)).thenReturn(mockMessage).thenReturn(null);
-        when(mockMessage.getData()).thenReturn("".getBytes());
+        when(mockMessage.getValue()).thenReturn("".getBytes());
         mockClientService.setMockMessage(mockMessage);
 
         runner.setProperty(ConsumePulsar.TOPICS, "foo");
@@ -108,7 +109,7 @@ public class TestSyncConsumePulsar extends TestConsumePulsar {
      */
     @Test
     public void onStoppedTest() throws PulsarClientException {
-        when(mockMessage.getData()).thenReturn("Mocked Message".getBytes());
+        when(mockMessage.getValue()).thenReturn("Mocked Message".getBytes());
         mockClientService.setMockMessage(mockMessage);
 
         runner.setProperty(ConsumePulsar.TOPICS, "foo");
@@ -122,5 +123,10 @@ public class TestSyncConsumePulsar extends TestConsumePulsar {
 
         // Verify that the consumer was closed
         verify(mockClientService.getMockConsumer(), times(1)).close();
+    }
+
+    @Test
+    public void mappedAttributesTest() throws PulsarClientException {
+        super.doMappedAttributesTest();
     }
 }

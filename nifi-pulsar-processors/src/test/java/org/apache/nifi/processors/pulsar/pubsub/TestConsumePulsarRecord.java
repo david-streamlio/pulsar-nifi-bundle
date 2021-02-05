@@ -53,6 +53,9 @@ public class TestConsumePulsarRecord extends AbstractPulsarProcessorTest<byte[]>
     @Mock
     protected Message<byte[]> mockMessage;
 
+    protected MockRecordParser readerService;
+    protected MockRecordWriter writerService;
+
     @Before
     public void setup() throws InitializationException {
 
@@ -61,14 +64,14 @@ public class TestConsumePulsarRecord extends AbstractPulsarProcessorTest<byte[]>
         runner = TestRunners.newTestRunner(ConsumePulsarRecord.class);
 
         final String readerId = "record-reader";
-        final MockRecordParser readerService = new MockRecordParser();
+        readerService = new MockRecordParser();
         readerService.addSchemaField("name", RecordFieldType.STRING);
         readerService.addSchemaField("age", RecordFieldType.INT);
         runner.addControllerService(readerId, readerService);
         runner.enableControllerService(readerService);
 
         final String writerId = "record-writer";
-        final RecordSetWriterFactory writerService = new MockRecordWriter("name, age");
+        writerService = new MockRecordWriter("name, age");
         runner.addControllerService(writerId, writerService);
         runner.enableControllerService(writerService);
 
@@ -124,5 +127,37 @@ public class TestConsumePulsarRecord extends AbstractPulsarProcessorTest<byte[]>
         verify(mockClientService.getMockConsumer(), times(iterations)).acknowledgeCumulative(mockMessage);
 
         return flowFiles;
+    }
+
+    protected void doMappedAttributesTest() throws PulsarClientException {
+        when(mockMessage.getValue()).thenReturn("A,10".getBytes()).thenReturn("B,10".getBytes()).thenReturn("C,10".getBytes()).thenReturn("D,10".getBytes());
+        when(mockMessage.getProperty("prop")).thenReturn(null).thenReturn(null).thenReturn("val").thenReturn("val");
+        when(mockMessage.getKey()).thenReturn(null).thenReturn(null).thenReturn(null).thenReturn("K");
+        mockClientService.setMockMessage(mockMessage);
+
+        runner.setProperty(ConsumePulsar.MAPPED_FLOWFILE_ATTRIBUTES, "prop,key=__KEY__");
+        runner.setProperty(ConsumePulsarRecord.CONSUMER_BATCH_SIZE, "4");
+        runner.setProperty(ConsumePulsarRecord.MESSAGE_DEMARCATOR, "===");
+        runner.setProperty(ConsumePulsarRecord.TOPICS, "foo");
+        runner.setProperty(ConsumePulsarRecord.SUBSCRIPTION_NAME, "bar");
+        runner.setProperty(ConsumePulsarRecord.SUBSCRIPTION_TYPE, "Exclusive");
+
+        runner.run();
+        runner.assertAllFlowFilesTransferred(ConsumePulsarRecord.REL_SUCCESS);
+        runner.assertQueueEmpty();
+
+        List<MockFlowFile> flowFiles = runner.getFlowFilesForRelationship(ConsumePulsarRecord.REL_SUCCESS);
+        assertEquals(3, flowFiles.size());
+
+        // first flow file should have A, second should have B
+        flowFiles.get(0).assertAttributeNotExists("prop");
+        flowFiles.get(0).assertAttributeNotExists("key");
+        flowFiles.get(0).assertContentEquals("\"A\",\"10\"\n\"B\",\"10\"\n");
+        flowFiles.get(1).assertAttributeEquals("prop", "val");
+        flowFiles.get(1).assertAttributeNotExists("key");
+        flowFiles.get(1).assertContentEquals("\"C\",\"10\"\n");
+        flowFiles.get(2).assertAttributeEquals("prop", "val");
+        flowFiles.get(2).assertAttributeEquals("key", "K");
+        flowFiles.get(2).assertContentEquals("\"D\",\"10\"\n");
     }
 }

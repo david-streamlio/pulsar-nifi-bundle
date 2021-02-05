@@ -21,6 +21,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.io.UnsupportedEncodingException;
 import java.util.List;
 
 import org.apache.nifi.processors.pulsar.AbstractPulsarProducerProcessor;
@@ -36,12 +37,7 @@ public class TestSyncPublishPulsarRecord extends TestPublishPulsarRecord {
 
     @Test
     public void pulsarClientExceptionTest() throws PulsarClientException {
-       when(mockClientService.getMockProducer().send(Matchers.argThat(new ArgumentMatcher<byte[]>() {
-            @Override
-            public boolean matches(byte[] argument) {
-                return true;
-            }
-        }))).thenThrow(PulsarClientException.class);
+       when(mockClientService.getMockTypedMessageBuilder().send()).thenThrow(PulsarClientException.class);
 
         final String content = "Mary Jane, 32";
 
@@ -49,7 +45,8 @@ public class TestSyncPublishPulsarRecord extends TestPublishPulsarRecord {
         runner.setProperty(AbstractPulsarProducerProcessor.TOPIC, TOPIC_NAME);
         runner.run();
 
-        verify(mockClientService.getMockProducer(), times(1)).send("\"Mary Jane\",\"32\"\n".getBytes());
+        verify(mockClientService.getMockTypedMessageBuilder(), times(1)).value("\"Mary Jane\",\"32\"\n".getBytes());
+        verify(mockClientService.getMockTypedMessageBuilder(), times(1)).send();
         runner.assertAllFlowFilesTransferred(PublishPulsarRecord.REL_FAILURE);
 
         List<MockFlowFile> results = runner.getFlowFilesForRelationship(PublishPulsarRecord.REL_FAILURE);
@@ -69,7 +66,8 @@ public class TestSyncPublishPulsarRecord extends TestPublishPulsarRecord {
         runner.run();
         runner.assertAllFlowFilesTransferred(PublishPulsarRecord.REL_FAILURE);
 
-        verify(mockClientService.getMockProducer(), times(0)).send(content.getBytes());
+        verify(mockClientService.getMockTypedMessageBuilder(), times(0)).value(content.getBytes());
+        verify(mockClientService.getMockTypedMessageBuilder(), times(0)).send();
     }
 
     @Test
@@ -85,8 +83,8 @@ public class TestSyncPublishPulsarRecord extends TestPublishPulsarRecord {
         MockFlowFile result = results.get(0);
 
         result.assertAttributeEquals(PublishPulsarRecord.MSG_COUNT, "1");
-        verify(mockClientService.getMockProducer(), times(1)).send("\"Mary Jane\",\"32\"\n".getBytes());
-
+        verify(mockClientService.getMockTypedMessageBuilder(), times(1)).value("\"Mary Jane\",\"32\"\n".getBytes());
+        verify(mockClientService.getMockTypedMessageBuilder(), times(1)).send();
     }
 
     @Test
@@ -107,9 +105,10 @@ public class TestSyncPublishPulsarRecord extends TestPublishPulsarRecord {
         result.assertContentEquals(sb.toString());
         result.assertAttributeEquals(PublishPulsarRecord.MSG_COUNT, "3");
 
-        verify(mockClientService.getMockProducer(), times(1)).send("\"Mary Jane\",\"32\"\n".getBytes());
-        verify(mockClientService.getMockProducer(), times(1)).send("\"John Doe\",\"35\"\n".getBytes());
-        verify(mockClientService.getMockProducer(), times(1)).send("\"Busta Move\",\"26\"\n".getBytes());
+        verify(mockClientService.getMockTypedMessageBuilder(), times(1)).value("\"Mary Jane\",\"32\"\n".getBytes());
+        verify(mockClientService.getMockTypedMessageBuilder(), times(1)).value("\"John Doe\",\"35\"\n".getBytes());
+        verify(mockClientService.getMockTypedMessageBuilder(), times(1)).value("\"Busta Move\",\"26\"\n".getBytes());
+        verify(mockClientService.getMockTypedMessageBuilder(), times(3)).send();
     }
 
     @Test
@@ -132,6 +131,21 @@ public class TestSyncPublishPulsarRecord extends TestPublishPulsarRecord {
         result.assertContentEquals(sb.toString());
         result.assertAttributeEquals(PublishPulsarRecord.MSG_COUNT, "1000");
 
-        verify(mockClientService.getMockProducer(), times(1000)).send("\"Mary Jane\",\"32\"\n".getBytes());
+        verify(mockClientService.getMockTypedMessageBuilder(), times(1000)).value("\"Mary Jane\",\"32\"\n".getBytes());
+        verify(mockClientService.getMockTypedMessageBuilder(), times(1000)).send();
+    }
+
+    @Test
+    public void mappedPropertiesTest() throws UnsupportedEncodingException, PulsarClientException {
+        super.doMappedPropertiesTest();
+
+        verify(mockClientService.getMockTypedMessageBuilder()).send();
+    }
+
+    @Test
+    public void messageKeyTest() throws UnsupportedEncodingException, PulsarClientException {
+        super.doMessageKeyTest();
+
+        verify(mockClientService.getMockTypedMessageBuilder(), times(2)).send();
     }
 }

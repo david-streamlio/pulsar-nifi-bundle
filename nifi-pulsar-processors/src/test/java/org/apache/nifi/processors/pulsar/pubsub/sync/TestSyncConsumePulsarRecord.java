@@ -16,8 +16,10 @@
  */
 package org.apache.nifi.processors.pulsar.pubsub.sync;
 
+import org.apache.nifi.processors.pulsar.pubsub.ConsumePulsar;
 import org.apache.nifi.processors.pulsar.pubsub.ConsumePulsarRecord;
 import org.apache.nifi.processors.pulsar.pubsub.TestConsumePulsarRecord;
+import org.apache.nifi.serialization.record.RecordFieldType;
 import org.apache.nifi.util.MockFlowFile;
 import org.apache.pulsar.client.api.PulsarClientException;
 import org.junit.Test;
@@ -140,5 +142,10 @@ public class TestSyncConsumePulsarRecord extends TestConsumePulsarRecord {
 
         String flowFileContents = new String(runner.getContentAsByteArray(results.get(0)));
         assertEquals(expected.toString(), flowFileContents);
+    }
+
+    @Test
+    public void mappedAttributesTest() throws PulsarClientException {
+        super.doMappedAttributesTest();
     }
 }

@@ -20,8 +20,9 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.Map;
 
-import org.apache.commons.lang3.tuple.Pair;
+import org.apache.commons.lang3.tuple.Triple;
 import org.apache.nifi.annotation.behavior.InputRequirement;
 import org.apache.nifi.annotation.behavior.TriggerWhenEmpty;
 import org.apache.nifi.annotation.behavior.WritesAttribute;
@@ -33,6 +34,7 @@ import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSession;
 import org.apache.nifi.processor.exception.ProcessException;
 import org.apache.nifi.processors.pulsar.AbstractPulsarProducerProcessor;
+import org.apache.nifi.processors.pulsar.MessageTuple;
 import org.apache.nifi.stream.io.util.StreamDemarcator;
 import org.apache.pulsar.client.api.Producer;
 import org.apache.pulsar.client.api.PulsarClientException;
@@ -80,7 +82,7 @@ public class PublishPulsar extends AbstractPulsarProducerProcessor<byte[]> {
 
         if (!context.getProperty(ASYNC_ENABLED).asBoolean()) {
             try {
-                send(producer, session, flowFile, demarcatorBytes);
+                send(producer, context, session, flowFile, demarcatorBytes);
             } catch (final PulsarClientException e) {
                 getLogger().error("Failed to connect to Pulsar Server due to {}", new Object[]{e});
                 session.transfer(flowFile, REL_FAILURE);
@@ -91,7 +93,11 @@ public class PublishPulsar extends AbstractPulsarProducerProcessor<byte[]> {
             try (final InputStream in = session.read(flowFile);
                  final StreamDemarcator demarcator = new StreamDemarcator(in, demarcatorBytes, Integer.MAX_VALUE)) {
                 while ((messageContent = demarcator.nextToken()) != null) {
-                   workQueue.put(Pair.of(topic, messageContent));
+                   workQueue.put(new MessageTuple<>(
+                                   topic,
+                                   getMessageKey(context, flowFile),
+                                   getMappedMessageProperties(context, flowFile),
+                                   messageContent));
                 }
                 demarcator.close();
                 session.transfer(flowFile, REL_SUCCESS);
@@ -105,14 +111,16 @@ public class PublishPulsar extends AbstractPulsarProducerProcessor<byte[]> {
     /**
      * Sends the FlowFile content using the demarcator.
      */
-    private void send(Producer<byte[]> producer, ProcessSession session, FlowFile flowFile, byte[] demarcatorBytes) throws PulsarClientException {
+    private void send(Producer<byte[]> producer, ProcessContext context, ProcessSession session, FlowFile flowFile, byte[] demarcatorBytes) throws PulsarClientException {
         AtomicInteger successCounter = new AtomicInteger(0);
         AtomicInteger failureCounter = new AtomicInteger(0);
         byte[] messageContent;
+        String key = getMessageKey(context, flowFile);
+        Map<String, String> properties = getMappedMessageProperties(context, flowFile);
 
         try (final InputStream in = session.read(flowFile); final StreamDemarcator demarcator = new StreamDemarcator(in, demarcatorBytes, Integer.MAX_VALUE)) {
            while ((messageContent = demarcator.nextToken()) != null) {
-              if (producer.send(messageContent) != null) {
+              if (send(producer, key, properties, messageContent) != null) {
                  successCounter.incrementAndGet();
               } else {
                  failureCounter.incrementAndGet();

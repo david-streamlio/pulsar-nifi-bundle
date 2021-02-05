@@ -169,4 +169,36 @@ public class TestConsumePulsar extends AbstractPulsarProcessorTest<byte[]> {
             verify(mockClientService.getMockConsumer(), times(iterations)).acknowledgeCumulative(mockMessage);
         }
     }
+
+    protected void doMappedAttributesTest() throws PulsarClientException {
+        when(mockMessage.getValue()).thenReturn("A".getBytes()).thenReturn("B".getBytes()).thenReturn("C".getBytes()).thenReturn("D".getBytes());
+        when(mockMessage.getProperty("prop")).thenReturn(null).thenReturn(null).thenReturn("val").thenReturn("val");
+        when(mockMessage.getKey()).thenReturn(null).thenReturn(null).thenReturn(null).thenReturn("K");
+        mockClientService.setMockMessage(mockMessage);
+
+        runner.setProperty(ConsumePulsar.MAPPED_FLOWFILE_ATTRIBUTES, "prop,key=__KEY__");
+        runner.setProperty(ConsumePulsar.CONSUMER_BATCH_SIZE, "4");
+        runner.setProperty(ConsumePulsar.MESSAGE_DEMARCATOR, "===");
+        runner.setProperty(ConsumePulsar.TOPICS, "foo");
+        runner.setProperty(ConsumePulsar.SUBSCRIPTION_NAME, "bar");
+        runner.setProperty(ConsumePulsar.SUBSCRIPTION_TYPE, "Exclusive");
+
+        runner.run();
+        runner.assertAllFlowFilesTransferred(ConsumePulsar.REL_SUCCESS);
+        runner.assertQueueEmpty();
+
+        List<MockFlowFile> flowFiles = runner.getFlowFilesForRelationship(ConsumePulsar.REL_SUCCESS);
+        assertEquals(3, flowFiles.size());
+
+        // first flow file should have A, second should have B
+        flowFiles.get(0).assertAttributeNotExists("prop");
+        flowFiles.get(0).assertAttributeNotExists("key");
+        flowFiles.get(0).assertContentEquals("A===B===");
+        flowFiles.get(1).assertAttributeEquals("prop", "val");
+        flowFiles.get(1).assertAttributeNotExists("key");
+        flowFiles.get(1).assertContentEquals("C===");
+        flowFiles.get(2).assertAttributeEquals("prop", "val");
+        flowFiles.get(2).assertAttributeEquals("key", "K");
+        flowFiles.get(2).assertContentEquals("D===");
+    }
 }

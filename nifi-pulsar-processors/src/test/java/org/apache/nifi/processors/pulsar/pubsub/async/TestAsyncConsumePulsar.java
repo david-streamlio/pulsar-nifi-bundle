@@ -92,4 +92,11 @@ public class TestAsyncConsumePulsar extends TestConsumePulsar {
         // Verify that the consumer was closed
         verify(mockClientService.getMockConsumer(), times(1)).close();
     }
+
+    @Test
+    public void mappedAttributesTest() throws PulsarClientException {
+        runner.setProperty(ConsumePulsar.ASYNC_ENABLED, Boolean.toString(true));
+
+        super.doMappedAttributesTest();
+    }
 }
