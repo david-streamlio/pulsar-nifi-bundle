@@ -19,6 +19,7 @@ package org.apache.nifi.processors.pulsar.pubsub.mocks;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
@@ -42,6 +43,7 @@ import org.mockito.Matchers;
 import org.mockito.Mock;
 import org.mockito.invocation.InvocationOnMock;
 import org.mockito.stubbing.Answer;
+import org.mockito.stubbing.OngoingStubbing;
 
 import static org.mockito.Matchers.any;
 import static org.mockito.Matchers.anyBoolean;
@@ -146,27 +148,30 @@ public class MockPulsarClientService<T> extends AbstractControllerService implem
 
     private void defineDefaultProducerBehavior() {
         try {
-           when(mockProducer.send(Matchers.argThat(new ArgumentMatcher<T>() {
-                @Override
-                public boolean matches(Object argument) {
-                    return true;
-                }
-            }))).thenReturn(mockMessageId);
+            // when(mockProducer.send(Matchers.argThat(new ArgumentMatcher<T>() {
+            //    @Override
+            //    public boolean matches(Object argument) {
+            //        return true;
+            //    }
+            // }))).thenReturn(mockMessageId);
 
             future = CompletableFuture.supplyAsync(() -> {
                 return mock(MessageId.class);
             });
 
-            when(mockProducer.sendAsync(Matchers.argThat(new ArgumentMatcher<T>() {
-                @Override
-                public boolean matches(Object argument) {
-                    return true;
-                }
-            }))).thenReturn(future);
+            // when(mockProducer.sendAsync(Matchers.argThat(new ArgumentMatcher<T>() {
+            //    @Override
+            //    public boolean matches(Object argument) {
+            //        return true;
+            //    }
+            // }))).thenReturn(future);
 
             when(mockProducer.isConnected()).thenReturn(true);
             when(mockProducer.newMessage()).thenReturn(mockTypedMessageBuilder);
+            when(mockTypedMessageBuilder.key(anyString())).thenReturn(mockTypedMessageBuilder);
+            when(mockTypedMessageBuilder.properties((Map<String, String>) any(Map.class))).thenReturn(mockTypedMessageBuilder);
             when(mockTypedMessageBuilder.value((T) any(byte[].class))).thenReturn(mockTypedMessageBuilder);
+            when(mockTypedMessageBuilder.send()).thenReturn(mockMessageId);
             when(mockTypedMessageBuilder.sendAsync()).thenReturn(future);
 
         } catch (PulsarClientException e) {

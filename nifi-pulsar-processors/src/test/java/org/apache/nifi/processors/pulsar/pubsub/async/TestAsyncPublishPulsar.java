@@ -53,7 +53,8 @@ public class TestAsyncPublishPulsar extends TestPublishPulsar {
         verify(mockClientService.getMockProducerBuilder(), times(1)).topic("my-topic");
 
         // Verify that the send method on the producer was called with the expected content
-        verify(mockClientService.getMockProducer(), times(1)).sendAsync(content.getBytes());
+        verify(mockClientService.getMockTypedMessageBuilder(), times(1)).value(content.getBytes());
+        verify(mockClientService.getMockTypedMessageBuilder(), times(1)).sendAsync();
     }
 
     @Test
@@ -75,13 +76,14 @@ public class TestAsyncPublishPulsar extends TestPublishPulsar {
         runner.enqueue(sb.toString().getBytes("UTF-8"));
         runner.run(10, true, true);
         runner.assertAllFlowFilesTransferred(PublishPulsar.REL_SUCCESS);
-        verify(mockClientService.getMockProducer(), times(20)).sendAsync(content.getBytes());
+        verify(mockClientService.getMockTypedMessageBuilder(), times(20)).value(content.getBytes());
+        verify(mockClientService.getMockTypedMessageBuilder(), times(20)).sendAsync();
     }
 
     @Test
     public void pulsarClientExceptionTest() throws UnsupportedEncodingException {
 
-        when(mockClientService.getMockProducer().sendAsync(any(byte[].class))).thenThrow(RuntimeException.class);
+        when(mockClientService.getMockTypedMessageBuilder().sendAsync()).thenThrow(RuntimeException.class);
         when(mockClientService.getMockProducer().getTopic()).thenReturn("my-topic");
 
         runner.setProperty(PublishPulsar.TOPIC, "my-topic");
@@ -118,7 +120,8 @@ public class TestAsyncPublishPulsar extends TestPublishPulsar {
         runner.assertAllFlowFilesTransferred(PublishPulsar.REL_SUCCESS);
 
         // Verify that the send method on the producer was called with the expected content
-        verify(mockClientService.getMockProducer(), times(20)).sendAsync(content.getBytes());
+        verify(mockClientService.getMockTypedMessageBuilder(), times(20)).value(content.getBytes());
+        verify(mockClientService.getMockTypedMessageBuilder(), times(20)).sendAsync();
     }
 
     @Test
@@ -144,5 +147,21 @@ public class TestAsyncPublishPulsar extends TestPublishPulsar {
         // Verify that we sent the data to topic-b.
         verify(mockClientService.getMockProducerBuilder(), times(1)).topic("topic-a");
         verify(mockClientService.getMockProducerBuilder(), times(1)).topic("topic-b");
+    }
+
+    @Test
+    public void mappedPropertiesTest() throws UnsupportedEncodingException {
+        runner.setProperty(PublishPulsar.ASYNC_ENABLED, Boolean.toString(true));
+
+        super.doMappedPropertiesTest();
+        verify(mockClientService.getMockTypedMessageBuilder()).sendAsync();
+    }
+
+    @Test
+    public void messageKeyTest() throws UnsupportedEncodingException {
+        runner.setProperty(PublishPulsar.ASYNC_ENABLED, Boolean.toString(true));
+
+        super.doMessageKeyTest();
+        verify(mockClientService.getMockTypedMessageBuilder(), times(2)).sendAsync();
     }
 }

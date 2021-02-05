@@ -23,6 +23,7 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ExecutorService;
@@ -38,6 +39,7 @@ import org.apache.nifi.components.AllowableValue;
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.components.ValidationContext;
 import org.apache.nifi.components.ValidationResult;
+import org.apache.nifi.components.Validator;
 import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.processor.AbstractProcessor;
@@ -56,6 +58,7 @@ import org.apache.pulsar.client.api.PulsarClientException;
 import org.apache.pulsar.client.api.SubscriptionType;
 
 public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcessor {
+    protected static final String PULSAR_MESSAGE_KEY = "__KEY__";
 
     protected static final AllowableValue EXCLUSIVE = new AllowableValue("Exclusive", "Exclusive", "There can be only 1 consumer on the same topic with the same subscription name");
     protected static final AllowableValue SHARED = new AllowableValue("Shared", "Shared", "Multiple consumer will be able to use the same subscription name and the messages");
@@ -218,6 +221,18 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
             .expressionLanguageSupported(ExpressionLanguageScope.VARIABLE_REGISTRY)
             .build();
 
+    public static final PropertyDescriptor MAPPED_FLOWFILE_ATTRIBUTES = new PropertyDescriptor.Builder()
+            .name("MAPPED_FLOWFILE_ATTRIBUTES")
+            .displayName("Mapped FlowFile Attributes")
+            .description("A comma-delimited list of FlowFile attributes to set based on message metadata (currently key and properties)."
+                    + " Syntax for an individual mapping is <attribute name>[=<source property name or key>]."
+                    + " To map the message key to an attribute, use the reserved name __KEY__ (ex. my-attribute=__KEY__ )."
+                    + " If the optional source name is omitted, it is assumed to be the same as the attribute.")
+            .required(false)
+            .addValidator(Validator.VALID)
+            .defaultValue("")
+            .build();
+
     protected static final List<PropertyDescriptor> PROPERTIES;
     protected static final Set<Relationship> RELATIONSHIPS;
 
@@ -236,6 +251,7 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
         properties.add(SUBSCRIPTION_TYPE);
         properties.add(CONSUMER_BATCH_SIZE);
         properties.add(MESSAGE_DEMARCATOR);
+        properties.add(MAPPED_FLOWFILE_ATTRIBUTES);
 
         PROPERTIES = Collections.unmodifiableList(properties);
 
@@ -464,5 +480,11 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
 
     protected void setConsumers(PulsarClientLRUCache<String, Consumer<T>> consumers) {
         this.consumers = consumers;
+    }
+
+    protected Map<String, String> getMappedFlowFileAttributes(ProcessContext context, final Message<T> message) {
+        String mappings = context.getProperty(MAPPED_FLOWFILE_ATTRIBUTES).getValue();
+
+        return PropertyMappingUtils.getMappedValues(mappings, (p) -> PULSAR_MESSAGE_KEY.equals(p) ? message.getKey() : message.getProperty(p));
     }
 }

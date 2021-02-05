@@ -104,4 +104,40 @@ public class TestPublishPulsarRecord extends AbstractPulsarProcessorTest<byte[]>
         // Verify that we sent the data to topic-b.
         verify(mockClientService.getMockProducerBuilder(), times(1)).topic(TOPIC_NAME);
     }
+
+    protected void doMappedPropertiesTest() throws UnsupportedEncodingException, PulsarClientException {
+        final String content = "Mary Jane, 32";
+        Map<String, String> attributes = new HashMap<String, String>();
+        attributes.put("prop", "val");
+
+        runner.setProperty(PublishPulsar.TOPIC, "my-topic");
+        runner.setProperty(PublishPulsarRecord.MAPPED_MESSAGE_PROPERTIES, "prop");
+        runner.enqueue(content.getBytes("UTF-8"), attributes );
+        runner.run();
+        runner.assertAllFlowFilesTransferred(PublishPulsar.REL_SUCCESS);
+
+        Map<String, String> expectedProperties = new HashMap<String, String>();
+        expectedProperties.put("prop", "val");
+        // Verify that we sent the data to topic-b.
+        verify(mockClientService.getMockTypedMessageBuilder()).properties(expectedProperties);
+    }
+
+    protected void doMessageKeyTest() throws UnsupportedEncodingException {
+        final String content = "Mary Jane, 32";
+        Map<String, String> attributes1 = new HashMap<String, String>();
+        attributes1.put("prop", "val");
+
+        Map<String, String> attributes2 = new HashMap<String, String>(); //test for an unset key
+
+        runner.setProperty(PublishPulsar.TOPIC, "my-topic");
+        runner.setProperty(PublishPulsar.MESSAGE_KEY, "${prop}");
+        runner.enqueue(content.getBytes("UTF-8"), attributes1 );
+        runner.enqueue(content.getBytes("UTF-8"), attributes2 );
+
+        runner.run(2);
+        runner.assertAllFlowFilesTransferred(PublishPulsar.REL_SUCCESS);
+
+        // Verify that we sent the data to topic-b.
+        verify(mockClientService.getMockTypedMessageBuilder(), times(1)).key("val");
+    }
 }

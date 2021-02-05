@@ -37,12 +37,7 @@ public class TestSyncPublishPulsar extends TestPublishPulsar {
 
     @Test
     public void pulsarClientExceptionTest() throws PulsarClientException, UnsupportedEncodingException {
-       when(mockClientService.getMockProducer().send(Matchers.argThat(new ArgumentMatcher<byte[]>() {
-          @Override
-          public boolean matches(byte[] argument) {
-              return true;
-          }
-       }))).thenThrow(PulsarClientException.class);
+       when(mockClientService.getMockTypedMessageBuilder().send()).thenThrow(PulsarClientException.class);
 
        mockClientService.setMockProducer(mockProducer);
 
@@ -107,7 +102,8 @@ public class TestSyncPublishPulsar extends TestPublishPulsar {
        verify(mockClientService.getMockProducerBuilder(), times(1)).topic("my-topic");
 
        // Verify that the send method on the producer was called with the expected content
-       verify(mockClientService.getMockProducer(), times(1)).send(content.getBytes());
+       verify(mockClientService.getMockTypedMessageBuilder(), times(1)).value(content.getBytes());
+       verify(mockClientService.getMockTypedMessageBuilder(), times(1)).send();
     }
 
     @Test
@@ -122,7 +118,8 @@ public class TestSyncPublishPulsar extends TestPublishPulsar {
             runner.assertAllFlowFilesTransferred(PublishPulsar.REL_SUCCESS);
         }
         // Verify that the send method on the producer was called with the expected content
-        verify(mockClientService.getMockProducer(), times(20)).send(content.getBytes());
+        verify(mockClientService.getMockTypedMessageBuilder(), times(20)).value(content.getBytes());
+        verify(mockClientService.getMockTypedMessageBuilder(), times(20)).send();
     }
 
     @Test
@@ -143,6 +140,21 @@ public class TestSyncPublishPulsar extends TestPublishPulsar {
         runner.enqueue(sb.toString().getBytes("UTF-8"));
         runner.run();
         runner.assertAllFlowFilesTransferred(PublishPulsar.REL_SUCCESS);
-        verify(mockClientService.getMockProducer(), times(20)).send(content.getBytes());
+        verify(mockClientService.getMockTypedMessageBuilder(), times(20)).value(content.getBytes());
+        verify(mockClientService.getMockTypedMessageBuilder(), times(20)).send();
+    }
+
+    @Test
+    public void mappedPropertiesTest() throws UnsupportedEncodingException, PulsarClientException {
+        super.doMappedPropertiesTest();
+
+        verify(mockClientService.getMockTypedMessageBuilder()).send();
+    }
+
+    @Test
+    public void messageKeyTest() throws UnsupportedEncodingException, PulsarClientException {
+        super.doMessageKeyTest();
+
+        verify(mockClientService.getMockTypedMessageBuilder(), times(2)).send();
     }
 }
