@@ -29,6 +29,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -168,7 +169,7 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<byte[]>
                consumeAsync(consumer, context, session);
                handleAsync(context, session, consumer, readerFactory, writerFactory, demarcator);
             } else {
-               consumeMessages(context, session, consumer, getMessages(consumer, maxMessages), readerFactory, writerFactory, demarcator);
+               consumeMessages(context, session, consumer, getMessages(consumer, maxMessages), readerFactory, writerFactory, demarcator, false);
             }
         } catch (PulsarClientException e) {
             getLogger().error("Unable to consume from Pulsar Topic ", e);
@@ -211,7 +212,7 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<byte[]>
      * @throws PulsarClientException if there is an issue communicating with Apache Pulsar.
      */
     private void consumeMessages(ProcessContext context, ProcessSession session, final Consumer<byte[]> consumer, final List<Message<byte[]>> messages,
-            final RecordReaderFactory readerFactory, RecordSetWriterFactory writerFactory, final byte[] demarcator) throws PulsarClientException {
+            final RecordReaderFactory readerFactory, RecordSetWriterFactory writerFactory, final byte[] demarcator, final boolean async) throws PulsarClientException {
 
        if (CollectionUtils.isEmpty(messages)) {
           return;
@@ -227,6 +228,9 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<byte[]>
        Message<byte[]> lastMessage = null;
        Map<String, String> currentAttributes = null;
 
+       // Cumulative acks are NOT permitted on Shared subscriptions
+       final boolean shared = isSharedSubscription(context);
+       
        try {
            for (Message<byte[]> msg : messages) {
                currentAttributes = getMappedFlowFileAttributes(context, msg);
@@ -250,7 +254,10 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<byte[]>
 
                    handleFailures(session, parseFailures, demarcator);
                    parseFailures.clear();
-                   consumer.acknowledgeCumulative(lastMessage);
+                   
+                   if (!shared) {
+                	   acknowledgeCumulative(consumer, lastMessage, async);
+                   }
 
                    lastAttributes = null;
                    lastMessage = null;
@@ -279,6 +286,10 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<byte[]>
                lastAttributes = currentAttributes;
                lastMessage = msg;
 
+               if (shared) {
+            	   acknowledge(consumer, msg, async);
+               }
+               
                // write each of records in the current message to the active record set. These will each
                // have the same mapped flowfile attribute values, which means that it's ok that they are all placed
                // in the same output flowfile.
@@ -311,9 +322,40 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<byte[]>
        }
 
        handleFailures(session, parseFailures, demarcator);
-       consumer.acknowledgeCumulative(messages.get(messages.size()-1));
+       
+       if (!shared) {
+    	   acknowledgeCumulative(consumer, messages.get(messages.size() - 1), async);
+       }
     }
 
+    private void acknowledge(final Consumer<byte[]> consumer, final Message<byte[]> msg, final boolean async) throws PulsarClientException {
+    	if (async) {
+    		getAckService().submit(new Callable<Object>() {
+    			@Override
+    			public Object call() throws Exception {
+    				return consumer.acknowledgeAsync(msg);
+    			}
+    		});
+    	}
+    	else {
+    		consumer.acknowledge(msg);;
+    	}
+    }
+    
+    private void acknowledgeCumulative(final Consumer<byte[]> consumer, final Message<byte[]> msg, final boolean async) throws PulsarClientException {
+    	if (async) {
+    		getAckService().submit(new Callable<Object>() {
+    			@Override
+    			public Object call() throws Exception {
+    				return consumer.acknowledgeCumulativeAsync(msg).get();
+    			}
+    		});
+    	}
+    	else {
+    		consumer.acknowledgeCumulative(msg);
+    	}
+    }
+    
     private void handleFailures(ProcessSession session, BlockingQueue<Message<byte[]>> parseFailures, byte[] demarcator) {
 
         if (CollectionUtils.isEmpty(parseFailures)) {
@@ -359,7 +401,7 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<byte[]>
                  if (done != null) {
                     List<Message<byte[]>> messages = done.get();
                     if (CollectionUtils.isNotEmpty(messages)) {
-                      consumeMessages(context, session, consumer, messages, readerFactory, writerFactory, demarcator);
+                      consumeMessages(context, session, consumer, messages, readerFactory, writerFactory, demarcator, true);
                     }
                  }
              } while (done != null);

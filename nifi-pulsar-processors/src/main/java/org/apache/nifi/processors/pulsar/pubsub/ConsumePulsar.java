@@ -87,6 +87,9 @@ public class ConsumePulsar extends AbstractPulsarConsumerProcessor<byte[]> {
                 final byte[] demarcatorBytes = context.getProperty(MESSAGE_DEMARCATOR).isSet() ? context.getProperty(MESSAGE_DEMARCATOR)
                     .evaluateAttributeExpressions().getValue().getBytes(StandardCharsets.UTF_8) : null;
 
+                // Cumulative acks are NOT permitted on Shared subscriptions.
+                final boolean shared = isSharedSubscription(context);
+                
                 List<Message<byte[]>> messages = done.get();
 
                 if (CollectionUtils.isNotEmpty(messages)) {
@@ -110,14 +113,17 @@ public class ConsumePulsar extends AbstractPulsarConsumerProcessor<byte[]> {
                             session.transfer(flowFile, REL_SUCCESS);
                             session.commit();
 
-                            final Message<byte[]> finalMessage = lastMessage;
-                            // Acknowledge consuming the messages
-                            getAckService().submit(new Callable<Object>() {
-                               @Override
-                               public Object call() throws Exception {
-                                   return consumer.acknowledgeCumulativeAsync(finalMessage).get();
-                               }
-                            });
+                            if (!shared) {
+	                            final Message<byte[]> finalMessage = lastMessage;
+	                            // Cumulatively acknowledge consuming the messages for non-shared subs
+	                            
+	                            getAckService().submit(new Callable<Object>() {
+	                                @Override
+	                                public Object call() throws Exception {
+	                                    return consumer.acknowledgeCumulativeAsync(finalMessage).get();
+	                                }
+	                            });
+                            }
 
                             lastAttributes = null;
                             lastMessage = null;
@@ -134,6 +140,16 @@ public class ConsumePulsar extends AbstractPulsarConsumerProcessor<byte[]> {
                         lastAttributes = currentAttributes;
                         lastMessage = msg;
  
+                        if (shared) {
+                        	// acknowledge each message individually for shared subs
+                        	getAckService().submit(new Callable<Object>() {
+                        		@Override
+                        		public Object call() throws Exception {
+                        			return consumer.acknowledgeAsync(msg);
+                        		}
+                        	});
+                        }
+                        
                         try {
                             out.write(msg.getValue());
                             out.write(demarcatorBytes);
@@ -151,13 +167,15 @@ public class ConsumePulsar extends AbstractPulsarConsumerProcessor<byte[]> {
                     session.transfer(flowFile, REL_SUCCESS);
                     session.commit();
                 }
-                // Acknowledge consuming the message
-                getAckService().submit(new Callable<Object>() {
-                    @Override
-                    public Object call() throws Exception {
-                       return consumer.acknowledgeCumulativeAsync(messages.get(messages.size()-1)).get();
-                    }
-                });
+                // Cumulatively acknowledge consuming the message for non-shared subs
+                if (!shared) {
+	                getAckService().submit(new Callable<Object>() {
+	                    @Override
+	                    public Object call() throws Exception {
+	                       return consumer.acknowledgeCumulativeAsync(messages.get(messages.size() - 1)).get();
+	                    }
+	                });
+                }
             }
         } catch (InterruptedException | ExecutionException e) {
             getLogger().error("Trouble consuming messages ", e);
@@ -174,8 +192,7 @@ public class ConsumePulsar extends AbstractPulsarConsumerProcessor<byte[]> {
                     .evaluateAttributeExpressions().getValue().getBytes(StandardCharsets.UTF_8) : null;
             
             // Cumulative acks are NOT permitted on Shared subscriptions.
-            final boolean shared = context.getProperty(SUBSCRIPTION_TYPE).getValue()
-                    .equalsIgnoreCase(SHARED.getValue());
+            final boolean shared = isSharedSubscription(context);
 
             FlowFile flowFile = null;
             OutputStream out = null;

@@ -27,6 +27,10 @@ public abstract class AbstractPulsarProcessorTest<T> {
 
     protected MockPulsarClientService<T> mockClientService;
 
+    protected boolean isSharedSubType(String subType) {
+    	return subType.equalsIgnoreCase("Shared") || subType.equalsIgnoreCase("Key_Shared");
+    }
+    
     protected void addPulsarClientService() throws InitializationException {
         mockClientService = new MockPulsarClientService<T>();
         runner.addControllerService("Pulsar Client Service", mockClientService);

@@ -40,12 +40,13 @@ public class TestAsyncConsumePulsarRecord extends TestConsumePulsarRecord {
 
         runner.setProperty(ConsumePulsarRecord.TOPICS, DEFAULT_TOPIC);
         runner.setProperty(ConsumePulsarRecord.SUBSCRIPTION_NAME, DEFAULT_SUB);
+        runner.setProperty(ConsumePulsarRecord.SUBSCRIPTION_TYPE, "Exclusive");
         runner.setProperty(ConsumePulsarRecord.CONSUMER_BATCH_SIZE, 1 + "");
         runner.setProperty(ConsumePulsarRecord.ASYNC_ENABLED, Boolean.toString(true));
         runner.run();
         runner.assertAllFlowFilesTransferred(ConsumePulsarRecord.REL_PARSE_FAILURE);
 
-        verify(mockClientService.getMockConsumer(), times(1)).acknowledgeCumulative(mockMessage);
+        verify(mockClientService.getMockConsumer(), times(1)).acknowledgeCumulativeAsync(mockMessage);
     }
 
     @Test
@@ -55,12 +56,13 @@ public class TestAsyncConsumePulsarRecord extends TestConsumePulsarRecord {
 
        runner.setProperty(ConsumePulsarRecord.TOPICS, DEFAULT_TOPIC);
        runner.setProperty(ConsumePulsarRecord.SUBSCRIPTION_NAME, DEFAULT_SUB);
+       runner.setProperty(ConsumePulsarRecord.SUBSCRIPTION_TYPE, "Exclusive");
        runner.setProperty(ConsumePulsarRecord.CONSUMER_BATCH_SIZE, 1 + "");
        runner.setProperty(ConsumePulsarRecord.ASYNC_ENABLED, Boolean.toString(true));
        runner.run();
        runner.assertAllFlowFilesTransferred(ConsumePulsarRecord.REL_PARSE_FAILURE);
 
-       verify(mockClientService.getMockConsumer(), times(1)).acknowledgeCumulative(mockMessage);
+       verify(mockClientService.getMockConsumer(), times(1)).acknowledgeCumulativeAsync(mockMessage);
     }
 
     /*
@@ -114,6 +116,7 @@ public class TestAsyncConsumePulsarRecord extends TestConsumePulsarRecord {
        runner.setProperty(ConsumePulsarRecord.ASYNC_ENABLED, Boolean.toString(false));
        runner.setProperty(ConsumePulsarRecord.TOPICS, DEFAULT_TOPIC);
        runner.setProperty(ConsumePulsarRecord.SUBSCRIPTION_NAME, DEFAULT_SUB);
+       runner.setProperty(ConsumePulsarRecord.SUBSCRIPTION_TYPE, "Exclusive");
        runner.setProperty(ConsumePulsarRecord.CONSUMER_BATCH_SIZE, 1 + "");
        runner.run(1, true);
 
@@ -129,6 +132,15 @@ public class TestAsyncConsumePulsarRecord extends TestConsumePulsarRecord {
      */
     @Test
     public void multipleMultiRecordsTest() throws PulsarClientException {
+    	doMultipleMultiRecordsTest("Exclusive");
+    }
+    
+    @Test
+    public void multipleMultiRecordsSharedSubTest() throws PulsarClientException {
+    	doMultipleMultiRecordsTest("Shared");
+    }
+    
+    private void doMultipleMultiRecordsTest(String subType) throws PulsarClientException {
        StringBuffer input = new StringBuffer(1024);
        StringBuffer expected = new StringBuffer(1024);
 
@@ -137,7 +149,7 @@ public class TestAsyncConsumePulsarRecord extends TestConsumePulsarRecord {
           expected.append("\"Justin Thyme\",\"" + idx + "\"").append("\n");
        }
 
-       List<MockFlowFile> results = this.sendMessages(input.toString(), false, 50, 100);
+       List<MockFlowFile> results = this.sendMessages(input.toString(), false, 50, 100, subType);
        assertEquals(50, results.size());
 
        String flowFileContents = new String(runner.getContentAsByteArray(results.get(0)));
