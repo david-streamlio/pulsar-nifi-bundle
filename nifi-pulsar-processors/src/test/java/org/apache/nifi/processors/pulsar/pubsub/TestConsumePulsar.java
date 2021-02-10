@@ -22,6 +22,7 @@ import org.apache.nifi.util.MockFlowFile;
 import org.apache.nifi.util.TestRunners;
 import org.apache.pulsar.client.api.Message;
 import org.apache.pulsar.client.api.PulsarClientException;
+import org.apache.pulsar.client.api.SubscriptionType;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -60,20 +61,40 @@ public class TestConsumePulsar extends AbstractPulsarProcessorTest<byte[]> {
     }
 
     @Test
-    public void multipleSyncMessagesTest() throws PulsarClientException {
-        this.batchMessages("Mocked Message", "foo", "bar", false, 40);
+    public void multipleSeparateSyncMessagesTest() throws PulsarClientException {
+    	this.sendMessages("Mocked Message", "foo", "bar", false, 40);
     }
-
+    
+    @Test
+    public void multipleSyncMessagesBatchTest() throws PulsarClientException {
+    	this.batchMessages("Mocked Message", "foo", "bar", false, 40);
+    }
+    
+    @Test
+    public void multipleSyncMessagesBatchSharedSubTest() throws PulsarClientException {
+    	this.batchMessages("Mocked Message", "foo", "bar", false, 40, "Shared");
+    }
+    
     @Test
     public void singleAsyncMessageTest() throws PulsarClientException {
         this.sendMessages("Mocked Message", "foo", "bar", true, 1);
     }
 
     @Test
-    public void multipleAsyncMessagesTest() throws PulsarClientException {
+    public void multipleSeparateAsyncMessagesTest() throws PulsarClientException {
         this.sendMessages("Mocked Message", "foo", "bar", true, 40);
     }
 
+    @Test
+    public void multipleAsyncMessagesBatchTest() throws PulsarClientException {
+    	this.batchMessages("Mocked Message", "foo", "bar", true, 40);
+    }
+    
+    @Test
+    public void multipleAsyncMessagesBatchSharedSubTest() throws PulsarClientException {
+    	this.batchMessages("Mocked Message", "foo", "bar", true, 40, "Shared");
+    }
+    
     /*
      * Verify that the consumer gets closed.
      */
@@ -102,7 +123,27 @@ public class TestConsumePulsar extends AbstractPulsarProcessorTest<byte[]> {
 
     }
 
+    @Test
+    public void keySharedTest() throws PulsarClientException {
+    	when(mockMessage.getValue()).thenReturn("Mocked Message".getBytes());
+    	mockClientService.setMockMessage(mockMessage);
+    	
+    	runner.setProperty(ConsumePulsar.TOPICS, "foo");
+    	runner.setProperty(ConsumePulsar.SUBSCRIPTION_NAME, "bar");
+    	runner.setProperty(ConsumePulsar.SUBSCRIPTION_TYPE, "Key_Shared");
+    	runner.run(10, true);
+    	runner.assertAllFlowFilesTransferred(ConsumePulsar.REL_SUCCESS);
+    	
+    	runner.assertQueueEmpty();
+    	
+    	verify(mockClientService.getMockConsumerBuilder(), times(1)).subscriptionType(SubscriptionType.Key_Shared);
+    }
+    
     protected void batchMessages(String msg, String topic, String sub, boolean async, int batchSize) throws PulsarClientException {
+    	batchMessages(msg, topic, sub, async, batchSize, "Exclusive");
+    }
+    
+    protected void batchMessages(String msg, String topic, String sub, boolean async, int batchSize, String subType) throws PulsarClientException {
         when(mockMessage.getValue()).thenReturn(msg.getBytes());
         mockClientService.setMockMessage(mockMessage);
 
@@ -110,7 +151,7 @@ public class TestConsumePulsar extends AbstractPulsarProcessorTest<byte[]> {
         runner.setProperty(ConsumePulsar.TOPICS, topic);
         runner.setProperty(ConsumePulsar.SUBSCRIPTION_NAME, sub);
         runner.setProperty(ConsumePulsar.CONSUMER_BATCH_SIZE, batchSize + "");
-        runner.setProperty(ConsumePulsar.SUBSCRIPTION_TYPE, "Exclusive");
+        runner.setProperty(ConsumePulsar.SUBSCRIPTION_TYPE, subType);
         runner.setProperty(ConsumePulsar.MESSAGE_DEMARCATOR, "\n");
         runner.run(1, true);
 
@@ -129,17 +170,31 @@ public class TestConsumePulsar extends AbstractPulsarProcessorTest<byte[]> {
 
         flowFiles.get(0).assertContentEquals(sb.toString());
 
+        boolean shared = isSharedSubType(subType);
+        
         // Verify that every message was acknowledged
-        if (async) {
-            verify(mockClientService.getMockConsumer(), times(batchSize)).receive();
-            verify(mockClientService.getMockConsumer(), times(batchSize)).acknowledgeAsync(mockMessage);
+        verify(mockClientService.getMockConsumer(), times(batchSize + 1)).receive(0, TimeUnit.SECONDS);
+        
+        if (shared) {
+        	if (async) {
+        		verify(mockClientService.getMockConsumer(), times(batchSize)).acknowledgeAsync(mockMessage);
+        	} else {
+        		verify(mockClientService.getMockConsumer(), times(batchSize)).acknowledge(mockMessage);
+        	}
         } else {
-            verify(mockClientService.getMockConsumer(), times(batchSize + 1)).receive(0, TimeUnit.SECONDS);
-            verify(mockClientService.getMockConsumer(), times(1)).acknowledgeCumulative(mockMessage);
+        	if (async) {
+                verify(mockClientService.getMockConsumer(), times(1)).acknowledgeCumulativeAsync(mockMessage);        		
+        	} else {
+                verify(mockClientService.getMockConsumer(), times(1)).acknowledgeCumulative(mockMessage);        		
+        	}
         }
     }
 
     protected void sendMessages(String msg, String topic, String sub, boolean async, int iterations) throws PulsarClientException {
+    	sendMessages(msg, topic, sub, async, iterations, "Exclusive");
+    }
+    
+    protected void sendMessages(String msg, String topic, String sub, boolean async, int iterations, String subType) throws PulsarClientException {
 
         when(mockMessage.getValue()).thenReturn(msg.getBytes());
         mockClientService.setMockMessage(mockMessage);
@@ -148,7 +203,7 @@ public class TestConsumePulsar extends AbstractPulsarProcessorTest<byte[]> {
         runner.setProperty(ConsumePulsar.TOPICS, topic);
         runner.setProperty(ConsumePulsar.SUBSCRIPTION_NAME, sub);
         runner.setProperty(ConsumePulsar.CONSUMER_BATCH_SIZE, 1 + "");
-        runner.setProperty(ConsumePulsar.SUBSCRIPTION_TYPE, "Exclusive");
+        runner.setProperty(ConsumePulsar.SUBSCRIPTION_TYPE, subType);
         runner.run(iterations, true);
 
         runner.assertAllFlowFilesTransferred(ConsumePulsar.REL_SUCCESS);
@@ -162,12 +217,22 @@ public class TestConsumePulsar extends AbstractPulsarProcessorTest<byte[]> {
 
         verify(mockClientService.getMockConsumer(), times(iterations * 2)).receive(0, TimeUnit.SECONDS);
 
+        boolean shared = isSharedSubType(subType);
+        
         // Verify that every message was acknowledged
-        if (async) {
-            verify(mockClientService.getMockConsumer(), times(iterations)).acknowledgeCumulativeAsync(mockMessage);
+        if (shared) {
+        	if (async) {
+        		verify(mockClientService.getMockConsumer(), times(iterations)).acknowledgeAsync(mockMessage);
+        	} else {
+        		verify (mockClientService.getMockConsumer(), times(iterations)).acknowledge(mockMessage);
+        	}
         } else {
-            verify(mockClientService.getMockConsumer(), times(iterations)).acknowledgeCumulative(mockMessage);
-        }
+        	if (async) {
+        		verify(mockClientService.getMockConsumer(), times(iterations)).acknowledgeCumulativeAsync(mockMessage);
+        	} else {
+        		verify(mockClientService.getMockConsumer(), times(iterations)).acknowledgeCumulative(mockMessage);
+        	}
+        }        
     }
 
     protected void doMappedAttributesTest() throws PulsarClientException {

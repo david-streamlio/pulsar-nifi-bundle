@@ -95,14 +95,18 @@ public class TestConsumePulsarRecord extends AbstractPulsarProcessorTest<byte[]>
     }
 
     protected List<MockFlowFile> sendMessages(String msg, boolean async, int iterations, int batchSize) throws PulsarClientException {
-        return sendMessages(msg, DEFAULT_TOPIC, DEFAULT_SUB, async, iterations, batchSize);
+        return sendMessages(msg, async, iterations, batchSize, "Exclusive");
     }
 
-    protected List<MockFlowFile> sendMessages(String msg, String topic, String sub, boolean async, int iterations) throws PulsarClientException {
-        return sendMessages(msg, topic, sub, async, iterations, 1);
+    protected List<MockFlowFile> sendMessages(String msg, boolean async, int iterations, int batchSize, String subType) throws PulsarClientException {
+        return sendMessages(msg, DEFAULT_TOPIC, DEFAULT_SUB, async, iterations, batchSize, subType);
     }
 
     protected List<MockFlowFile> sendMessages(String msg, String topic, String sub, boolean async, int iterations, int batchSize) throws PulsarClientException {
+    	return sendMessages(msg, topic, sub, async, iterations, batchSize, "Exclusive");
+    }
+    
+    protected List<MockFlowFile> sendMessages(String msg, String topic, String sub, boolean async, int iterations, int batchSize, String subType) throws PulsarClientException {
         when(mockMessage.getValue()).thenReturn(msg.getBytes());
         mockClientService.setMockMessage(mockMessage);
 
@@ -110,7 +114,8 @@ public class TestConsumePulsarRecord extends AbstractPulsarProcessorTest<byte[]>
         runner.setProperty(ConsumePulsarRecord.TOPICS, topic);
         runner.setProperty(ConsumePulsarRecord.SUBSCRIPTION_NAME, sub);
         runner.setProperty(ConsumePulsarRecord.CONSUMER_BATCH_SIZE, batchSize + "");
-
+        runner.setProperty(ConsumePulsar.SUBSCRIPTION_TYPE, subType);
+        
         if (async) {
           runner.setProperty(ConsumePulsarRecord.MAX_WAIT_TIME, "5 sec");
         } else {
@@ -124,8 +129,24 @@ public class TestConsumePulsarRecord extends AbstractPulsarProcessorTest<byte[]>
         assertEquals(iterations, flowFiles.size());
 
         verify(mockClientService.getMockConsumer(), times(iterations * (batchSize+1))).receive(0, TimeUnit.SECONDS);
-        verify(mockClientService.getMockConsumer(), times(iterations)).acknowledgeCumulative(mockMessage);
 
+        boolean shared = isSharedSubType(subType);
+        
+        if (shared) {
+        	if (async) {
+        		verify(mockClientService.getMockConsumer(), times(iterations * batchSize)).acknowledgeAsync(mockMessage);
+        	} else {
+        		verify(mockClientService.getMockConsumer(), times(iterations * batchSize)).acknowledge(mockMessage);
+        	}
+        }
+        else {
+        	if (async) {
+        		verify(mockClientService.getMockConsumer(), times(iterations)).acknowledgeCumulativeAsync(mockMessage);
+        	} else {
+        		verify(mockClientService.getMockConsumer(), times(iterations)).acknowledgeCumulative(mockMessage);
+        	}
+        }
+        
         return flowFiles;
     }
 

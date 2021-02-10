@@ -38,6 +38,8 @@ public class TestAsyncConsumePulsar extends TestConsumePulsar {
         runner.setProperty(ConsumePulsar.TOPICS, "foo");
         runner.setProperty(ConsumePulsar.SUBSCRIPTION_NAME, "bar");
         runner.setProperty(ConsumePulsar.ASYNC_ENABLED, Boolean.toString(true));
+        runner.setProperty(ConsumePulsar.SUBSCRIPTION_TYPE, "Exclusive");
+        
         runner.run();
         runner.assertAllFlowFilesTransferred(ConsumePulsar.REL_SUCCESS);
 
@@ -45,7 +47,7 @@ public class TestAsyncConsumePulsar extends TestConsumePulsar {
         List<MockFlowFile> flowFiles = runner.getFlowFilesForRelationship(ConsumePulsar.REL_SUCCESS);
         assertEquals(0, flowFiles.size());
 
-        verify(mockClientService.getMockConsumer(), times(0)).acknowledge(mockMessage);
+        verify(mockClientService.getMockConsumer(), times(0)).acknowledgeCumulativeAsync(mockMessage);
     }
 
     @Test

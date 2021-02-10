@@ -61,6 +61,8 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
     protected static final String PULSAR_MESSAGE_KEY = "__KEY__";
 
     protected static final AllowableValue EXCLUSIVE = new AllowableValue("Exclusive", "Exclusive", "There can be only 1 consumer on the same topic with the same subscription name");
+    protected static final AllowableValue KEY_SHARED = new AllowableValue("Key_Shared", "Key_Shared", "Multiple consumers will be able to use the same subscription name and messages "
+    		+ "but only 1 consumer will receive the messages for a given message key.");
     protected static final AllowableValue SHARED = new AllowableValue("Shared", "Shared", "Multiple consumer will be able to use the same subscription name and the messages");
     protected static final AllowableValue FAILOVER = new AllowableValue("Failover", "Failover", "Multiple consumer will be able to use the same subscription name but only 1 consumer "
             + "will receive the messages. If that consumer disconnects, one of the other connected consumers will start receiving messages.");
@@ -192,7 +194,7 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
             .displayName("Subscription Type")
             .description("Select the subscription type to be used when subscribing to the topic.")
             .required(true)
-            .allowableValues(EXCLUSIVE, SHARED, FAILOVER)
+            .allowableValues(EXCLUSIVE, SHARED, KEY_SHARED, FAILOVER)
             .defaultValue(SHARED.getValue())
             .build();
 
@@ -486,5 +488,11 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
         String mappings = context.getProperty(MAPPED_FLOWFILE_ATTRIBUTES).getValue();
 
         return PropertyMappingUtils.getMappedValues(mappings, (p) -> PULSAR_MESSAGE_KEY.equals(p) ? message.getKey() : message.getProperty(p));
+    }
+    
+    protected boolean isSharedSubscription(ProcessContext context) {
+    	final String subscriptionType = context.getProperty(SUBSCRIPTION_TYPE).getValue();
+    	
+    	return subscriptionType.equalsIgnoreCase(SHARED.getValue()) || subscriptionType.equalsIgnoreCase(KEY_SHARED.getValue());
     }
 }
