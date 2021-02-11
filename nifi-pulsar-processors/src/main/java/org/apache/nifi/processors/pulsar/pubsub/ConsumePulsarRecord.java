@@ -24,6 +24,7 @@ import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
@@ -366,20 +367,23 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<byte[]>
         OutputStream rawOut = session.write(flowFile);
 
         try {
-           for (int idx = 0; idx < parseFailures.size(); idx++) {
-              Message<byte[]> msg = parseFailures.poll(0, TimeUnit.MILLISECONDS);
-              byte[] msgValue = msg.getValue();
+           Iterator<Message<byte[]>> failureIterator = parseFailures.iterator();
+           
+           for (int idx = 0; failureIterator.hasNext(); idx++) {
+        	  Message<byte[]> msg = failureIterator.next();
+        	  byte[] msgValue = msg.getValue();
 
               if (msgValue != null && msgValue.length > 0) {
+            	 if (idx > 0) {
+            		 rawOut.write(demarcator);
+            	 }
+            	 
                  rawOut.write(msgValue);
-                 if (idx < parseFailures.size() - 2) {
-                   rawOut.write(demarcator);
-                 }
               }
            }
            IOUtils.closeQuietly(rawOut);
            session.transfer(flowFile, REL_PARSE_FAILURE);
-        } catch (IOException | InterruptedException e) {
+        } catch (IOException e) {
            getLogger().error("Unable to route failures", e);
         }
     }

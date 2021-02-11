@@ -163,11 +163,15 @@ public class TestConsumePulsar extends AbstractPulsarProcessorTest<byte[]> {
         flowFiles.get(0).assertAttributeEquals(ConsumePulsar.MSG_COUNT, batchSize + "");
 
         StringBuffer sb = new StringBuffer();
-        for (int idx = 0; idx < batchSize; idx++) {
+        
+        // expect demarcators to occur between messages
+        for (int idx = 0; idx < batchSize - 1; idx++) {
             sb.append(msg);
-            sb.append("\n");
+            sb.append('\n');
         }
 
+        sb.append(msg);
+        
         flowFiles.get(0).assertContentEquals(sb.toString());
 
         boolean shared = isSharedSubType(subType);
@@ -212,7 +216,7 @@ public class TestConsumePulsar extends AbstractPulsarProcessorTest<byte[]> {
         assertEquals(iterations, flowFiles.size());
 
         for (MockFlowFile ff : flowFiles) {
-            ff.assertContentEquals(msg + ConsumePulsar.MESSAGE_DEMARCATOR.getDefaultValue());
+            ff.assertContentEquals(msg);        
         }
 
         verify(mockClientService.getMockConsumer(), times(iterations * 2)).receive(0, TimeUnit.SECONDS);
@@ -258,12 +262,12 @@ public class TestConsumePulsar extends AbstractPulsarProcessorTest<byte[]> {
         // first flow file should have A, second should have B
         flowFiles.get(0).assertAttributeNotExists("prop");
         flowFiles.get(0).assertAttributeNotExists("key");
-        flowFiles.get(0).assertContentEquals("A===B===");
+        flowFiles.get(0).assertContentEquals("A===B");
         flowFiles.get(1).assertAttributeEquals("prop", "val");
         flowFiles.get(1).assertAttributeNotExists("key");
-        flowFiles.get(1).assertContentEquals("C===");
+        flowFiles.get(1).assertContentEquals("C");
         flowFiles.get(2).assertAttributeEquals("prop", "val");
         flowFiles.get(2).assertAttributeEquals("key", "K");
-        flowFiles.get(2).assertContentEquals("D===");
+        flowFiles.get(2).assertContentEquals("D");
     }
 }

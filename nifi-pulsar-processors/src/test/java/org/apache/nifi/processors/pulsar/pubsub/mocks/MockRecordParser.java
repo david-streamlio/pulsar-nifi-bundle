@@ -45,7 +45,7 @@ public class MockRecordParser extends AbstractControllerService implements Recor
     private final int failAfterN;
 
     public MockRecordParser() {
-        this(-1);
+        this(Integer.MAX_VALUE);
     }
 
     public MockRecordParser(final int failAfterN) {
@@ -74,7 +74,7 @@ public class MockRecordParser extends AbstractControllerService implements Recor
 
             @Override
             public Record nextRecord(boolean coerceTypes, boolean dropUnknown) throws IOException, MalformedRecordException, SchemaValidationException {
-                if (failAfterN >= recordCount) {
+                if (failAfterN <= recordCount) {
                     throw new MalformedRecordException("Intentional Unit Test Exception because " + recordCount + " records have been read");
                 }
                 final String line = reader.readLine();

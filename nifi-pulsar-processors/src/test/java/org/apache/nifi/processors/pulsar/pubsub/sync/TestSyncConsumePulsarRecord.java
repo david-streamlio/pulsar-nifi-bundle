@@ -138,6 +138,11 @@ public class TestSyncConsumePulsarRecord extends TestConsumePulsarRecord {
     	doMultipleMultiRecordsTest("Shared");
     }
     
+    @Test
+    public void parseFailuresTest() throws Exception {
+    	doFailedParseHandlingTest("message", "topic", "sub", false);
+    }
+    
     private void doMultipleMultiRecordsTest(String subType) throws PulsarClientException {
         StringBuffer input = new StringBuffer(1024);
         StringBuffer expected = new StringBuffer(1024);

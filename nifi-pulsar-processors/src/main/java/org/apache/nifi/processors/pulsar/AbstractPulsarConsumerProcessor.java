@@ -202,12 +202,12 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
             .name("MESSAGE_DEMARCATOR")
             .displayName("Message Demarcator")
             .required(true)
-            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
+            .addValidator(Validator.VALID)
             .defaultValue("\n")
             .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
             .description("Specifies the string (interpreted as UTF-8) to use for demarcating multiple messages consumed from Pulsar within "
                 + "a single FlowFile. If not specified, the content of the FlowFile will consist of all of the messages consumed from Pulsar "
-                + "concatenated together. If specified, the contents of the individual Pulsar messages will be separate by this delimiter. "
+                + "concatenated together. If specified, the contents of the individual Pulsar messages will be separated by this delimiter. "
                 + "To enter special character such as 'new line' use CTRL+Enter or Shift+Enter, depending on your OS.")
             .build();
 
