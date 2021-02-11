@@ -90,6 +90,41 @@ public class TestConsumePulsarRecord extends AbstractPulsarProcessorTest<byte[]>
         runner.assertValid();
     }
 
+    protected void doFailedParseHandlingTest(String msg, String topic, String sub, boolean async) throws Exception {
+    	final String failingReaderId = "failing-record-reader";
+    	readerService = new MockRecordParser(-1);
+    	readerService.addSchemaField("name",  RecordFieldType.STRING);
+    	readerService.addSchemaField("age",  RecordFieldType.INT);
+    	runner.addControllerService(failingReaderId, readerService);
+    	runner.enableControllerService(readerService);
+    	
+    	runner.setProperty(RECORD_READER, failingReaderId);
+    	
+    	runner.setProperty(ConsumePulsarRecord.ASYNC_ENABLED, Boolean.toString(async));
+    	runner.setProperty(ConsumePulsarRecord.TOPICS, topic);
+    	runner.setProperty(ConsumePulsarRecord.SUBSCRIPTION_NAME, sub);
+    	runner.setProperty(ConsumePulsarRecord.CONSUMER_BATCH_SIZE, 2 + "");
+    	runner.setProperty(ConsumePulsarRecord.MESSAGE_DEMARCATOR, "***");
+    	runner.setProperty(ConsumePulsar.SUBSCRIPTION_TYPE, "Exclusive");
+    	
+    	if (async) {
+    		runner.setProperty(ConsumePulsarRecord.MAX_WAIT_TIME, "5 sec");
+    	} else {
+    		runner.setProperty(ConsumePulsarRecord.MAX_WAIT_TIME, "0 sec");
+    	}
+    	
+    	when(mockMessage.getValue()).thenReturn(msg.getBytes());
+    	mockClientService.setMockMessage(mockMessage);
+    	
+    	runner.run();
+    	runner.assertAllFlowFilesTransferred(ConsumePulsarRecord.REL_PARSE_FAILURE);
+    	runner.assertQueueEmpty();
+    	
+    	List<MockFlowFile> flowFiles = runner.getFlowFilesForRelationship(ConsumePulsarRecord.REL_PARSE_FAILURE);
+    	assertEquals(1, flowFiles.size());
+    	flowFiles.get(0).assertContentEquals(msg + "***" + msg);
+    }
+    
     protected List<MockFlowFile> sendMessages(String msg, boolean async, int iterations) throws PulsarClientException {
         return sendMessages(msg, DEFAULT_TOPIC, DEFAULT_SUB, async, iterations, 1);
     }

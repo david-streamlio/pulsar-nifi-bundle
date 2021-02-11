@@ -151,8 +151,12 @@ public class ConsumePulsar extends AbstractPulsarConsumerProcessor<byte[]> {
                         }
                         
                         try {
+                        	//only write demarcators between messages
+                        	if (msgCount.get() > 0) {
+                        		out.write(demarcatorBytes);
+                        	}
+                        	
                             out.write(msg.getValue());
-                            out.write(demarcatorBytes);
                             msgCount.getAndIncrement();
                         } catch (final IOException ioEx) {
                             session.rollback();
@@ -251,8 +255,13 @@ public class ConsumePulsar extends AbstractPulsarConsumerProcessor<byte[]> {
                     if (msgValue == null || msgValue.length < 1) {
                         continue;
                     }
+                    
+                    // only write demarcators between messages
+                    if (msgCount.get() > 0) {
+                    	out.write(demarcatorBytes);
+                    }
+                    
                     out.write(msgValue);
-                    out.write(demarcatorBytes);
                     msgCount.getAndIncrement();
                 } catch (final IOException ioEx) {
                     getLogger().error("Unable to create flow file ", ioEx);

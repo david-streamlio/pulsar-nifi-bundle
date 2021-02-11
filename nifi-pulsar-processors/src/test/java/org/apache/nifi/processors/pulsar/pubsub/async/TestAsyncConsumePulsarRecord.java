@@ -140,6 +140,11 @@ public class TestAsyncConsumePulsarRecord extends TestConsumePulsarRecord {
     	doMultipleMultiRecordsTest("Shared");
     }
     
+    @Test
+    public void parseFailuresTest() throws Exception {
+    	doFailedParseHandlingTest("message", "topic", "sub", true);
+    }
+    
     private void doMultipleMultiRecordsTest(String subType) throws PulsarClientException {
        StringBuffer input = new StringBuffer(1024);
        StringBuffer expected = new StringBuffer(1024);
@@ -158,7 +163,7 @@ public class TestAsyncConsumePulsarRecord extends TestConsumePulsarRecord {
 
     @Test
     public void mappedAttributesTest() throws PulsarClientException {
-        runner.setProperty(ConsumePulsar.ASYNC_ENABLED, Boolean.toString(true));
+        runner.setProperty(ConsumePulsarRecord.ASYNC_ENABLED, Boolean.toString(true));
 
         super.doMappedAttributesTest();
     }
