@@ -19,43 +19,30 @@
     <parent>
         <groupId>org.apache.nifi</groupId>
         <artifactId>nifi-pulsar-bundle</artifactId>
-        <version>1.11.0</version>
+        <version>1.11.3</version>
     </parent>
 
     <artifactId>nifi-pulsar-nar</artifactId>
     <packaging>nar</packaging>
-    
-    <build>
-       <plugins>
-           <plugin>
-  				<groupId>org.codehaus.groovy</groupId>
-  				<artifactId>groovy-eclipse-batch</artifactId>
-  				<version>2.5.4-01</version>
-  				<configuration>
-          			<skip>true</skip>
-        		</configuration>
-			</plugin>
-       </plugins>
-    </build>
 
     <dependencies>
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-pulsar-client-service-nar</artifactId>
-            <version>1.11.0</version>
+            <version>${nifi.version}</version>
             <type>nar</type>
 		</dependency>
 
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-pulsar-processors</artifactId>
-            <version>1.11.0</version>
+            <version>${nifi.version}</version>
         </dependency>
 
 		<dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-pulsar-client-service</artifactId>
-            <version>1.11.0</version>
+            <version>${nifi.version}</version>
         </dependency>
 
     </dependencies>
