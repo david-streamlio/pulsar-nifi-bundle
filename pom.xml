@@ -33,8 +33,38 @@
         <module>nifi-pulsar-client-service-nar</module>
     </modules>
     
+    <build>
+    	<plugins>
+    		<plugin>
+    			<groupId>org.codehaus.mojo</groupId>
+    			<artifactId>versions-maven-plugin</artifactId>
+    			<version>2.5</version>
+    			<configuration>
+        			<generateBackupPoms>false</generateBackupPoms>
+    			</configuration>
+			</plugin>
+			
+			<plugin>
+            <artifactId>maven-compiler-plugin</artifactId>
+            <version>3.8.1</version>            
+            <configuration>
+                <source>1.8</source>
+                <target>1.8</target>
+                <encoding>UTF-8</encoding>
+            </configuration>                        
+            <dependencies>
+                <dependency>
+                    <groupId>org.codehaus.groovy</groupId>
+                    <artifactId>groovy-eclipse-batch</artifactId>
+                    <version>2.5.6-01</version>
+                </dependency>
+            </dependencies>                 
+        </plugin>
+    	</plugins>
+    </build>
+    
     <properties>
-    	<pulsar.version>2.5.0</pulsar.version>
+    	<pulsar.version>2.8.0</pulsar.version>
     </properties>
     
     <description>A bundle of processors that can store and retrieve data from Apache Pulsar</description>

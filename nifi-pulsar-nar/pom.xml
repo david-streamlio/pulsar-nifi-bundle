@@ -24,6 +24,19 @@
 
     <artifactId>nifi-pulsar-nar</artifactId>
     <packaging>nar</packaging>
+    
+    <build>
+       <plugins>
+           <plugin>
+  				<groupId>org.codehaus.groovy</groupId>
+  				<artifactId>groovy-eclipse-batch</artifactId>
+  				<version>2.5.4-01</version>
+  				<configuration>
+          			<skip>true</skip>
+        		</configuration>
+			</plugin>
+       </plugins>
+    </build>
 
     <dependencies>
         <dependency>
