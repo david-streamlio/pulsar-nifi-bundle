@@ -25,6 +25,7 @@
     <properties>
     	<pulsar.version>2.8.0</pulsar.version>
     	<nifi.version>1.11.3</nifi.version>
+    	<jdk.release>8</jdk.release>
     </properties>
 
     <artifactId>nifi-pulsar-bundle</artifactId>
@@ -50,10 +51,9 @@
 			</plugin>
 			
 			<plugin>
-            <artifactId>maven-compiler-plugin</artifactId>
-            <version>3.8.1</version>            
+            <artifactId>maven-compiler-plugin</artifactId>            
             <configuration>
-                <release>11</release>
+                <release>${jdk.release}</release>
                 <encoding>UTF-8</encoding>
             </configuration>                        
             <dependencies>
