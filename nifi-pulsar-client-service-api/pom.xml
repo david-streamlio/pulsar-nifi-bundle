@@ -26,25 +26,36 @@
     <packaging>jar</packaging>
 
     <dependencies>
+    
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-api</artifactId>
             <scope>provided</scope>
         </dependency>
+        
         <dependency>
             <groupId>org.apache.pulsar</groupId>
             <artifactId>pulsar-client-original</artifactId>
             <version>${pulsar.version}</version>
 		</dependency>
+		
         <dependency>
             <groupId>org.apache.pulsar</groupId>
             <artifactId>pulsar-client-auth-athenz</artifactId>
             <version>${pulsar.version}</version>
         </dependency>
+        
+        <dependency>
+        	<groupId>com.fasterxml.jackson.core</groupId>
+  		    <artifactId>jackson-core</artifactId>
+  		    <version>${jackson-core.version}</version>
+        </dependency>
+        
         <dependency>
         	<groupId>org.apache.commons</groupId>
         	<artifactId>commons-collections4</artifactId>
-        	<version>4.2</version>
+        	<version>${commons-collections4.version}</version>
         </dependency>
+        
     </dependencies>
 </project>

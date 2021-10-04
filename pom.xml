@@ -23,9 +23,13 @@
     </parent>
     
     <properties>
+    	<commons-collections4.version>4.2</commons-collections4.version>
+    	<commons-lang3.version>3.8.1</commons-lang3.version>
+    	<commons.io.version>2.4</commons.io.version>
+    	<jackson-core.version>2.12.3</jackson-core.version>
     	<pulsar.version>2.8.0</pulsar.version>
     	<nifi.version>1.11.3</nifi.version>
-    	<jdk.release>8</jdk.release>
+    	<jdk.release>11</jdk.release>
     </properties>
 
     <artifactId>nifi-pulsar-bundle</artifactId>
