@@ -136,6 +136,7 @@ public class StandardPulsarClientService extends AbstractControllerService imple
                        + "it should be greater than the 'Maximum concurrent lookup-requests' property value.")
             .required(false)
             .addValidator(StandardValidators.POSITIVE_INTEGER_VALIDATOR)
+            .expressionLanguageSupported(ExpressionLanguageScope.VARIABLE_REGISTRY)
             .defaultValue("50000")
             .build();
 
@@ -177,6 +178,7 @@ public class StandardPulsarClientService extends AbstractControllerService imple
             .description("The interval between each stat infomation update. It should be set to at least 1 second.")
             .required(false)
             .addValidator(StandardValidators.TIME_PERIOD_VALIDATOR)
+            .expressionLanguageSupported(ExpressionLanguageScope.VARIABLE_REGISTRY)
             .defaultValue("60 sec")
             .build();
     

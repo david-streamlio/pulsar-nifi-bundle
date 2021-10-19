@@ -111,7 +111,7 @@ public class ConsumePulsar extends AbstractPulsarConsumerProcessor<byte[]> {
                             flowFile = session.putAttribute(flowFile, MSG_COUNT, msgCount.toString());
                             session.getProvenanceReporter().receive(flowFile, getPulsarClientService().getPulsarBrokerRootURL() + "/" + consumer.getTopic());
                             session.transfer(flowFile, REL_SUCCESS);
-                            session.commit();
+                            session.commitAsync();
 
                             if (!shared) {
 	                            final Message<byte[]> finalMessage = lastMessage;
@@ -169,7 +169,7 @@ public class ConsumePulsar extends AbstractPulsarConsumerProcessor<byte[]> {
                     flowFile = session.putAttribute(flowFile, MSG_COUNT, msgCount.toString());
                     session.getProvenanceReporter().receive(flowFile, getPulsarClientService().getPulsarBrokerRootURL() + "/" + consumer.getTopic());
                     session.transfer(flowFile, REL_SUCCESS);
-                    session.commit();
+                    session.commitAsync();
                 }
                 // Cumulatively acknowledge consuming the message for non-shared subs
                 if (!shared) {
@@ -220,7 +220,7 @@ public class ConsumePulsar extends AbstractPulsarConsumerProcessor<byte[]> {
 
                     if (msgCount.get() < 1) {
                         session.remove(flowFile);
-                        session.commit();
+                        session.commitAsync();
                     } else {
                         flowFile = session.putAttribute(flowFile, MSG_COUNT, msgCount.toString());
                         session.getProvenanceReporter().receive(flowFile, getPulsarClientService().getPulsarBrokerRootURL() + "/" + consumer.getTopic());
@@ -283,7 +283,7 @@ public class ConsumePulsar extends AbstractPulsarConsumerProcessor<byte[]> {
             if (msgCount.get() < 1) {
                 if (flowFile != null) {
                     session.remove(flowFile);
-                    session.commit();
+                    session.commitAsync();
                 }
             } else {
                 flowFile = session.putAttribute(flowFile, MSG_COUNT, msgCount.toString());
