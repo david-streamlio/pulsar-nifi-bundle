@@ -19,7 +19,7 @@
     <parent>
         <groupId>org.apache.nifi</groupId>
         <artifactId>nifi-pulsar-bundle</artifactId>
-        <version>1.11.3</version>
+        <version>1.14.0</version>
     </parent>
 
     <artifactId>nifi-pulsar-nar</artifactId>
@@ -29,22 +29,21 @@
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-pulsar-client-service-nar</artifactId>
-            <version>${nifi.version}</version>
+            <version>${version}</version>
             <type>nar</type>
 		</dependency>
 
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-pulsar-processors</artifactId>
-            <version>${nifi.version}</version>
+            <version>${version}</version>
         </dependency>
 
 		<dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-pulsar-client-service</artifactId>
-            <version>${nifi.version}</version>
+            <version>${version}</version>
         </dependency>
-
     </dependencies>
 
 </project>
