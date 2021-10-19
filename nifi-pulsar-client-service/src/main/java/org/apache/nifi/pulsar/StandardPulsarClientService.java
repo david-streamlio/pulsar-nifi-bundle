@@ -34,6 +34,7 @@ import org.apache.nifi.controller.ConfigurationContext;
 import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.processor.util.StandardValidators;
 import org.apache.nifi.pulsar.auth.PulsarClientAuthenticationService;
+import org.apache.nifi.pulsar.validator.PulsarBrokerUrlValidator;
 import org.apache.nifi.reporting.InitializationException;
 import org.apache.pulsar.client.api.ClientBuilder;
 import org.apache.pulsar.client.api.PulsarClient;
@@ -45,14 +46,23 @@ import org.apache.pulsar.client.api.PulsarClientException.UnsupportedAuthenticat
         + "Provides the ability to create Pulsar Producer / Consumer instances on demand, "
         + "based on the configuration properties defined.")
 public class StandardPulsarClientService extends AbstractControllerService implements PulsarClientService {
-
-    public static final PropertyDescriptor PULSAR_SERVICE_URL = new PropertyDescriptor.Builder()
-            .name("PULSAR_SERVICE_URL")
-            .displayName("Pulsar Service URL")
-            .description("URL for the Pulsar cluster, e.g localhost:6650")
-            .required(true)
-            .addValidator(StandardValidators.HOSTNAME_PORT_LIST_VALIDATOR)
-            .expressionLanguageSupported(ExpressionLanguageScope.VARIABLE_REGISTRY)
+	
+	public static final PropertyDescriptor ALLOW_TLS_INSECURE_CONNECTION = new PropertyDescriptor.Builder()
+			.name("ALLOW_TLS_INSECURE_CONNECTION")
+			.defaultValue("false")
+			.description("")
+			.displayName("Allow TLS Insecure Connection")
+			.expressionLanguageSupported(ExpressionLanguageScope.VARIABLE_REGISTRY)
+			.required(false)
+			.addValidator(StandardValidators.BOOLEAN_VALIDATOR)
+			.build();
+	
+    public static final PropertyDescriptor AUTHENTICATION_SERVICE = new PropertyDescriptor.Builder()
+            .name("AUTHENTICATION_SERVICE")
+            .displayName("Pulsar Client Authentication Service")
+            .description("Specifies the Service to use for authenticating with Pulsar.")
+            .required(false)
+            .identifiesControllerService(PulsarClientAuthenticationService.class)
             .build();
 
     public static final PropertyDescriptor CONCURRENT_LOOKUP_REQUESTS = new PropertyDescriptor.Builder()
@@ -76,6 +86,18 @@ public class StandardPulsarClientService extends AbstractControllerService imple
             .expressionLanguageSupported(ExpressionLanguageScope.VARIABLE_REGISTRY)
             .defaultValue("1")
             .build();
+
+    public static final PropertyDescriptor ENABLE_TLS_HOSTNAME_VERIFICATION = new PropertyDescriptor.Builder()
+    		.name("ENABLE_TLS_HOSTNAME_VERIFICATION")
+    		.defaultValue("false")
+    		.description("It allows to validate hostname verification when client connects to broker over tls. "
+    				+ "It validates incoming x509 certificate and matches provided hostname(CN/SAN) with expected "
+    				+ "broker's host name. It follows RFC 2818, 3.1. Server Identity hostname verification.")
+    		.displayName("Enable TLS Hostname Verification")
+    		.expressionLanguageSupported(ExpressionLanguageScope.VARIABLE_REGISTRY)
+    		.required(false)
+    		.addValidator(StandardValidators.BOOLEAN_VALIDATOR)
+    		.build();
 
     public static final PropertyDescriptor IO_THREADS = new PropertyDescriptor.Builder()
             .name("IO_THREADS")
@@ -140,6 +162,15 @@ public class StandardPulsarClientService extends AbstractControllerService imple
             .defaultValue("30 sec")
             .build();
 
+    public static final PropertyDescriptor PULSAR_SERVICE_URL = new PropertyDescriptor.Builder()
+            .name("PULSAR_SERVICE_URL")
+            .displayName("Pulsar Service URL")
+            .description("URL for the Pulsar cluster, e.g. pulsar://localhost:6650")
+            .required(true)
+            .addValidator(new PulsarBrokerUrlValidator())
+            .expressionLanguageSupported(ExpressionLanguageScope.VARIABLE_REGISTRY)
+            .build();
+
     public static final PropertyDescriptor STATS_INTERVAL = new PropertyDescriptor.Builder()
             .name("STATS_INTERVAL")
             .displayName("Stats interval")
@@ -148,7 +179,7 @@ public class StandardPulsarClientService extends AbstractControllerService imple
             .addValidator(StandardValidators.TIME_PERIOD_VALIDATOR)
             .defaultValue("60 sec")
             .build();
-
+    
     public static final PropertyDescriptor USE_TCP_NO_DELAY = new PropertyDescriptor.Builder()
             .name("USE_TCP_NO_DELAY")
             .displayName("Use TCP no-delay flag")
@@ -162,18 +193,9 @@ public class StandardPulsarClientService extends AbstractControllerService imple
             .defaultValue("false")
             .build();
 
-    public static final PropertyDescriptor AUTHENTICATION_SERVICE = new PropertyDescriptor.Builder()
-            .name("AUTHENTICATION_SERVICE")
-            .displayName("Pulsar Client Authentication Service")
-            .description("Specifies the Service to use for authenticating with Pulsar.")
-            .required(false)
-            .identifiesControllerService(PulsarClientAuthenticationService.class)
-            .build();
-
     private static List<PropertyDescriptor> properties;
     private volatile PulsarClient client;
-    private boolean secure = false;
-    private String pulsarBrokerRootUrl;
+    private String brokerUrl;
 
     static {
         final List<PropertyDescriptor> props = new ArrayList<>();
@@ -188,6 +210,8 @@ public class StandardPulsarClientService extends AbstractControllerService imple
         props.add(MAXIMUM_REJECTED_REQUESTS);
         props.add(OPERATION_TIMEOUT);
         props.add(STATS_INTERVAL);
+        props.add(ALLOW_TLS_INSECURE_CONNECTION);
+        props.add(ENABLE_TLS_HOSTNAME_VERIFICATION);
         props.add(USE_TCP_NO_DELAY);
         properties = Collections.unmodifiableList(props);
     }
@@ -206,6 +230,7 @@ public class StandardPulsarClientService extends AbstractControllerService imple
     public void onEnabled(final ConfigurationContext context) throws InitializationException, UnsupportedAuthenticationException {
         try {
             client = getClientBuilder(context).build();
+            brokerUrl = context.getProperty(PULSAR_SERVICE_URL).evaluateAttributeExpressions().getValue();
         } catch (Exception e) {
             throw new InitializationException("Unable to create Pulsar Client", e);
         }
@@ -223,31 +248,17 @@ public class StandardPulsarClientService extends AbstractControllerService imple
     public PulsarClient getPulsarClient() {
         return client;
     }
-
-    @Override
-    public String getPulsarBrokerRootURL() {
-        return pulsarBrokerRootUrl;
-    }
-
-    private void setPulsarBrokerRootURL(String s) {
-        pulsarBrokerRootUrl = s;
-    }
-
-    private static String buildPulsarBrokerRootUrl(String uri, boolean tlsEnabled) {
-        StringBuilder builder = new StringBuilder().append("pulsar");
-
-        if (tlsEnabled) {
-            builder.append("+ssl");
-        }
-
-        return builder.append("://")
-                .append(uri)
-                .toString();
-    }
+    
+	@Override
+	public String getPulsarBrokerRootURL() {
+		return brokerUrl;
+	}
 
     private ClientBuilder getClientBuilder(ConfigurationContext context) throws UnsupportedAuthenticationException, MalformedURLException {
 
         ClientBuilder builder = PulsarClient.builder()
+        		.allowTlsInsecureConnection(context.getProperty(ALLOW_TLS_INSECURE_CONNECTION).evaluateAttributeExpressions().asBoolean())
+        		.enableTlsHostnameVerification(context.getProperty(ENABLE_TLS_HOSTNAME_VERIFICATION).evaluateAttributeExpressions().asBoolean())
                 .maxConcurrentLookupRequests(context.getProperty(CONCURRENT_LOOKUP_REQUESTS).evaluateAttributeExpressions().asInteger())
                 .connectionsPerBroker(context.getProperty(CONNECTIONS_PER_BROKER).evaluateAttributeExpressions().asInteger())
                 .ioThreads(context.getProperty(IO_THREADS).evaluateAttributeExpressions().asInteger())
@@ -259,7 +270,7 @@ public class StandardPulsarClientService extends AbstractControllerService imple
                 .statsInterval(context.getProperty(STATS_INTERVAL).evaluateAttributeExpressions().asTimePeriod(TimeUnit.SECONDS).intValue(), TimeUnit.SECONDS)
                 .enableTcpNoDelay(context.getProperty(USE_TCP_NO_DELAY).asBoolean());
 
-        // Configure TLS
+        // Configure Authentication
         final PulsarClientAuthenticationService authenticationService =
              context.getProperty(AUTHENTICATION_SERVICE)
                 .asControllerService(PulsarClientAuthenticationService.class);
@@ -269,12 +280,11 @@ public class StandardPulsarClientService extends AbstractControllerService imple
 
             if (StringUtils.isNotBlank(authenticationService.getTlsTrustCertsFilePath())) {
                 builder = builder.tlsTrustCertsFilePath(authenticationService.getTlsTrustCertsFilePath());
-                secure = true;
             }
         }
 
-        setPulsarBrokerRootURL(buildPulsarBrokerRootUrl(context.getProperty(PULSAR_SERVICE_URL).evaluateAttributeExpressions().getValue(), secure));
-        builder = builder.serviceUrl(getPulsarBrokerRootURL());
+        builder = builder.serviceUrl(context.getProperty(PULSAR_SERVICE_URL).evaluateAttributeExpressions().getValue());
         return builder;
     }
+
 }

@@ -29,12 +29,12 @@ public class TestStandardPulsarClientService {
         final PulsarClientService service = new StandardPulsarClientService();
         runner.addControllerService("test-good", service);
 
-        runner.setProperty(service, StandardPulsarClientService.PULSAR_SERVICE_URL, "localhost:6650");
+        runner.setProperty(service, StandardPulsarClientService.PULSAR_SERVICE_URL, "pulsar://localhost:6650");
         runner.enableControllerService(service);
 
         runner.assertValid(service);
     }
-
+    
     @Test
     public void invalidServiceUrlTest() throws InitializationException {
         final TestRunner runner = TestRunners.newTestRunner(TestProcessor.class);
