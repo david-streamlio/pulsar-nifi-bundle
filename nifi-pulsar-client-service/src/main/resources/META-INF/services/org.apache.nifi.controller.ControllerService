@@ -15,4 +15,5 @@
 org.apache.nifi.pulsar.StandardPulsarClientService
 org.apache.nifi.pulsar.auth.PulsarClientAthenzAuthenticationService
 org.apache.nifi.pulsar.auth.PulsarClientJwtAuthenticationService
+org.apache.nifi.pulsar.auth.PulsarClientOauthAuthenticationService
 org.apache.nifi.pulsar.auth.PulsarClientTlsAuthenticationService
