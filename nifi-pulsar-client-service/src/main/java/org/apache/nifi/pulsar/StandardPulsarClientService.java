@@ -48,6 +48,7 @@ import org.apache.pulsar.client.api.PulsarClientException.UnsupportedAuthenticat
 public class StandardPulsarClientService extends AbstractControllerService implements PulsarClientService {
 	
 	public static final PropertyDescriptor ALLOW_TLS_INSECURE_CONNECTION = new PropertyDescriptor.Builder()
+			.allowableValues("true", "false")
 			.name("ALLOW_TLS_INSECURE_CONNECTION")
 			.defaultValue("false")
 			.description("")
@@ -88,6 +89,7 @@ public class StandardPulsarClientService extends AbstractControllerService imple
             .build();
 
     public static final PropertyDescriptor ENABLE_TLS_HOSTNAME_VERIFICATION = new PropertyDescriptor.Builder()
+    		.allowableValues("true", "false")
     		.name("ENABLE_TLS_HOSTNAME_VERIFICATION")
     		.defaultValue("false")
     		.description("It allows to validate hostname verification when client connects to broker over tls. "
