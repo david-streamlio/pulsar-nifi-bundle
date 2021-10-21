@@ -21,17 +21,17 @@ import java.io.IOException;
 
 import org.apache.commons.collections4.map.LRUMap;
 
-public class PulsarClientLRUCache<K, V extends Closeable> extends LRUMap<K, V> {
+public class PulsarConsumerLRUCache<K, V extends Closeable> extends LRUMap<K, V> {
 
     private static final long serialVersionUID = 730163138087670453L;
     private final static float LOAD_FACTOR = 0.75F;
     private final static boolean SCAN_UNTIL_REMOVABLE = false;
 
-    public PulsarClientLRUCache(int maxSize) {
+    public PulsarConsumerLRUCache(int maxSize) {
        this(maxSize, LOAD_FACTOR, SCAN_UNTIL_REMOVABLE);
     }
 
-    public PulsarClientLRUCache(int maxSize, float loadFactor, boolean scanUntilRemovable) {
+    public PulsarConsumerLRUCache(int maxSize, float loadFactor, boolean scanUntilRemovable) {
        super(maxSize, loadFactor, scanUntilRemovable);
     }
 

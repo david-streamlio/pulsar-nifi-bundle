@@ -24,12 +24,13 @@ import org.junit.Test;
 public class TestStandardPulsarClientService {
 
     @Test
-    public void testService() throws InitializationException {
+    public void validServiceTest() throws InitializationException {
         final TestRunner runner = TestRunners.newTestRunner(TestProcessor.class);
         final PulsarClientService service = new StandardPulsarClientService();
         runner.addControllerService("test-good", service);
 
         runner.setProperty(service, StandardPulsarClientService.PULSAR_SERVICE_URL, "pulsar://localhost:6650");
+        runner.setProperty(service, StandardPulsarClientService.PULSAR_SERVICE_HTTP_URL, "http://localhost:8080");
         runner.enableControllerService(service);
 
         runner.assertValid(service);

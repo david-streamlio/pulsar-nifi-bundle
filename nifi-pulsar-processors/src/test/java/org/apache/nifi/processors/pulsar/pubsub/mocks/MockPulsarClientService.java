@@ -25,6 +25,7 @@ import java.util.concurrent.TimeUnit;
 
 import org.apache.nifi.controller.AbstractControllerService;
 import org.apache.nifi.pulsar.PulsarClientService;
+import org.apache.pulsar.client.admin.PulsarAdmin;
 import org.apache.pulsar.client.api.CompressionType;
 import org.apache.pulsar.client.api.Consumer;
 import org.apache.pulsar.client.api.ConsumerBuilder;
@@ -36,15 +37,15 @@ import org.apache.pulsar.client.api.Producer;
 import org.apache.pulsar.client.api.ProducerBuilder;
 import org.apache.pulsar.client.api.PulsarClient;
 import org.apache.pulsar.client.api.PulsarClientException;
+import org.apache.pulsar.client.api.Schema;
 import org.apache.pulsar.client.api.SubscriptionType;
 import org.apache.pulsar.client.api.TypedMessageBuilder;
-import org.mockito.ArgumentMatcher;
-import org.mockito.Matchers;
+import org.apache.pulsar.client.impl.schema.SchemaInfoImpl;
+import org.apache.pulsar.common.schema.SchemaInfo;
+import org.apache.pulsar.common.schema.SchemaType;
 import org.mockito.Mock;
 import org.mockito.invocation.InvocationOnMock;
 import org.mockito.stubbing.Answer;
-import org.mockito.stubbing.OngoingStubbing;
-
 import static org.mockito.Matchers.any;
 import static org.mockito.Matchers.anyBoolean;
 import static org.mockito.Matchers.anyInt;
@@ -52,12 +53,16 @@ import static org.mockito.Matchers.anyLong;
 import static org.mockito.Matchers.anyString;
 import static org.mockito.Mockito.doAnswer;
 
+@SuppressWarnings("unchecked")
 public class MockPulsarClientService<T> extends AbstractControllerService implements PulsarClientService {
 
     @Mock
     PulsarClient mockClient = mock(PulsarClient.class);
-
+    
     @Mock
+    PulsarAdmin mockAdmin = mock(PulsarAdmin.class);
+
+	@Mock
     ProducerBuilder<T> mockProducerBuilder = mock(ProducerBuilder.class);
 
     @Mock
@@ -74,6 +79,9 @@ public class MockPulsarClientService<T> extends AbstractControllerService implem
 
     @Mock
     protected Message<T> mockMessage;
+    
+    @Mock
+    SchemaInfo mockSchema = mock(SchemaInfo.class);
 
     @Mock
     MessageId mockMessageId = mock(MessageId.class);
@@ -83,7 +91,8 @@ public class MockPulsarClientService<T> extends AbstractControllerService implem
     public MockPulsarClientService() {
         when(mockClient.newProducer()).thenReturn((ProducerBuilder<byte[]>) mockProducerBuilder);
         when(mockClient.newConsumer()).thenReturn((ConsumerBuilder<byte[]>) mockConsumerBuilder);
-
+        when(mockClient.newConsumer(any(Schema.class))).thenReturn((ConsumerBuilder<byte[]>) mockConsumerBuilder);
+        
         when(mockProducerBuilder.topic(anyString())).thenReturn(mockProducerBuilder);
         when(mockProducerBuilder.enableBatching(anyBoolean())).thenReturn(mockProducerBuilder);
         when(mockProducerBuilder.batchingMaxMessages(anyInt())).thenReturn(mockProducerBuilder);
@@ -102,6 +111,8 @@ public class MockPulsarClientService<T> extends AbstractControllerService implem
         when(mockConsumerBuilder.priorityLevel(anyInt())).thenReturn(mockConsumerBuilder);
         when(mockConsumerBuilder.receiverQueueSize(anyInt())).thenReturn(mockConsumerBuilder);
         when(mockConsumerBuilder.subscriptionType(any(SubscriptionType.class))).thenReturn(mockConsumerBuilder);
+        
+        when(mockSchema.getType()).thenReturn(SchemaType.BYTES);
 
         try {
             when(mockConsumerBuilder.subscribe()).thenReturn(mockConsumer);
@@ -199,9 +210,24 @@ public class MockPulsarClientService<T> extends AbstractControllerService implem
     public PulsarClient getPulsarClient() {
       return mockClient;
     }
+    
+    @Override
+    public PulsarAdmin getPulsarAdmin() {
+    	return mockAdmin;
+    }
 
     @Override
     public String getPulsarBrokerRootURL() {
        return "pulsar://mocked:6650";
     }
+
+	@Override
+	public SchemaInfo getTopicSchema(String[] topicNames) {
+		return mockSchema;
+	}
+
+	@Override
+	public SchemaInfo getTopicSchemaByRegex(String regex) {
+		return mockSchema;
+	}
 }

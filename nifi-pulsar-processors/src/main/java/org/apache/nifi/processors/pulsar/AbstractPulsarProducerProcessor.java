@@ -48,7 +48,7 @@ import org.apache.nifi.processor.ProcessSession;
 import org.apache.nifi.processor.Relationship;
 import org.apache.nifi.processor.util.StandardValidators;
 import org.apache.nifi.pulsar.PulsarClientService;
-import org.apache.nifi.pulsar.cache.PulsarClientLRUCache;
+import org.apache.nifi.pulsar.cache.PulsarConsumerLRUCache;
 import org.apache.nifi.util.StringUtils;
 import org.apache.pulsar.client.api.CompressionType;
 import org.apache.pulsar.client.api.MessageId;
@@ -271,7 +271,7 @@ public abstract class AbstractPulsarProducerProcessor<T> extends AbstractProcess
     }
 
     private PulsarClientService pulsarClientService;
-    private PulsarClientLRUCache<String, Producer<T>> producers;
+    private PulsarConsumerLRUCache<String, Producer<T>> producers;
     private ExecutorService publisherPool;
 
     // Used to sync between onTrigger method and shutdown code block.
@@ -441,14 +441,14 @@ public abstract class AbstractPulsarProducerProcessor<T> extends AbstractProcess
        this.pulsarClientService = pulsarClientService;
     }
 
-    protected synchronized PulsarClientLRUCache<String, Producer<T>> getProducers() {
+    protected synchronized PulsarConsumerLRUCache<String, Producer<T>> getProducers() {
        if (producers == null) {
-         producers = new PulsarClientLRUCache<String, Producer<T>>(20);
+         producers = new PulsarConsumerLRUCache<String, Producer<T>>(20);
        }
        return producers;
     }
 
-    protected synchronized void setProducers(PulsarClientLRUCache<String, Producer<T>> producers) {
+    protected synchronized void setProducers(PulsarConsumerLRUCache<String, Producer<T>> producers) {
        this.producers = producers;
     }
 

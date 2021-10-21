@@ -47,8 +47,9 @@ import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSession;
 import org.apache.nifi.processor.Relationship;
 import org.apache.nifi.processor.util.StandardValidators;
+import org.apache.nifi.processors.pulsar.util.ConsumerBuilderFactory;
 import org.apache.nifi.pulsar.PulsarClientService;
-import org.apache.nifi.pulsar.cache.PulsarClientLRUCache;
+import org.apache.nifi.pulsar.cache.PulsarConsumerLRUCache;
 import org.apache.nifi.util.StringUtils;
 import org.apache.pulsar.client.api.Consumer;
 import org.apache.pulsar.client.api.ConsumerBuilder;
@@ -263,7 +264,8 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
     }
 
     private PulsarClientService pulsarClientService;
-    private PulsarClientLRUCache<String, Consumer<T>> consumers;
+    private ConsumerBuilderFactory consumerFactory;
+    private PulsarConsumerLRUCache<String, Consumer<T>> consumers;
     private ExecutorService consumerPool;
     private ExecutorCompletionService<List<Message<T>>> consumerService;
     private ExecutorService ackPool;
@@ -311,6 +313,7 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
         }
 
         setPulsarClientService(context.getProperty(PULSAR_CLIENT_SERVICE).asControllerService(PulsarClientService.class));
+        consumerFactory = new ConsumerBuilderFactory(getPulsarClientService().getPulsarClient());
     }
 
     @OnUnscheduled
@@ -411,15 +414,22 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
         return (consumer != null && consumer.isConnected()) ? consumer : null;
     }
 
-    protected synchronized ConsumerBuilder<T> getConsumerBuilder(ProcessContext context) throws PulsarClientException {
-
-        ConsumerBuilder<T> builder = (ConsumerBuilder<T>) getPulsarClientService().getPulsarClient().newConsumer();
+    @SuppressWarnings("unchecked")
+	protected synchronized ConsumerBuilder<T> getConsumerBuilder(ProcessContext context) throws PulsarClientException {
+    	
+        @SuppressWarnings("rawtypes")
+		ConsumerBuilder builder = null;
 
         if (context.getProperty(TOPICS).isSet()) {
-            builder = builder.topic(Arrays.stream(context.getProperty(TOPICS).evaluateAttributeExpressions().getValue().split("[, ]"))
-                    .map(String::trim).toArray(String[]::new));
+        	String[] topics = Arrays.stream(context.getProperty(TOPICS).evaluateAttributeExpressions().getValue().split("[, ]"))
+                    .map(String::trim).toArray(String[]::new);
+        	
+        	builder = this.consumerFactory.build(getPulsarClientService().getTopicSchema(topics));
+            builder = builder.topic(topics);
         } else if (context.getProperty(TOPICS_PATTERN).isSet()) {
-            builder = builder.topicsPattern(context.getProperty(TOPICS_PATTERN).getValue());
+        	String topicsPattern = context.getProperty(TOPICS_PATTERN).getValue();
+        	builder = consumerFactory.build(getPulsarClientService().getTopicSchemaByRegex(topicsPattern));
+            builder = builder.topicsPattern(topicsPattern);
         }
 
         if (context.getProperty(CONSUMER_NAME).isSet()) {
@@ -433,7 +443,7 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
                 .subscriptionType(SubscriptionType.valueOf(context.getProperty(SUBSCRIPTION_TYPE).getValue()));
     }
 
-    protected synchronized ExecutorService getConsumerPool() {
+	protected synchronized ExecutorService getConsumerPool() {
         return consumerPool;
     }
 
@@ -473,14 +483,14 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
        this.pulsarClientService = pulsarClientService;
     }
 
-    protected synchronized PulsarClientLRUCache<String, Consumer<T>> getConsumers() {
+    protected synchronized PulsarConsumerLRUCache<String, Consumer<T>> getConsumers() {
         if (consumers == null) {
-           consumers = new PulsarClientLRUCache<String, Consumer<T>>(20);
+           consumers = new PulsarConsumerLRUCache<String, Consumer<T>>(20);
         }
         return consumers;
     }
 
-    protected void setConsumers(PulsarClientLRUCache<String, Consumer<T>> consumers) {
+    protected void setConsumers(PulsarConsumerLRUCache<String, Consumer<T>> consumers) {
         this.consumers = consumers;
     }
 

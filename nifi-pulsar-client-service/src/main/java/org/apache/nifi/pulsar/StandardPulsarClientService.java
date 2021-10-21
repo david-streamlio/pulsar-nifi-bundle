@@ -36,10 +36,15 @@ import org.apache.nifi.processor.util.StandardValidators;
 import org.apache.nifi.pulsar.auth.PulsarClientAuthenticationService;
 import org.apache.nifi.pulsar.validator.PulsarBrokerUrlValidator;
 import org.apache.nifi.reporting.InitializationException;
+import org.apache.pulsar.client.admin.PulsarAdmin;
+import org.apache.pulsar.client.admin.PulsarAdminBuilder;
+import org.apache.pulsar.client.admin.PulsarAdminException;
 import org.apache.pulsar.client.api.ClientBuilder;
 import org.apache.pulsar.client.api.PulsarClient;
 import org.apache.pulsar.client.api.PulsarClientException;
 import org.apache.pulsar.client.api.PulsarClientException.UnsupportedAuthenticationException;
+import org.apache.pulsar.common.protocol.schema.IsCompatibilityResponse;
+import org.apache.pulsar.common.schema.SchemaInfo;
 
 @Tags({"Pulsar", "client", "pool"})
 @CapabilityDescription("Standard implementation of the PulsarClientService. "
@@ -53,9 +58,7 @@ public class StandardPulsarClientService extends AbstractControllerService imple
 			.defaultValue("false")
 			.description("")
 			.displayName("Allow TLS Insecure Connection")
-			.expressionLanguageSupported(ExpressionLanguageScope.VARIABLE_REGISTRY)
 			.required(false)
-			.addValidator(StandardValidators.BOOLEAN_VALIDATOR)
 			.build();
 	
     public static final PropertyDescriptor AUTHENTICATION_SERVICE = new PropertyDescriptor.Builder()
@@ -96,9 +99,7 @@ public class StandardPulsarClientService extends AbstractControllerService imple
     				+ "It validates incoming x509 certificate and matches provided hostname(CN/SAN) with expected "
     				+ "broker's host name. It follows RFC 2818, 3.1. Server Identity hostname verification.")
     		.displayName("Enable TLS Hostname Verification")
-    		.expressionLanguageSupported(ExpressionLanguageScope.VARIABLE_REGISTRY)
     		.required(false)
-    		.addValidator(StandardValidators.BOOLEAN_VALIDATOR)
     		.build();
 
     public static final PropertyDescriptor IO_THREADS = new PropertyDescriptor.Builder()
@@ -173,6 +174,15 @@ public class StandardPulsarClientService extends AbstractControllerService imple
             .addValidator(new PulsarBrokerUrlValidator())
             .expressionLanguageSupported(ExpressionLanguageScope.VARIABLE_REGISTRY)
             .build();
+    
+    public static final PropertyDescriptor PULSAR_SERVICE_HTTP_URL = new PropertyDescriptor.Builder()
+            .name("PULSAR_SERVICE_HTTP_URL")
+            .displayName("Pulsar Service HTTP URL")
+            .description("URL for the administrative endpoint of the Pulsar cluster, e.g. pulsar://localhost:8080")
+            .required(true)
+            .addValidator(StandardValidators.URL_VALIDATOR)
+            .expressionLanguageSupported(ExpressionLanguageScope.VARIABLE_REGISTRY)
+            .build();
 
     public static final PropertyDescriptor STATS_INTERVAL = new PropertyDescriptor.Builder()
             .name("STATS_INTERVAL")
@@ -199,11 +209,13 @@ public class StandardPulsarClientService extends AbstractControllerService imple
 
     private static List<PropertyDescriptor> properties;
     private volatile PulsarClient client;
+    private volatile PulsarAdmin admin;
     private String brokerUrl;
 
     static {
         final List<PropertyDescriptor> props = new ArrayList<>();
         props.add(PULSAR_SERVICE_URL);
+        props.add(PULSAR_SERVICE_HTTP_URL);
         props.add(AUTHENTICATION_SERVICE);
         props.add(CONCURRENT_LOOKUP_REQUESTS);
         props.add(CONNECTIONS_PER_BROKER);
@@ -233,10 +245,11 @@ public class StandardPulsarClientService extends AbstractControllerService imple
     @OnEnabled
     public void onEnabled(final ConfigurationContext context) throws InitializationException, UnsupportedAuthenticationException {
         try {
-            client = getClientBuilder(context).build();
+            client = getClient(context);
+            admin = getAdmin(context);
             brokerUrl = context.getProperty(PULSAR_SERVICE_URL).evaluateAttributeExpressions().getValue();
         } catch (Exception e) {
-            throw new InitializationException("Unable to create Pulsar Client", e);
+            throw new InitializationException("Unable to connect to the Pulsar cluster ", e);
         }
     }
 
@@ -246,6 +259,10 @@ public class StandardPulsarClientService extends AbstractControllerService imple
         if (client != null) {
            client.close();
         }
+        
+        if (admin != null) {
+        	admin.close();
+        }
     }
 
     @Override
@@ -253,16 +270,51 @@ public class StandardPulsarClientService extends AbstractControllerService imple
         return client;
     }
     
+    @Override
+    public PulsarAdmin getPulsarAdmin() {
+    	return admin;
+    }
+    
 	@Override
 	public String getPulsarBrokerRootURL() {
 		return brokerUrl;
 	}
+	
+	public SchemaInfo getTopicSchema(String[] topicNames) {
+	    if (topicNames == null || topicNames.length < 1) {
+	    	return null;
+	    }
 
-    private ClientBuilder getClientBuilder(ConfigurationContext context) throws UnsupportedAuthenticationException, MalformedURLException {
+	    SchemaInfo info = null;
+
+	    try {
+	    	for (String topic : topicNames) {
+	    		if (info == null) {
+	    			info = getPulsarAdmin().schemas().getSchemaInfo(topic);
+	    		} else {
+	    			IsCompatibilityResponse resp = getPulsarAdmin().schemas().testCompatibility(topic, info);
+	    			if (!resp.isCompatibility()) {
+	    				// The specified topics have incompatible schema types.
+	    				return null;
+	   				}
+	   			}
+	   		}
+
+	   	} catch (final PulsarAdminException paEx) {
+	  		getLogger().error("Unable to retrieve topic schema information", paEx);
+	   	}
+	   	return info;
+	}
+	    
+	public SchemaInfo getTopicSchemaByRegex(String regex) {
+	  return null;
+	}
+
+    private PulsarClient getClient(ConfigurationContext context) throws MalformedURLException, PulsarClientException {
 
         ClientBuilder builder = PulsarClient.builder()
-        		.allowTlsInsecureConnection(context.getProperty(ALLOW_TLS_INSECURE_CONNECTION).evaluateAttributeExpressions().asBoolean())
-        		.enableTlsHostnameVerification(context.getProperty(ENABLE_TLS_HOSTNAME_VERIFICATION).evaluateAttributeExpressions().asBoolean())
+        		.allowTlsInsecureConnection(context.getProperty(ALLOW_TLS_INSECURE_CONNECTION).asBoolean())
+        		.enableTlsHostnameVerification(context.getProperty(ENABLE_TLS_HOSTNAME_VERIFICATION).asBoolean())
                 .maxConcurrentLookupRequests(context.getProperty(CONCURRENT_LOOKUP_REQUESTS).evaluateAttributeExpressions().asInteger())
                 .connectionsPerBroker(context.getProperty(CONNECTIONS_PER_BROKER).evaluateAttributeExpressions().asInteger())
                 .ioThreads(context.getProperty(IO_THREADS).evaluateAttributeExpressions().asInteger())
@@ -288,7 +340,29 @@ public class StandardPulsarClientService extends AbstractControllerService imple
         }
 
         builder = builder.serviceUrl(context.getProperty(PULSAR_SERVICE_URL).evaluateAttributeExpressions().getValue());
-        return builder;
+        return builder.build();
+    }
+    
+    private PulsarAdmin getAdmin(ConfigurationContext context) throws PulsarClientException {
+    	PulsarAdminBuilder builder = PulsarAdmin.builder()
+    			.allowTlsInsecureConnection(context.getProperty(ALLOW_TLS_INSECURE_CONNECTION).asBoolean())
+        		.enableTlsHostnameVerification(context.getProperty(ENABLE_TLS_HOSTNAME_VERIFICATION).asBoolean())
+        		.serviceHttpUrl(context.getProperty(PULSAR_SERVICE_HTTP_URL).evaluateAttributeExpressions().getValue());
+    	
+    	// Configure Authentication
+        final PulsarClientAuthenticationService authenticationService =
+             context.getProperty(AUTHENTICATION_SERVICE)
+                .asControllerService(PulsarClientAuthenticationService.class);
+
+        if (authenticationService != null) {
+            builder = builder.authentication(authenticationService.getAuthentication());
+            
+            if (StringUtils.isNotBlank(authenticationService.getTlsTrustCertsFilePath())) {
+                builder = builder.tlsTrustCertsFilePath(authenticationService.getTlsTrustCertsFilePath());
+            }
+        }
+        
+    	return builder.build();
     }
 
 }

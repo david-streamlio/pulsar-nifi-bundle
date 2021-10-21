@@ -44,7 +44,7 @@ public class PulsarClientLRUCacheTest {
      */
     @Test
     public void simpleTest() {
-      PulsarClientLRUCache<String, Producer> cache = new PulsarClientLRUCache<String, Producer>(10);
+      PulsarConsumerLRUCache<String, Producer> cache = new PulsarConsumerLRUCache<String, Producer>(10);
 
       for (Character i='A'; i<='E'; i++){
          cache.put(i.toString(), mockedPulsarProducer);
@@ -60,7 +60,7 @@ public class PulsarClientLRUCacheTest {
     @Test
     public void evictionTest() {
 
-      PulsarClientLRUCache<String, Producer> cache = new PulsarClientLRUCache<String, Producer>(5);
+      PulsarConsumerLRUCache<String, Producer> cache = new PulsarConsumerLRUCache<String, Producer>(5);
 
       for (Character i='A'; i<='Z'; i++){
          cache.put(i.toString(), mockedPulsarProducer);
@@ -78,7 +78,7 @@ public class PulsarClientLRUCacheTest {
     @Test
     public void evictionLruTest() {
 
-      PulsarClientLRUCache<String, Producer> cache = new PulsarClientLRUCache<String, Producer>(5);
+      PulsarConsumerLRUCache<String, Producer> cache = new PulsarConsumerLRUCache<String, Producer>(5);
 
       final Character A = 'A';
 
@@ -102,7 +102,7 @@ public class PulsarClientLRUCacheTest {
 
     @Test
     public void clearTest() throws PulsarClientException {
-       PulsarClientLRUCache<String, Producer> cache = new PulsarClientLRUCache<String, Producer>(26);
+       PulsarConsumerLRUCache<String, Producer> cache = new PulsarConsumerLRUCache<String, Producer>(26);
 
        for (Character i='A'; i<='Z'; i++) {
           cache.put(i.toString(), mockedPulsarProducer);
