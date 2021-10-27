@@ -19,9 +19,7 @@ package org.apache.nifi.pulsar;
 import org.apache.nifi.annotation.documentation.CapabilityDescription;
 import org.apache.nifi.annotation.documentation.Tags;
 import org.apache.nifi.controller.ControllerService;
-import org.apache.pulsar.client.admin.PulsarAdmin;
 import org.apache.pulsar.client.api.PulsarClient;
-import org.apache.pulsar.common.schema.SchemaInfo;
 
 @Tags({"Pulsar", "client", "pool"})
 @CapabilityDescription("Provides the ability to create Pulsar Producer / Consumer instances on demand, "
@@ -29,13 +27,7 @@ import org.apache.pulsar.common.schema.SchemaInfo;
 public interface PulsarClientService extends ControllerService {
 
     public PulsarClient getPulsarClient();
-    
-    public PulsarAdmin getPulsarAdmin();
 
     public String getPulsarBrokerRootURL();
     
-    public SchemaInfo getTopicSchema(String[] topicNames);
-    
-    public SchemaInfo getTopicSchemaByRegex(String regex);
-
 }

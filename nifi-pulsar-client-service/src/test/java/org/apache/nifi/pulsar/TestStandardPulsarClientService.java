@@ -30,7 +30,6 @@ public class TestStandardPulsarClientService {
         runner.addControllerService("test-good", service);
 
         runner.setProperty(service, StandardPulsarClientService.PULSAR_SERVICE_URL, "pulsar://localhost:6650");
-        runner.setProperty(service, StandardPulsarClientService.PULSAR_SERVICE_HTTP_URL, "http://localhost:8080");
         runner.enableControllerService(service);
 
         runner.assertValid(service);

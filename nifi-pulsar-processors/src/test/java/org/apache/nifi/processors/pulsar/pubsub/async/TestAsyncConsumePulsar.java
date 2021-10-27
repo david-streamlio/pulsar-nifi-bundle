@@ -52,7 +52,7 @@ public class TestAsyncConsumePulsar extends TestConsumePulsar {
 
     @Test
     public void emptyMessageTest() {
-        when(mockMessage.getValue()).thenReturn("".getBytes());
+        when(mockMessage.getData()).thenReturn("".getBytes());
         mockClientService.setMockMessage(mockMessage);
 
         runner.setProperty(ConsumePulsar.TOPICS, "foo");
@@ -74,25 +74,6 @@ public class TestAsyncConsumePulsar extends TestConsumePulsar {
     @Test
     public void multipleMessagesTest() throws PulsarClientException {
         this.sendMessages("Mocked Message", "foo", "bar", true, 40);
-    }
-
-    /*
-     * Verify that the consumer gets closed.
-     */
-    @Test
-    public void onStoppedTest() throws NoSuchMethodException, SecurityException, PulsarClientException {
-        when(mockMessage.getValue()).thenReturn("Mocked Message".getBytes());
-        mockClientService.setMockMessage(mockMessage);
-
-        runner.setProperty(ConsumePulsar.TOPICS, "foo");
-        runner.setProperty(ConsumePulsar.SUBSCRIPTION_NAME, "bar");
-        runner.run(10, true);
-        runner.assertAllFlowFilesTransferred(ConsumePulsar.REL_SUCCESS);
-
-        runner.assertQueueEmpty();
-
-        // Verify that the consumer was closed
-        verify(mockClientService.getMockConsumer(), times(1)).close();
     }
 
     @Test

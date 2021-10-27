@@ -23,6 +23,7 @@ import org.apache.nifi.util.TestRunners;
 import org.apache.pulsar.client.api.Message;
 import org.apache.pulsar.client.api.PulsarClientException;
 import org.apache.pulsar.client.api.SubscriptionType;
+import org.apache.pulsar.client.api.schema.GenericRecord;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -31,8 +32,6 @@ import org.mockito.junit.MockitoJUnit;
 import org.mockito.junit.MockitoRule;
 
 import static org.junit.Assert.assertEquals;
-
-import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -44,11 +43,12 @@ import java.util.concurrent.TimeUnit;
 public class TestConsumePulsar extends AbstractPulsarProcessorTest<byte[]> {
 
     @Mock
-    protected Message<byte[]> mockMessage;
+    protected Message<GenericRecord> mockMessage;
 
     @Rule public MockitoRule mockitoRule = MockitoJUnit.rule();
 
-    @Before
+    @SuppressWarnings("unchecked")
+	@Before
     public void init() throws InitializationException {
         runner = TestRunners.newTestRunner(ConsumePulsar.class);
         mockMessage = mock(Message.class);
@@ -94,38 +94,10 @@ public class TestConsumePulsar extends AbstractPulsarProcessorTest<byte[]> {
     public void multipleAsyncMessagesBatchSharedSubTest() throws PulsarClientException {
     	this.batchMessages("Mocked Message", "foo", "bar", true, 40, "Shared");
     }
-    
-    /*
-     * Verify that the consumer gets closed.
-     */
-    @Test
-    public void onStoppedTest() throws NoSuchMethodException, SecurityException, PulsarClientException {
-        when(mockMessage.getValue()).thenReturn("Mocked Message".getBytes());
-        mockClientService.setMockMessage(mockMessage);
-
-        runner.setProperty(ConsumePulsar.TOPICS, "foo");
-        runner.setProperty(ConsumePulsar.SUBSCRIPTION_NAME, "bar");
-        runner.setProperty(ConsumePulsar.SUBSCRIPTION_TYPE, "Exclusive");
-        runner.run(10, true);
-        runner.assertAllFlowFilesTransferred(ConsumePulsar.REL_SUCCESS);
-
-        runner.assertQueueEmpty();
-
-        // Verify that the receive method on the consumer was called 10 times
-        int batchSize = Integer.parseInt(ConsumePulsar.CONSUMER_BATCH_SIZE.getDefaultValue());
-        verify(mockClientService.getMockConsumer(), atLeast(10 * batchSize)).receive(0, TimeUnit.SECONDS);
-
-        // Verify that each message was acknowledged
-        verify(mockClientService.getMockConsumer(), times(10)).acknowledgeCumulative(mockMessage);
-
-        // Verify that the consumer was closed
-        verify(mockClientService.getMockConsumer(), times(1)).close();
-
-    }
 
     @Test
     public void keySharedTest() throws PulsarClientException {
-    	when(mockMessage.getValue()).thenReturn("Mocked Message".getBytes());
+    	when(mockMessage.getData()).thenReturn("Mocked Message".getBytes());
     	mockClientService.setMockMessage(mockMessage);
     	
     	runner.setProperty(ConsumePulsar.TOPICS, "foo");
@@ -144,7 +116,7 @@ public class TestConsumePulsar extends AbstractPulsarProcessorTest<byte[]> {
     }
     
     protected void batchMessages(String msg, String topic, String sub, boolean async, int batchSize, String subType) throws PulsarClientException {
-        when(mockMessage.getValue()).thenReturn(msg.getBytes());
+        when(mockMessage.getData()).thenReturn(msg.getBytes());
         mockClientService.setMockMessage(mockMessage);
 
         runner.setProperty(ConsumePulsar.ASYNC_ENABLED, Boolean.toString(async));
@@ -200,7 +172,7 @@ public class TestConsumePulsar extends AbstractPulsarProcessorTest<byte[]> {
     
     protected void sendMessages(String msg, String topic, String sub, boolean async, int iterations, String subType) throws PulsarClientException {
 
-        when(mockMessage.getValue()).thenReturn(msg.getBytes());
+        when(mockMessage.getData()).thenReturn(msg.getBytes());
         mockClientService.setMockMessage(mockMessage);
 
         runner.setProperty(ConsumePulsar.ASYNC_ENABLED, Boolean.toString(async));
@@ -240,9 +212,24 @@ public class TestConsumePulsar extends AbstractPulsarProcessorTest<byte[]> {
     }
 
     protected void doMappedAttributesTest() throws PulsarClientException {
-        when(mockMessage.getValue()).thenReturn("A".getBytes()).thenReturn("B".getBytes()).thenReturn("C".getBytes()).thenReturn("D".getBytes());
-        when(mockMessage.getProperty("prop")).thenReturn(null).thenReturn(null).thenReturn("val").thenReturn("val");
-        when(mockMessage.getKey()).thenReturn(null).thenReturn(null).thenReturn(null).thenReturn("K");
+        when(mockMessage.getData())
+          .thenReturn("A".getBytes())
+          .thenReturn("B".getBytes())
+          .thenReturn("C".getBytes())
+          .thenReturn("D".getBytes());
+        
+        when(mockMessage.getProperty("prop"))
+          .thenReturn(null)
+          .thenReturn(null)
+          .thenReturn("val")
+          .thenReturn("val");
+        
+        when(mockMessage.getKey())
+          .thenReturn(null)
+          .thenReturn(null)
+          .thenReturn(null)
+          .thenReturn("K");
+        
         mockClientService.setMockMessage(mockMessage);
 
         runner.setProperty(ConsumePulsar.MAPPED_FLOWFILE_ATTRIBUTES, "prop,key=__KEY__");

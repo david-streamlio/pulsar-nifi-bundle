@@ -40,7 +40,7 @@ import org.apache.pulsar.client.api.PulsarClientException;
 import org.apache.pulsar.client.api.Schema;
 import org.apache.pulsar.client.api.SubscriptionType;
 import org.apache.pulsar.client.api.TypedMessageBuilder;
-import org.apache.pulsar.client.impl.schema.SchemaInfoImpl;
+import org.apache.pulsar.client.api.schema.GenericRecord;
 import org.apache.pulsar.common.schema.SchemaInfo;
 import org.apache.pulsar.common.schema.SchemaType;
 import org.mockito.Mock;
@@ -66,19 +66,19 @@ public class MockPulsarClientService<T> extends AbstractControllerService implem
     ProducerBuilder<T> mockProducerBuilder = mock(ProducerBuilder.class);
 
     @Mock
-    ConsumerBuilder<T> mockConsumerBuilder = mock(ConsumerBuilder.class);
+    ConsumerBuilder<GenericRecord> mockConsumerBuilder = mock(ConsumerBuilder.class);
 
     @Mock
     Producer<T> mockProducer = mock(Producer.class);
 
     @Mock
-    Consumer<T> mockConsumer = mock(Consumer.class);
+    Consumer<GenericRecord> mockConsumer = mock(Consumer.class);
 
     @Mock
     TypedMessageBuilder<T> mockTypedMessageBuilder = mock(TypedMessageBuilder.class);
 
     @Mock
-    protected Message<T> mockMessage;
+    protected Message<GenericRecord> mockMessage;
     
     @Mock
     SchemaInfo mockSchema = mock(SchemaInfo.class);
@@ -90,8 +90,8 @@ public class MockPulsarClientService<T> extends AbstractControllerService implem
 
     public MockPulsarClientService() {
         when(mockClient.newProducer()).thenReturn((ProducerBuilder<byte[]>) mockProducerBuilder);
-        when(mockClient.newConsumer()).thenReturn((ConsumerBuilder<byte[]>) mockConsumerBuilder);
-        when(mockClient.newConsumer(any(Schema.class))).thenReturn((ConsumerBuilder<byte[]>) mockConsumerBuilder);
+        when(mockClient.newConsumer(Schema.AUTO_CONSUME())).thenReturn((ConsumerBuilder<GenericRecord>) mockConsumerBuilder);
+        when(mockClient.newConsumer(any(Schema.class))).thenReturn((ConsumerBuilder<GenericRecord>) mockConsumerBuilder);
         
         when(mockProducerBuilder.topic(anyString())).thenReturn(mockProducerBuilder);
         when(mockProducerBuilder.enableBatching(anyBoolean())).thenReturn(mockProducerBuilder);
@@ -118,8 +118,8 @@ public class MockPulsarClientService<T> extends AbstractControllerService implem
             when(mockConsumerBuilder.subscribe()).thenReturn(mockConsumer);
             when(mockConsumer.isConnected()).thenReturn(true);
             when(mockConsumer.receive()).thenReturn(mockMessage);
-            doAnswer(new Answer<Message<T>>() {
-               public Message<T> answer(InvocationOnMock invocation) {
+            doAnswer(new Answer<Message<GenericRecord>>() {
+               public Message<GenericRecord> answer(InvocationOnMock invocation) {
                        return mockMessage;
                }
              }).when(mockConsumer).receive(0, TimeUnit.SECONDS);
@@ -131,8 +131,8 @@ public class MockPulsarClientService<T> extends AbstractControllerService implem
         }
     }
 
-    public void setMockMessage(Message<T> msg) {
-        this.mockMessage = msg;
+    public void setMockMessage(Message<GenericRecord> mockMessage2) {
+        this.mockMessage = mockMessage2;
 
         // Configure the consumer behavior
         try {
@@ -141,7 +141,7 @@ public class MockPulsarClientService<T> extends AbstractControllerService implem
           e.printStackTrace();
         }
 
-        CompletableFuture<Message<T>> future = CompletableFuture.supplyAsync(() -> {
+        CompletableFuture<Message<GenericRecord>> future = CompletableFuture.supplyAsync(() -> {
            return mockMessage;
         });
 
@@ -190,7 +190,7 @@ public class MockPulsarClientService<T> extends AbstractControllerService implem
         }
     }
 
-    public Consumer<T> getMockConsumer() {
+    public Consumer<GenericRecord> getMockConsumer() {
       return mockConsumer;
     }
 
@@ -198,7 +198,7 @@ public class MockPulsarClientService<T> extends AbstractControllerService implem
       return mockProducerBuilder;
     }
 
-    public ConsumerBuilder<T> getMockConsumerBuilder() {
+    public ConsumerBuilder<GenericRecord> getMockConsumerBuilder() {
       return mockConsumerBuilder;
     }
 
@@ -210,24 +210,10 @@ public class MockPulsarClientService<T> extends AbstractControllerService implem
     public PulsarClient getPulsarClient() {
       return mockClient;
     }
-    
-    @Override
-    public PulsarAdmin getPulsarAdmin() {
-    	return mockAdmin;
-    }
 
     @Override
     public String getPulsarBrokerRootURL() {
        return "pulsar://mocked:6650";
     }
 
-	@Override
-	public SchemaInfo getTopicSchema(String[] topicNames) {
-		return mockSchema;
-	}
-
-	@Override
-	public SchemaInfo getTopicSchemaByRegex(String regex) {
-		return mockSchema;
-	}
 }

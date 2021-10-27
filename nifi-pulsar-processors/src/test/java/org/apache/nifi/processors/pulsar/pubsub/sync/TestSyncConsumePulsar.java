@@ -28,7 +28,6 @@ import java.util.concurrent.TimeUnit;
 import org.apache.nifi.processors.pulsar.pubsub.ConsumePulsar;
 import org.apache.nifi.processors.pulsar.pubsub.TestConsumePulsar;
 import org.apache.nifi.util.MockFlowFile;
-import org.apache.pulsar.client.api.Message;
 import org.apache.pulsar.client.api.PulsarClientException;
 import org.junit.Test;
 
@@ -73,7 +72,7 @@ public class TestSyncConsumePulsar extends TestConsumePulsar {
     @Test
     public void emptyMessageTest() throws PulsarClientException {
         when(mockClientService.getMockConsumer().receive(0, TimeUnit.SECONDS)).thenReturn(mockMessage).thenReturn(null);
-        when(mockMessage.getValue()).thenReturn("".getBytes());
+        when(mockMessage.getData()).thenReturn("".getBytes());
         mockClientService.setMockMessage(mockMessage);
 
         runner.setProperty(ConsumePulsar.TOPICS, "foo");
@@ -102,27 +101,6 @@ public class TestSyncConsumePulsar extends TestConsumePulsar {
     @Test
     public final void batchMessageTest() throws PulsarClientException {
         this.batchMessages("Mocked Message", "foo", "bar", false, 400);
-    }
-
-    /*
-     * Verify that the consumer gets closed.
-     */
-    @Test
-    public void onStoppedTest() throws PulsarClientException {
-        when(mockMessage.getValue()).thenReturn("Mocked Message".getBytes());
-        mockClientService.setMockMessage(mockMessage);
-
-        runner.setProperty(ConsumePulsar.TOPICS, "foo");
-        runner.setProperty(ConsumePulsar.SUBSCRIPTION_NAME, "bar");
-        runner.setProperty(ConsumePulsar.CONSUMER_BATCH_SIZE, 1 + "");
-        runner.setProperty(ConsumePulsar.SUBSCRIPTION_TYPE, "Exclusive");
-        runner.run(1, true);
-        runner.assertAllFlowFilesTransferred(ConsumePulsar.REL_SUCCESS);
-
-        runner.assertQueueEmpty();
-
-        // Verify that the consumer was closed
-        verify(mockClientService.getMockConsumer(), times(1)).close();
     }
 
     @Test
