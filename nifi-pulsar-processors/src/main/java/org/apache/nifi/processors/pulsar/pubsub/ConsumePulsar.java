@@ -42,6 +42,7 @@ import org.apache.nifi.processors.pulsar.AbstractPulsarConsumerProcessor;
 import org.apache.pulsar.client.api.Consumer;
 import org.apache.pulsar.client.api.Message;
 import org.apache.pulsar.client.api.PulsarClientException;
+import org.apache.pulsar.client.api.schema.GenericRecord;
 import org.apache.commons.io.IOUtils;
 
 @SeeAlso({PublishPulsar.class, ConsumePulsarRecord.class, PublishPulsarRecord.class})
@@ -58,7 +59,7 @@ public class ConsumePulsar extends AbstractPulsarConsumerProcessor<byte[]> {
     @Override
     public void onTrigger(ProcessContext context, ProcessSession session) throws ProcessException {
         try {
-            Consumer<byte[]> consumer = getConsumer(context, getConsumerId(context, session.get()));
+            Consumer<GenericRecord> consumer = getConsumer(context, getConsumerId(context, session.get()));
 
             if (consumer == null) {
                 context.yield();
@@ -78,9 +79,9 @@ public class ConsumePulsar extends AbstractPulsarConsumerProcessor<byte[]> {
         }
     }
 
-    private void handleAsync(final Consumer<byte[]> consumer, ProcessContext context, ProcessSession session) {
+    private void handleAsync(final Consumer<GenericRecord> consumer, ProcessContext context, ProcessSession session) {
         try {
-            Future<List<Message<byte[]>>> done = getConsumerService().poll(5, TimeUnit.SECONDS);
+            Future<List<Message<GenericRecord>>> done = getConsumerService().poll(5, TimeUnit.SECONDS);
 
             if (done != null) {
 
@@ -90,7 +91,7 @@ public class ConsumePulsar extends AbstractPulsarConsumerProcessor<byte[]> {
                 // Cumulative acks are NOT permitted on Shared subscriptions.
                 final boolean shared = isSharedSubscription(context);
                 
-                List<Message<byte[]>> messages = done.get();
+                List<Message<GenericRecord>> messages = done.get();
 
                 if (CollectionUtils.isNotEmpty(messages)) {
                     FlowFile flowFile = null;
@@ -98,10 +99,10 @@ public class ConsumePulsar extends AbstractPulsarConsumerProcessor<byte[]> {
                     AtomicInteger msgCount = new AtomicInteger(0);
 
                     Map<String, String> lastAttributes = null;
-                    Message<byte[]> lastMessage = null;
+                    Message<GenericRecord> lastMessage = null;
                     Map<String, String> currentAttributes = null;
 
-                    for (Message<byte[]> msg : messages) {
+                    for (Message<GenericRecord> msg : messages) {
                         currentAttributes = getMappedFlowFileAttributes(context, msg);
 
                        if (lastAttributes != null && !lastAttributes.equals(currentAttributes)) {
@@ -114,7 +115,7 @@ public class ConsumePulsar extends AbstractPulsarConsumerProcessor<byte[]> {
                             session.commitAsync();
 
                             if (!shared) {
-	                            final Message<byte[]> finalMessage = lastMessage;
+	                            final Message<GenericRecord> finalMessage = lastMessage;
 	                            // Cumulatively acknowledge consuming the messages for non-shared subs
 	                            
 	                            getAckService().submit(new Callable<Object>() {
@@ -156,8 +157,13 @@ public class ConsumePulsar extends AbstractPulsarConsumerProcessor<byte[]> {
                         		out.write(demarcatorBytes);
                         	}
                         	
-                            out.write(msg.getValue());
-                            msgCount.getAndIncrement();
+                        	 byte[] data = msg.getData();
+                             
+                             if (data != null && data.length > 0) {
+                               out.write(data);
+                               msgCount.getAndIncrement();
+                             }
+                             
                         } catch (final IOException ioEx) {
                             session.rollback();
                             return;
@@ -186,7 +192,7 @@ public class ConsumePulsar extends AbstractPulsarConsumerProcessor<byte[]> {
         }
     }
 
-    private void consume(Consumer<byte[]> consumer, ProcessContext context, ProcessSession session) throws PulsarClientException {
+    private void consume(Consumer<GenericRecord> consumer, ProcessContext context, ProcessSession session) throws PulsarClientException {
  
         try {
             final int maxMessages = context.getProperty(CONSUMER_BATCH_SIZE).isSet() ? context.getProperty(CONSUMER_BATCH_SIZE)
@@ -200,8 +206,8 @@ public class ConsumePulsar extends AbstractPulsarConsumerProcessor<byte[]> {
 
             FlowFile flowFile = null;
             OutputStream out = null;
-            Message<byte[]> msg = null;
-            Message<byte[]> lastMsg = null;
+            Message<GenericRecord> msg = null;
+            Message<GenericRecord> lastMsg = null;
             AtomicInteger msgCount = new AtomicInteger(0);
             AtomicInteger loopCounter = new AtomicInteger(0);
 
@@ -249,20 +255,19 @@ public class ConsumePulsar extends AbstractPulsarConsumerProcessor<byte[]> {
                     if (shared) {
                     	consumer.acknowledge(msg);
                     }
-
-                    byte[] msgValue = msg.getValue();
-                    // Skip empty messages, as they cause NPE's when we write them to the OutputStream
-                    if (msgValue == null || msgValue.length < 1) {
-                        continue;
-                    }
                     
                     // only write demarcators between messages
                     if (msgCount.get() > 0) {
                     	out.write(demarcatorBytes);
                     }
                     
-                    out.write(msgValue);
-                    msgCount.getAndIncrement();
+                    byte[] data = msg.getData();
+                    
+                    if (data != null && data.length > 0) {
+                      out.write(data);
+                      msgCount.getAndIncrement();
+                    }
+                    
                 } catch (final IOException ioEx) {
                     getLogger().error("Unable to create flow file ", ioEx);
                     session.rollback();

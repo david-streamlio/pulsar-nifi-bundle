@@ -24,7 +24,6 @@ import static org.mockito.Mockito.when;
 
 import java.util.List;
 
-import org.apache.nifi.processors.pulsar.pubsub.ConsumePulsar;
 import org.apache.nifi.processors.pulsar.pubsub.ConsumePulsarRecord;
 import org.apache.nifi.processors.pulsar.pubsub.TestConsumePulsarRecord;
 import org.apache.nifi.util.MockFlowFile;
@@ -35,7 +34,7 @@ public class TestAsyncConsumePulsarRecord extends TestConsumePulsarRecord {
 
     @Test
     public void emptyMessageTest() throws PulsarClientException {
-        when(mockMessage.getValue()).thenReturn("".getBytes());
+        when(mockMessage.getData()).thenReturn("".getBytes());
         mockClientService.setMockMessage(mockMessage);
 
         runner.setProperty(ConsumePulsarRecord.TOPICS, DEFAULT_TOPIC);
@@ -51,7 +50,7 @@ public class TestAsyncConsumePulsarRecord extends TestConsumePulsarRecord {
 
     @Test
     public void singleMalformedMessageTest() throws PulsarClientException {
-       when(mockMessage.getValue()).thenReturn(BAD_MSG.getBytes());
+       when(mockMessage.getData()).thenReturn(BAD_MSG.getBytes());
        mockClientService.setMockMessage(mockMessage);
 
        runner.setProperty(ConsumePulsarRecord.TOPICS, DEFAULT_TOPIC);
@@ -110,7 +109,7 @@ public class TestAsyncConsumePulsarRecord extends TestConsumePulsarRecord {
           }
         }
 
-       when(mockMessage.getValue()).thenReturn(input.toString().getBytes());
+       when(mockMessage.getData()).thenReturn(input.toString().getBytes());
        mockClientService.setMockMessage(mockMessage);
 
        runner.setProperty(ConsumePulsarRecord.ASYNC_ENABLED, Boolean.toString(false));

@@ -53,9 +53,7 @@ public class StandardPulsarClientService extends AbstractControllerService imple
 			.defaultValue("false")
 			.description("")
 			.displayName("Allow TLS Insecure Connection")
-			.expressionLanguageSupported(ExpressionLanguageScope.VARIABLE_REGISTRY)
 			.required(false)
-			.addValidator(StandardValidators.BOOLEAN_VALIDATOR)
 			.build();
 	
     public static final PropertyDescriptor AUTHENTICATION_SERVICE = new PropertyDescriptor.Builder()
@@ -96,9 +94,7 @@ public class StandardPulsarClientService extends AbstractControllerService imple
     				+ "It validates incoming x509 certificate and matches provided hostname(CN/SAN) with expected "
     				+ "broker's host name. It follows RFC 2818, 3.1. Server Identity hostname verification.")
     		.displayName("Enable TLS Hostname Verification")
-    		.expressionLanguageSupported(ExpressionLanguageScope.VARIABLE_REGISTRY)
     		.required(false)
-    		.addValidator(StandardValidators.BOOLEAN_VALIDATOR)
     		.build();
 
     public static final PropertyDescriptor IO_THREADS = new PropertyDescriptor.Builder()
@@ -233,10 +229,10 @@ public class StandardPulsarClientService extends AbstractControllerService imple
     @OnEnabled
     public void onEnabled(final ConfigurationContext context) throws InitializationException, UnsupportedAuthenticationException {
         try {
-            client = getClientBuilder(context).build();
+            client = getClient(context);
             brokerUrl = context.getProperty(PULSAR_SERVICE_URL).evaluateAttributeExpressions().getValue();
         } catch (Exception e) {
-            throw new InitializationException("Unable to create Pulsar Client", e);
+            throw new InitializationException("Unable to connect to the Pulsar cluster ", e);
         }
     }
 
@@ -258,11 +254,11 @@ public class StandardPulsarClientService extends AbstractControllerService imple
 		return brokerUrl;
 	}
 
-    private ClientBuilder getClientBuilder(ConfigurationContext context) throws UnsupportedAuthenticationException, MalformedURLException {
+    private PulsarClient getClient(ConfigurationContext context) throws MalformedURLException, PulsarClientException {
 
         ClientBuilder builder = PulsarClient.builder()
-        		.allowTlsInsecureConnection(context.getProperty(ALLOW_TLS_INSECURE_CONNECTION).evaluateAttributeExpressions().asBoolean())
-        		.enableTlsHostnameVerification(context.getProperty(ENABLE_TLS_HOSTNAME_VERIFICATION).evaluateAttributeExpressions().asBoolean())
+        		.allowTlsInsecureConnection(context.getProperty(ALLOW_TLS_INSECURE_CONNECTION).asBoolean())
+        		.enableTlsHostnameVerification(context.getProperty(ENABLE_TLS_HOSTNAME_VERIFICATION).asBoolean())
                 .maxConcurrentLookupRequests(context.getProperty(CONCURRENT_LOOKUP_REQUESTS).evaluateAttributeExpressions().asInteger())
                 .connectionsPerBroker(context.getProperty(CONNECTIONS_PER_BROKER).evaluateAttributeExpressions().asInteger())
                 .ioThreads(context.getProperty(IO_THREADS).evaluateAttributeExpressions().asInteger())
@@ -288,7 +284,7 @@ public class StandardPulsarClientService extends AbstractControllerService imple
         }
 
         builder = builder.serviceUrl(context.getProperty(PULSAR_SERVICE_URL).evaluateAttributeExpressions().getValue());
-        return builder;
+        return builder.build();
     }
 
 }

@@ -27,11 +27,22 @@
 
     <dependencies>
     
+    	 <dependency>
+            <groupId>org.apache.pulsar</groupId>
+            <artifactId>pulsar-client</artifactId>
+            <version>${pulsar.version}</version>
+        </dependency>
+    
+    	<dependency>
+  			<groupId>org.apache.pulsar</groupId>
+  			<artifactId>pulsar-client-admin</artifactId>
+  			<version>${pulsar.version}</version>
+		</dependency>
+    
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-pulsar-client-service-api</artifactId>
             <version>${version}</version>
-            <scope>provided</scope>
         </dependency>
         
         <dependency>

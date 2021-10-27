@@ -66,6 +66,7 @@ import org.apache.nifi.serialization.record.RecordSchema;
 import org.apache.pulsar.client.api.Consumer;
 import org.apache.pulsar.client.api.Message;
 import org.apache.pulsar.client.api.PulsarClientException;
+import org.apache.pulsar.client.api.schema.GenericRecord;
 
 @CapabilityDescription("Consumes messages from Apache Pulsar. "
         + "The complementary NiFi processor for sending messages is PublishPulsarRecord. Please note that, at this time, "
@@ -81,7 +82,7 @@ import org.apache.pulsar.client.api.PulsarClientException;
 })
 @InputRequirement(InputRequirement.Requirement.INPUT_FORBIDDEN)
 @SeeAlso({PublishPulsar.class, ConsumePulsar.class, PublishPulsarRecord.class})
-public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<byte[]> {
+public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<GenericRecord> {
 
     public static final String MSG_COUNT = "record.count";
     private static final String RECORD_SEPARATOR = "\n";
@@ -159,7 +160,7 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<byte[]>
             .evaluateAttributeExpressions().getValue().getBytes() : RECORD_SEPARATOR.getBytes();
 
         try {
-            Consumer<byte[]> consumer = getConsumer(context, getConsumerId(context, session.get()));
+            Consumer<GenericRecord> consumer = getConsumer(context, getConsumerId(context, session.get()));
 
             if (consumer == null) { /* If we aren't connected to Pulsar, then just yield */
                 context.yield();
@@ -187,9 +188,9 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<byte[]>
      * @return A List of Messages
      * @throws PulsarClientException in the event we cannot communicate with the Pulsar broker.
      */
-    private List<Message<byte[]>> getMessages(final Consumer<byte[]> consumer, int maxMessages) throws PulsarClientException {
-        List<Message<byte[]>> messages = new LinkedList<Message<byte[]>>();
-        Message<byte[]> msg = null;
+    private List<Message<GenericRecord>> getMessages(final Consumer<GenericRecord> consumer, int maxMessages) throws PulsarClientException {
+        List<Message<GenericRecord>> messages = new LinkedList<Message<GenericRecord>>();
+        Message<GenericRecord> msg = null;
         AtomicInteger msgCount = new AtomicInteger(0);
 
         while (((msg = consumer.receive(0, TimeUnit.SECONDS)) != null) && msgCount.get() < maxMessages) {
@@ -212,34 +213,37 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<byte[]>
      * @param writerFactory - The factory used to write the messages.
      * @throws PulsarClientException if there is an issue communicating with Apache Pulsar.
      */
-    private void consumeMessages(ProcessContext context, ProcessSession session, final Consumer<byte[]> consumer, final List<Message<byte[]>> messages,
-            final RecordReaderFactory readerFactory, RecordSetWriterFactory writerFactory, final byte[] demarcator, final boolean async) throws PulsarClientException {
+    private void consumeMessages(ProcessContext context, ProcessSession session, 
+       final Consumer<GenericRecord> consumer, final List<Message<GenericRecord>> messages,
+       final RecordReaderFactory readerFactory, RecordSetWriterFactory writerFactory, 
+       final byte[] demarcator, final boolean async) throws PulsarClientException {
 
        if (CollectionUtils.isEmpty(messages)) {
           return;
        }
 
+       final BlockingQueue<Message<GenericRecord>> parseFailures = 
+    	  new LinkedBlockingQueue<Message<GenericRecord>>();
+       
        RecordSchema schema = null;
-       final BlockingQueue<Message<byte[]>> parseFailures = new LinkedBlockingQueue<Message<byte[]>>();
        FlowFile flowFile = null;
        OutputStream rawOut = null;
        RecordSetWriter writer = null;
 
        Map<String, String> lastAttributes = null;
-       Message<byte[]> lastMessage = null;
+       Message<GenericRecord> lastMessage = null;
        Map<String, String> currentAttributes = null;
 
        // Cumulative acks are NOT permitted on Shared subscriptions
        final boolean shared = isSharedSubscription(context);
        
        try {
-           for (Message<byte[]> msg : messages) {
+           for (Message<GenericRecord> msg : messages) {
                currentAttributes = getMappedFlowFileAttributes(context, msg);
-               byte[] msgValue = msg.getValue();
-
+               
                // if the current message's mapped attribute values differ from the previous set's,
                // write out the active record set and clear various references so that we'll start a new one
-               if (lastMessage != null && !lastAttributes.equals(currentAttributes)) {
+               if (lastAttributes != null && !lastAttributes.equals(currentAttributes)) {
                    WriteResult result = writer.finishRecordSet();
                    IOUtils.closeQuietly(writer);
                    IOUtils.closeQuietly(rawOut);
@@ -257,7 +261,7 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<byte[]>
                    parseFailures.clear();
                    
                    if (!shared) {
-                	   acknowledgeCumulative(consumer, lastMessage, async);
+                	 acknowledgeCumulative(consumer, lastMessage, async);
                    }
 
                    lastAttributes = null;
@@ -265,19 +269,19 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<byte[]>
                }
 
                // if there's no record set actively being written, begin one
+               byte[] data = msg.getData();
                if (lastMessage == null) {
                    flowFile = session.create();
                    flowFile = session.putAllAttributes(flowFile, currentAttributes);
-                   schema = getSchema(flowFile, readerFactory, msgValue);
+                   schema = getSchema(flowFile, readerFactory, data);
                    rawOut = session.write(flowFile);
-                   writer = getRecordWriter(writerFactory, schema, rawOut);
+                   writer = getRecordWriter(writerFactory, schema, rawOut, flowFile);
 
                    if (schema == null || writer == null) {
                        parseFailures.add(msg);
                        session.remove(flowFile);
                        IOUtils.closeQuietly(rawOut);
                        getLogger().error("Unable to create a record writer to consume from the Pulsar topic");
-
                        continue;
                    }
 
@@ -288,13 +292,14 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<byte[]>
                lastMessage = msg;
 
                if (shared) {
-            	   acknowledge(consumer, msg, async);
+            	 acknowledge(consumer, msg, async);
                }
                
-               // write each of records in the current message to the active record set. These will each
+               // write each of the records in the current message to the active record set. These will each
                // have the same mapped flowfile attribute values, which means that it's ok that they are all placed
                // in the same output flowfile.
-               final InputStream in = new ByteArrayInputStream(msgValue);
+               
+               final InputStream in = new ByteArrayInputStream(data);
                try {
                    RecordReader r = readerFactory.createRecordReader(flowFile, in, getLogger());
                    for (Record record = r.nextRecord(); record != null; record = r.nextRecord()) {
@@ -325,11 +330,11 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<byte[]>
        handleFailures(session, parseFailures, demarcator);
        
        if (!shared) {
-    	   acknowledgeCumulative(consumer, messages.get(messages.size() - 1), async);
+    	  acknowledgeCumulative(consumer, messages.get(messages.size() - 1), async);
        }
     }
 
-    private void acknowledge(final Consumer<byte[]> consumer, final Message<byte[]> msg, final boolean async) throws PulsarClientException {
+    private void acknowledge(final Consumer<GenericRecord> consumer, final Message<GenericRecord> msg, final boolean async) throws PulsarClientException {
     	if (async) {
     		getAckService().submit(new Callable<Object>() {
     			@Override
@@ -343,7 +348,7 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<byte[]>
     	}
     }
     
-    private void acknowledgeCumulative(final Consumer<byte[]> consumer, final Message<byte[]> msg, final boolean async) throws PulsarClientException {
+    private void acknowledgeCumulative(final Consumer<GenericRecord> consumer, final Message<GenericRecord> msg, final boolean async) throws PulsarClientException {
     	if (async) {
     		getAckService().submit(new Callable<Object>() {
     			@Override
@@ -357,7 +362,8 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<byte[]>
     	}
     }
     
-    private void handleFailures(ProcessSession session, BlockingQueue<Message<byte[]>> parseFailures, byte[] demarcator) {
+    private void handleFailures(ProcessSession session, 
+    	BlockingQueue<Message<GenericRecord>> parseFailures, byte[] demarcator) {
 
         if (CollectionUtils.isEmpty(parseFailures)) {
            return;
@@ -367,18 +373,17 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<byte[]>
         OutputStream rawOut = session.write(flowFile);
 
         try {
-           Iterator<Message<byte[]>> failureIterator = parseFailures.iterator();
+           Iterator<Message<GenericRecord>> failureIterator = parseFailures.iterator();
            
            for (int idx = 0; failureIterator.hasNext(); idx++) {
-        	  Message<byte[]> msg = failureIterator.next();
-        	  byte[] msgValue = msg.getValue();
+        	  Message<GenericRecord> msg = failureIterator.next();
 
-              if (msgValue != null && msgValue.length > 0) {
+              if (msg != null && msg.getData() != null) {
             	 if (idx > 0) {
             		 rawOut.write(demarcator);
             	 }
             	 
-                 rawOut.write(msgValue);
+                 rawOut.write(msg.getData());
               }
            }
            IOUtils.closeQuietly(rawOut);
@@ -392,18 +397,18 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<byte[]>
      * Pull messages off of the CompletableFuture's held in the consumerService and process them in a batch.
      * @param demarcator - The bytes used to demarcate the individual messages.
      */
-    protected void handleAsync(ProcessContext context, ProcessSession session, final Consumer<byte[]> consumer,
+    protected void handleAsync(ProcessContext context, ProcessSession session, final Consumer<GenericRecord> consumer,
          final RecordReaderFactory readerFactory, RecordSetWriterFactory writerFactory, byte[] demarcator) throws PulsarClientException {
 
         final Integer queryTimeout = context.getProperty(MAX_WAIT_TIME).evaluateAttributeExpressions().asTimePeriod(TimeUnit.SECONDS).intValue();
 
         try {
-             Future<List<Message<byte[]>>> done = null;
+             Future<List<Message<GenericRecord>>> done = null;
              do {
                  done = getConsumerService().poll(queryTimeout, TimeUnit.SECONDS);
 
                  if (done != null) {
-                    List<Message<byte[]>> messages = done.get();
+                    List<Message<GenericRecord>> messages = done.get();
                     if (CollectionUtils.isNotEmpty(messages)) {
                       consumeMessages(context, session, consumer, messages, readerFactory, writerFactory, demarcator, true);
                     }
@@ -423,6 +428,7 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<byte[]>
             in = new ByteArrayInputStream(msgValue);
             schema = readerFactory.createRecordReader(flowFile, in, getLogger()).getSchema();
         } catch (MalformedRecordException | IOException | SchemaNotFoundException e) {
+           getLogger().error("Unable to determine the schema", e);
            return null;
         } finally {
            IOUtils.closeQuietly(in);
@@ -431,10 +437,11 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<byte[]>
         return schema;
     }
 
-    private RecordSetWriter getRecordWriter(RecordSetWriterFactory writerFactory, RecordSchema srcSchema, OutputStream out) {
+    private RecordSetWriter getRecordWriter(RecordSetWriterFactory writerFactory, 
+    	RecordSchema srcSchema, OutputStream out, FlowFile flowFile) {
         try {
             RecordSchema writeSchema = writerFactory.getSchema(Collections.emptyMap(), srcSchema);
-            return writerFactory.createWriter(getLogger(), writeSchema, out);
+            return writerFactory.createWriter(getLogger(), writeSchema, out, flowFile);
         } catch (SchemaNotFoundException | IOException e) {
            return null;
         }

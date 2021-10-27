@@ -47,15 +47,18 @@ import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSession;
 import org.apache.nifi.processor.Relationship;
 import org.apache.nifi.processor.util.StandardValidators;
+import org.apache.nifi.processors.pulsar.PropertyMappingUtils;
 import org.apache.nifi.pulsar.PulsarClientService;
-import org.apache.nifi.pulsar.cache.PulsarClientLRUCache;
+import org.apache.nifi.pulsar.cache.PulsarConsumerLRUCache;
 import org.apache.nifi.util.StringUtils;
 import org.apache.pulsar.client.api.Consumer;
 import org.apache.pulsar.client.api.ConsumerBuilder;
 import org.apache.pulsar.client.api.ConsumerCryptoFailureAction;
 import org.apache.pulsar.client.api.Message;
 import org.apache.pulsar.client.api.PulsarClientException;
+import org.apache.pulsar.client.api.Schema;
 import org.apache.pulsar.client.api.SubscriptionType;
+import org.apache.pulsar.client.api.schema.GenericRecord;
 
 public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcessor {
     protected static final String PULSAR_MESSAGE_KEY = "__KEY__";
@@ -263,9 +266,9 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
     }
 
     private PulsarClientService pulsarClientService;
-    private PulsarClientLRUCache<String, Consumer<T>> consumers;
+    private PulsarConsumerLRUCache<String, Consumer<GenericRecord>> consumers;
     private ExecutorService consumerPool;
-    private ExecutorCompletionService<List<Message<T>>> consumerService;
+    private ExecutorCompletionService<List<Message<GenericRecord>>> consumerService;
     private ExecutorService ackPool;
     private ExecutorCompletionService<Object> ackService;
 
@@ -367,14 +370,15 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
         return sb.toString();
     }
 
-    protected void consumeAsync(final Consumer<T> consumer, ProcessContext context, ProcessSession session) throws PulsarClientException {
+    protected void consumeAsync(final Consumer<GenericRecord> consumer, 
+    	ProcessContext context, ProcessSession session) throws PulsarClientException {
         try {
             final int maxMessages = context.getProperty(CONSUMER_BATCH_SIZE).isSet() ? context.getProperty(CONSUMER_BATCH_SIZE)
                     .evaluateAttributeExpressions().asInteger() : Integer.MAX_VALUE;
 
             getConsumerService().submit(() -> {
-                List<Message<T>> messages = new LinkedList<Message<T>>();
-                Message<T> msg = null;
+                List<Message<GenericRecord>> messages = new LinkedList<Message<GenericRecord>>();
+                Message<GenericRecord> msg = null;
                 AtomicInteger msgCount = new AtomicInteger(0);
 
                 while (((msg = consumer.receive(0, TimeUnit.SECONDS)) != null) && msgCount.get() < maxMessages) {
@@ -389,14 +393,14 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
         }
     }
 
-    protected synchronized Consumer<T> getConsumer(ProcessContext context, String topic) throws PulsarClientException {
+    protected synchronized Consumer<GenericRecord> getConsumer(ProcessContext context, String topic) throws PulsarClientException {
 
         /* Avoid creating producers for non-existent topics */
         if (StringUtils.isBlank(topic)) {
           return null;
         }
 
-        Consumer<T> consumer = getConsumers().get(topic);
+        Consumer<GenericRecord> consumer = getConsumers().get(topic);
 
         if (consumer != null && consumer.isConnected()) {
            return consumer;
@@ -411,15 +415,19 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
         return (consumer != null && consumer.isConnected()) ? consumer : null;
     }
 
-    protected synchronized ConsumerBuilder<T> getConsumerBuilder(ProcessContext context) throws PulsarClientException {
-
-        ConsumerBuilder<T> builder = (ConsumerBuilder<T>) getPulsarClientService().getPulsarClient().newConsumer();
+	protected synchronized ConsumerBuilder<GenericRecord> getConsumerBuilder(ProcessContext context) throws PulsarClientException {
+    	
+		ConsumerBuilder<GenericRecord> builder = 
+			getPulsarClientService().getPulsarClient().newConsumer(Schema.AUTO_CONSUME());
 
         if (context.getProperty(TOPICS).isSet()) {
-            builder = builder.topic(Arrays.stream(context.getProperty(TOPICS).evaluateAttributeExpressions().getValue().split("[, ]"))
-                    .map(String::trim).toArray(String[]::new));
+        	String[] topics = Arrays.stream(context.getProperty(TOPICS).evaluateAttributeExpressions().getValue().split("[, ]"))
+                    .map(String::trim).toArray(String[]::new);
+        	
+            builder = builder.topic(topics);
         } else if (context.getProperty(TOPICS_PATTERN).isSet()) {
-            builder = builder.topicsPattern(context.getProperty(TOPICS_PATTERN).getValue());
+        	String topicsPattern = context.getProperty(TOPICS_PATTERN).getValue();
+            builder = builder.topicsPattern(topicsPattern);
         }
 
         if (context.getProperty(CONSUMER_NAME).isSet()) {
@@ -433,7 +441,7 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
                 .subscriptionType(SubscriptionType.valueOf(context.getProperty(SUBSCRIPTION_TYPE).getValue()));
     }
 
-    protected synchronized ExecutorService getConsumerPool() {
+	protected synchronized ExecutorService getConsumerPool() {
         return consumerPool;
     }
 
@@ -441,11 +449,11 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
         this.consumerPool = pool;
     }
 
-    protected synchronized ExecutorCompletionService<List<Message<T>>> getConsumerService() {
+    protected synchronized ExecutorCompletionService<List<Message<GenericRecord>>> getConsumerService() {
         return consumerService;
     }
 
-    protected synchronized void setConsumerService(ExecutorCompletionService<List<Message<T>>> service) {
+    protected synchronized void setConsumerService(ExecutorCompletionService<List<Message<GenericRecord>>> service) {
         this.consumerService = service;
     }
 
@@ -473,21 +481,22 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
        this.pulsarClientService = pulsarClientService;
     }
 
-    protected synchronized PulsarClientLRUCache<String, Consumer<T>> getConsumers() {
+    protected synchronized PulsarConsumerLRUCache<String, Consumer<GenericRecord>> getConsumers() {
         if (consumers == null) {
-           consumers = new PulsarClientLRUCache<String, Consumer<T>>(20);
+           consumers = new PulsarConsumerLRUCache<String, Consumer<GenericRecord>>(20);
         }
         return consumers;
     }
 
-    protected void setConsumers(PulsarClientLRUCache<String, Consumer<T>> consumers) {
+    protected void setConsumers(PulsarConsumerLRUCache<String, Consumer<GenericRecord>> consumers) {
         this.consumers = consumers;
     }
 
-    protected Map<String, String> getMappedFlowFileAttributes(ProcessContext context, final Message<T> message) {
+    protected Map<String, String> getMappedFlowFileAttributes(ProcessContext context, final Message<GenericRecord> msg) {
         String mappings = context.getProperty(MAPPED_FLOWFILE_ATTRIBUTES).getValue();
 
-        return PropertyMappingUtils.getMappedValues(mappings, (p) -> PULSAR_MESSAGE_KEY.equals(p) ? message.getKey() : message.getProperty(p));
+        return PropertyMappingUtils.getMappedValues(mappings, 
+        		(p) -> PULSAR_MESSAGE_KEY.equals(p) ? msg.getKey() : msg.getProperty(p));
     }
     
     protected boolean isSharedSubscription(ProcessContext context) {

@@ -33,12 +33,12 @@ import org.apache.nifi.processors.pulsar.AbstractPulsarProcessorTest;
 import org.apache.nifi.processors.pulsar.pubsub.mocks.MockRecordParser;
 import org.apache.nifi.processors.pulsar.pubsub.mocks.MockRecordWriter;
 import org.apache.nifi.reporting.InitializationException;
-import org.apache.nifi.serialization.RecordSetWriterFactory;
 import org.apache.nifi.serialization.record.RecordFieldType;
 import org.apache.nifi.util.MockFlowFile;
 import org.apache.nifi.util.TestRunners;
 import org.apache.pulsar.client.api.Message;
 import org.apache.pulsar.client.api.PulsarClientException;
+import org.apache.pulsar.client.api.schema.GenericRecord;
 import org.junit.Before;
 import org.junit.Test;
 import org.mockito.Mock;
@@ -51,12 +51,13 @@ public class TestConsumePulsarRecord extends AbstractPulsarProcessorTest<byte[]>
     protected static String DEFAULT_SUB = "bar";
 
     @Mock
-    protected Message<byte[]> mockMessage;
+    protected Message<GenericRecord> mockMessage;
 
     protected MockRecordParser readerService;
     protected MockRecordWriter writerService;
 
-    @Before
+    @SuppressWarnings("unchecked")
+	@Before
     public void setup() throws InitializationException {
 
         mockMessage = mock(Message.class);
@@ -113,7 +114,7 @@ public class TestConsumePulsarRecord extends AbstractPulsarProcessorTest<byte[]>
     		runner.setProperty(ConsumePulsarRecord.MAX_WAIT_TIME, "0 sec");
     	}
     	
-    	when(mockMessage.getValue()).thenReturn(msg.getBytes());
+    	when(mockMessage.getData()).thenReturn(msg.getBytes());
     	mockClientService.setMockMessage(mockMessage);
     	
     	runner.run();
@@ -142,7 +143,7 @@ public class TestConsumePulsarRecord extends AbstractPulsarProcessorTest<byte[]>
     }
     
     protected List<MockFlowFile> sendMessages(String msg, String topic, String sub, boolean async, int iterations, int batchSize, String subType) throws PulsarClientException {
-        when(mockMessage.getValue()).thenReturn(msg.getBytes());
+        when(mockMessage.getData()).thenReturn(msg.getBytes());
         mockClientService.setMockMessage(mockMessage);
 
         runner.setProperty(ConsumePulsarRecord.ASYNC_ENABLED, Boolean.toString(async));
@@ -186,9 +187,21 @@ public class TestConsumePulsarRecord extends AbstractPulsarProcessorTest<byte[]>
     }
 
     protected void doMappedAttributesTest() throws PulsarClientException {
-        when(mockMessage.getValue()).thenReturn("A,10".getBytes()).thenReturn("B,10".getBytes()).thenReturn("C,10".getBytes()).thenReturn("D,10".getBytes());
-        when(mockMessage.getProperty("prop")).thenReturn(null).thenReturn(null).thenReturn("val").thenReturn("val");
-        when(mockMessage.getKey()).thenReturn(null).thenReturn(null).thenReturn(null).thenReturn("K");
+        when(mockMessage.getData()).thenReturn("A,10".getBytes())
+           .thenReturn("B,10".getBytes())
+           .thenReturn("C,10".getBytes())
+           .thenReturn("D,10".getBytes());
+        
+        when(mockMessage.getProperty("prop")).thenReturn(null)
+          .thenReturn(null)
+          .thenReturn("val")
+          .thenReturn("val");
+        
+        when(mockMessage.getKey()).thenReturn(null)
+          .thenReturn(null)
+          .thenReturn(null)
+          .thenReturn("K");
+        
         mockClientService.setMockMessage(mockMessage);
 
         runner.setProperty(ConsumePulsar.MAPPED_FLOWFILE_ATTRIBUTES, "prop,key=__KEY__");

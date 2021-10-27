@@ -24,7 +24,7 @@
 
     <artifactId>nifi-pulsar-processors</artifactId>
     <packaging>jar</packaging>
-
+   
     <dependencies>
         <dependency>
             <groupId>org.apache.nifi</groupId>
@@ -56,9 +56,38 @@
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-pulsar-client-service-api</artifactId>
             <version>${version}</version>
-            <scope>provided</scope>
 	    </dependency>
 	    
+	    <dependency>
+        	<groupId>org.apache.commons</groupId>
+        	<artifactId>commons-lang3</artifactId>
+        	<version>${commons-lang3.version}</version>
+        </dependency>
+        
+        <dependency>
+  			<groupId>org.apache.commons</groupId>
+  			<artifactId>commons-compress</artifactId>
+  			<version>${commons-compress.version}</version>
+		</dependency>
+        
+        <dependency>
+           <groupId>org.apache.directory.studio</groupId>
+           <artifactId>org.apache.commons.io</artifactId>
+           <version>${commons.io.version}</version>
+        </dependency>
+        
+        <dependency>
+        	<groupId>com.fasterxml.jackson.core</groupId>
+  		    <artifactId>jackson-core</artifactId>
+  		    <version>${jackson-core.version}</version>
+        </dependency>
+        
+      	<dependency>
+      		<groupId>com.google.protobuf</groupId>
+      		<artifactId>protobuf-java</artifactId>
+      		<version>${protobuf3.version}</version>
+    	</dependency>
+    
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-mock</artifactId>
@@ -75,24 +104,6 @@
             <groupId>junit</groupId>
             <artifactId>junit</artifactId>
             <scope>test</scope>
-        </dependency>
-        
-        <dependency>
-        	<groupId>org.apache.commons</groupId>
-        	<artifactId>commons-lang3</artifactId>
-        	<version>${commons-lang3.version}</version>
-        </dependency>
-        
-        <dependency>
-           <groupId>org.apache.directory.studio</groupId>
-           <artifactId>org.apache.commons.io</artifactId>
-           <version>${commons.io.version}</version>
-        </dependency>
-        
-        <dependency>
-        	<groupId>com.fasterxml.jackson.core</groupId>
-  		    <artifactId>jackson-core</artifactId>
-  		    <version>${jackson-core.version}</version>
         </dependency>
         
     </dependencies>

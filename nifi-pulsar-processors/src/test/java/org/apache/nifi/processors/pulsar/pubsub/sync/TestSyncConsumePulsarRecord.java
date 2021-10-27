@@ -34,7 +34,7 @@ public class TestSyncConsumePulsarRecord extends TestConsumePulsarRecord {
 
     @Test
     public void emptyMessageTest() throws PulsarClientException {
-        when(mockMessage.getValue()).thenReturn("".getBytes());
+        when(mockMessage.getData()).thenReturn("".getBytes());
         mockClientService.setMockMessage(mockMessage);
 
         runner.setProperty(ConsumePulsarRecord.TOPICS, DEFAULT_TOPIC);
@@ -49,7 +49,7 @@ public class TestSyncConsumePulsarRecord extends TestConsumePulsarRecord {
 
     @Test
     public void singleMalformedMessageTest() throws PulsarClientException {
-       when(mockMessage.getValue()).thenReturn(BAD_MSG.getBytes());
+       when(mockMessage.getData()).thenReturn(BAD_MSG.getBytes());
        mockClientService.setMockMessage(mockMessage);
 
        runner.setProperty(ConsumePulsarRecord.TOPICS, DEFAULT_TOPIC);
@@ -107,7 +107,7 @@ public class TestSyncConsumePulsarRecord extends TestConsumePulsarRecord {
           }
         }
 
-       when(mockMessage.getValue()).thenReturn(input.toString().getBytes());
+       when(mockMessage.getData()).thenReturn(input.toString().getBytes());
        mockClientService.setMockMessage(mockMessage);
 
        runner.setProperty(ConsumePulsarRecord.ASYNC_ENABLED, Boolean.toString(false));

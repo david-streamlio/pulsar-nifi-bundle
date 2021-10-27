@@ -24,7 +24,7 @@ import org.junit.Test;
 public class TestStandardPulsarClientService {
 
     @Test
-    public void testService() throws InitializationException {
+    public void validServiceTest() throws InitializationException {
         final TestRunner runner = TestRunners.newTestRunner(TestProcessor.class);
         final PulsarClientService service = new StandardPulsarClientService();
         runner.addControllerService("test-good", service);
