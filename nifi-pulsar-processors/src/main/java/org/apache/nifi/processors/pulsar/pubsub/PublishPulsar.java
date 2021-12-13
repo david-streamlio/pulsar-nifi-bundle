@@ -22,7 +22,6 @@ import java.nio.charset.StandardCharsets;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.Map;
 
-import org.apache.commons.lang3.tuple.Triple;
 import org.apache.nifi.annotation.behavior.InputRequirement;
 import org.apache.nifi.annotation.behavior.TriggerWhenEmpty;
 import org.apache.nifi.annotation.behavior.WritesAttribute;
@@ -110,6 +109,14 @@ public class PublishPulsar extends AbstractPulsarProducerProcessor<byte[]> {
 
     /**
      * Sends the FlowFile content using the demarcator.
+     * 
+     * @param producer
+     * @param context - The current ProcessContext
+     * @param session - The current ProcessSession.
+     * @param flowFile
+     * @param demarcatorBytes - The value used to identify unique records in the list
+     * 
+     * @throws PulsarClientException
      */
     private void send(Producer<byte[]> producer, ProcessContext context, ProcessSession session, FlowFile flowFile, byte[] demarcatorBytes) throws PulsarClientException {
         AtomicInteger successCounter = new AtomicInteger(0);

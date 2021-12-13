@@ -47,7 +47,6 @@ import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSession;
 import org.apache.nifi.processor.Relationship;
 import org.apache.nifi.processor.util.StandardValidators;
-import org.apache.nifi.processors.pulsar.PropertyMappingUtils;
 import org.apache.nifi.pulsar.PulsarClientService;
 import org.apache.nifi.pulsar.cache.PulsarConsumerLRUCache;
 import org.apache.nifi.util.StringUtils;
@@ -348,6 +347,10 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
     /**
      * Method returns a string that uniquely identifies a consumer by concatenating
      * the topic name and subscription properties together.
+     * 
+     * @param context
+     * @param flowFile
+     * @return The consumer id.
      */
     protected String getConsumerId(final ProcessContext context, FlowFile flowFile) {
         if (context == null) {

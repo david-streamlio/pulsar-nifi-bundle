@@ -17,9 +17,7 @@
 package org.apache.nifi.processors.pulsar;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
@@ -366,6 +364,8 @@ public abstract class AbstractPulsarProducerProcessor<T> extends AbstractProcess
      * If the processor is configured to run in asynchronous mode, then we need to periodically
      * check the failureList and route those records to the FAILURE relationship, so that the end
      * user is aware of the failures and can handle them as they see fit.
+     * 
+     * @param session
      */
     protected void handleFailures(ProcessSession session) {
 

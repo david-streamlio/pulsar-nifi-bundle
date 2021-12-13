@@ -211,6 +211,9 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
      * @param messages - A list of messages.
      * @param readerFactory - The factory used to read the messages.
      * @param writerFactory - The factory used to write the messages.
+     * @param demarcator - The value used to identify unique records in the list
+     * @param async - Whether or not to consume the messages asynchronously.
+     *  
      * @throws PulsarClientException if there is an issue communicating with Apache Pulsar.
      */
     private void consumeMessages(ProcessContext context, ProcessSession session, 
@@ -395,7 +398,15 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
 
     /**
      * Pull messages off of the CompletableFuture's held in the consumerService and process them in a batch.
+     * 
+     * @param context - The current ProcessContext
+     * @param session - The current ProcessSession.
+     * @param consumer - The Pulsar consumer.
+     * @param readerFactory - The factory used to read the messages.
+     * @param writerFactory - The factory used to write the messages.
      * @param demarcator - The bytes used to demarcate the individual messages.
+     * 
+     * @throws PulsarClientException
      */
     protected void handleAsync(ProcessContext context, ProcessSession session, final Consumer<GenericRecord> consumer,
          final RecordReaderFactory readerFactory, RecordSetWriterFactory writerFactory, byte[] demarcator) throws PulsarClientException {
