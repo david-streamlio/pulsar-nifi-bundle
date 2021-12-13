@@ -32,11 +32,14 @@ public final class PropertyMappingUtils {
 
     /**
      * Given a comma-delimited list of key mappings and a value extraction function,
-     * yields a map of <destkey>=<value>.
-     * @param mappings a comma-delimited list of <destkey>[=<srckey>] mappings. If no <srckey> is explicitly
-     *   specified, then it is assumed that the destkey should also be used as the source key.   
-     * @param mapper a function that, given a source key, should return the corresponding value
-     * @return the <destkey>=<value> map
+     * yields a map of "<destkey>=<value>".
+     * 
+     * @param mappings a comma-delimited list of "<destkey>[=<srckey>]" mappings. If no <srckey> is explicitly
+     *   specified, then it is assumed that the destkey should also be used as the source key. 
+     *     
+     * @param mapper a function that, given a source key, should return the corresponding value.
+     * 
+     * @return the "<destkey>=<value>" map
      */
     public static Map<String, String> getMappedValues(String mappings, Function<String, String> mapper) {
         Map<String, String> values = new HashMap<String, String>();

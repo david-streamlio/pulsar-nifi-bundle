@@ -17,7 +17,7 @@
     <modelVersion>4.0.0</modelVersion>
 
     <parent>
-        <groupId>org.apache.nifi</groupId>
+        <groupId>io.streamnative.connectors</groupId>
         <artifactId>nifi-pulsar-bundle</artifactId>
         <version>1.14.0</version>
     </parent>
