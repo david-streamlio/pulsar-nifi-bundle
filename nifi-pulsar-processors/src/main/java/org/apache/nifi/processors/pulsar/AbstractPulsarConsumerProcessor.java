@@ -32,6 +32,7 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import org.apache.commons.lang3.StringUtils;
 import org.apache.nifi.annotation.lifecycle.OnScheduled;
 import org.apache.nifi.annotation.lifecycle.OnStopped;
 import org.apache.nifi.annotation.lifecycle.OnUnscheduled;
@@ -49,7 +50,6 @@ import org.apache.nifi.processor.Relationship;
 import org.apache.nifi.processor.util.StandardValidators;
 import org.apache.nifi.pulsar.PulsarClientService;
 import org.apache.nifi.pulsar.cache.PulsarConsumerLRUCache;
-import org.apache.nifi.util.StringUtils;
 import org.apache.pulsar.client.api.Consumer;
 import org.apache.pulsar.client.api.ConsumerBuilder;
 import org.apache.pulsar.client.api.ConsumerCryptoFailureAction;
@@ -348,8 +348,8 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
      * Method returns a string that uniquely identifies a consumer by concatenating
      * the topic name and subscription properties together.
      * 
-     * @param context
-     * @param flowFile
+     * @param context - The Processor context
+     * @param flowFile - The current NiFi flow file
      * @return The consumer id.
      */
     protected String getConsumerId(final ProcessContext context, FlowFile flowFile) {

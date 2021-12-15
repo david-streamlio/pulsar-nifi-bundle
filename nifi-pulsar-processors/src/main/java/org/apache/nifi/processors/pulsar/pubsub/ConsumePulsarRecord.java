@@ -406,7 +406,7 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
      * @param writerFactory - The factory used to write the messages.
      * @param demarcator - The bytes used to demarcate the individual messages.
      * 
-     * @throws PulsarClientException
+     * @throws PulsarClientException if there is an issue connecting to the Pulsar cluster. 
      */
     protected void handleAsync(ProcessContext context, ProcessSession session, final Consumer<GenericRecord> consumer,
          final RecordReaderFactory readerFactory, RecordSetWriterFactory writerFactory, byte[] demarcator) throws PulsarClientException {
