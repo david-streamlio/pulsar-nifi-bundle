@@ -42,25 +42,27 @@
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-pulsar-client-service-api</artifactId>
-            <version>${project.version}</version>
+            <version>${nifi.version}</version>
         </dependency>
         
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-api</artifactId>
+            <version>${nifi.version}</version>
             <scope>provided</scope>
         </dependency>
         
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-processor-utils</artifactId>
-            <version>${project.version}</version>
+            <version>${nifi.version}</version>
             <scope>provided</scope>
         </dependency>
         
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-mock</artifactId>
+            <version>${nifi.version}</version>
             <scope>test</scope>
             <exclusions>
             	<exclusion>
@@ -73,14 +75,22 @@
         <dependency>
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-simple</artifactId>
+            <version>${slf4j-simple.version}</version>
             <scope>test</scope>
         </dependency>
         
         <dependency>
             <groupId>junit</groupId>
             <artifactId>junit</artifactId>
+            <version>${junit.version}</version>
             <scope>test</scope>
         </dependency>
+        
+        <dependency>
+  			<groupId>org.mockito</groupId>
+  			<artifactId>mockito-core</artifactId>
+  			<version>${mockito-core.version}</version>
+		</dependency>
         
     </dependencies>
 </project>
