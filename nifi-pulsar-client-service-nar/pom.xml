@@ -22,7 +22,12 @@
   </parent>
   
   <artifactId>nifi-pulsar-client-service-nar</artifactId>
+  <name>NiFi Pulsar Connectors :: Pulsar Client Controller Service NAR</name>
   <packaging>nar</packaging>
+  
+  <properties>
+     <maven.deploy.skip>false</maven.deploy.skip>
+  </properties>
   
   <dependencies>
     <dependency>
