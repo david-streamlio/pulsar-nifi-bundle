@@ -23,8 +23,13 @@
     </parent>
 
     <artifactId>nifi-pulsar-client-service-api</artifactId>
+    <name>NiFi Pulsar Connectors :: Pulsar Client Controller Service API</name>
     <packaging>jar</packaging>
 
+    <properties>
+      <maven.deploy.skip>false</maven.deploy.skip>
+    </properties>
+    
     <dependencies>
     
         <dependency>

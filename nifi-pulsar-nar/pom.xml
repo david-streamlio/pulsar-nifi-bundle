@@ -23,7 +23,12 @@
     </parent>
 
     <artifactId>nifi-pulsar-nar</artifactId>
+    <name>NiFi Pulsar Connectors :: Pulsar Processors NAR</name>
     <packaging>nar</packaging>
+    
+    <properties>
+      <maven.deploy.skip>false</maven.deploy.skip>
+    </properties>
 
     <dependencies>
         <dependency>
