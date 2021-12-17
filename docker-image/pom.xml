@@ -22,28 +22,40 @@
         <version>1.14.0</version>
     </parent>
 
-    <artifactId>nifi-pulsar-nar</artifactId>
-    <packaging>nar</packaging>
-
-    <dependencies>
-        <dependency>
-            <groupId>io.streamnative.connectors</groupId>
-            <artifactId>nifi-pulsar-client-service-nar</artifactId>
-            <version>${project.version}</version>
-            <type>nar</type>
-		</dependency>
-
-        <dependency>
-            <groupId>io.streamnative.connectors</groupId>
-            <artifactId>nifi-pulsar-processors</artifactId>
-            <version>${project.version}</version>
-        </dependency>
-
-		<dependency>
-            <groupId>io.streamnative.connectors</groupId>
-            <artifactId>nifi-pulsar-client-service</artifactId>
-            <version>${project.version}</version>
-        </dependency>
-    </dependencies>
-
+   <artifactId>docker-image</artifactId>
+   <packaging>pom</packaging>
+   <name>NiFi Pulsar Connectors :: Docker Image</name>
+   
+    <build>
+	  <plugins>
+	    <plugin>
+		   <groupId>io.fabric8</groupId>
+           <artifactId>docker-maven-plugin</artifactId>
+           <configuration>
+             <images>
+                <image>
+                   <name>streamnative/nifi</name>
+                   <build> 
+                     <dockerFileDir>nifi</dockerFileDir>
+                     <assembly>
+                       <targetDir>/connectors</targetDir>
+                       <mode>dir</mode>
+                       <descriptor>nifi/assembly.xml</descriptor>
+                     </assembly>
+                   </build>
+               </image>
+             </images>
+           </configuration>
+           <executions>
+             <execution>
+               <phase>package</phase>
+                <goals>
+                   <goal>build</goal>
+               </goals>
+             </execution>
+           </executions>
+        </plugin>
+      </plugins>
+    </build>
+     
 </project>
