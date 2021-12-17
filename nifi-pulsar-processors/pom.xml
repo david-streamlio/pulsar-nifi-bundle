@@ -31,6 +31,12 @@
     </properties>
    
     <dependencies>
+    
+        <dependency>
+            <groupId>io.streamnative.connectors</groupId>
+            <artifactId>nifi-pulsar-client-service-api</artifactId>
+            <version>${nifi.version}</version>
+	    </dependency>
 
         <dependency>
             <groupId>org.apache.nifi</groupId>
@@ -61,12 +67,6 @@
             <artifactId>nifi-ssl-context-service-api</artifactId>
              <version>${nifi.version}</version>
         </dependency>
-        
-        <dependency>
-            <groupId>io.streamnative.connectors</groupId>
-            <artifactId>nifi-pulsar-client-service-api</artifactId>
-             <version>${nifi.version}</version>
-	    </dependency>
 	    
 	    <dependency>
         	<groupId>org.apache.commons</groupId>
