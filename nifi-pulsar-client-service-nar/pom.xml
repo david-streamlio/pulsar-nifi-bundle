@@ -33,7 +33,7 @@
     </dependency>
     
   	<dependency>
-        <groupId>org.apache.nifi</groupId>
+        <groupId>io.streamnative.connectors</groupId>
         <artifactId>nifi-pulsar-client-service-api</artifactId>
         <version>${project.version}</version>
     </dependency>

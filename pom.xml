@@ -52,8 +52,7 @@
       <developerConnection>scm:git:ssh://github.com:david-streamlio/pulsar-nifi-bundle.git</developerConnection>
       <url>https://github.com/david-streamlio/pulsar-nifi-bundle/tree/main</url>
     </scm>
-    
-    
+     
     <distributionManagement>
       <snapshotRepository>
         <id>ossrh</id>
@@ -96,7 +95,7 @@
     	<pulsar.version>2.9.0</pulsar.version>
     	<slf4j-simple.version>1.7.32</slf4j-simple.version>
     	
-    	<java.version>11</java.version>
+    	<java.version>1.8</java.version>
     	
     	<!-- Maven plugin versions -->
     	<maven-compiler-plugin.version>3.8.1</maven-compiler-plugin.version>
@@ -106,11 +105,12 @@
     </properties>
     
     <modules>
-      <module>nifi-pulsar-processors</module>
-      <module>nifi-pulsar-nar</module>
       <module>nifi-pulsar-client-service-api</module>
       <module>nifi-pulsar-client-service</module>
       <module>nifi-pulsar-client-service-nar</module>
+      <module>nifi-pulsar-processors</module>
+      <module>nifi-pulsar-nar</module>
+      <module>docker-image</module>
     </modules>
     
     <build>
@@ -121,7 +121,8 @@
             <version>${maven-compiler-plugin.version}</version>          
             <configuration>
             	<source>${java.version}</source>
-                <release>${java.version}</release>
+            	<target>${java.version}</target>
+                <!--  <release>${java.version}</release> -->
                 <encoding>UTF-8</encoding>
             </configuration>                        
             <dependencies>
