@@ -146,7 +146,7 @@ public class ConsumePulsar extends AbstractPulsarConsumerProcessor<byte[]> {
                         	getAckService().submit(new Callable<Object>() {
                         		@Override
                         		public Object call() throws Exception {
-                        			return consumer.acknowledgeAsync(msg);
+                        			return consumer.acknowledgeAsync(msg).get();
                         		}
                         	});
                         }

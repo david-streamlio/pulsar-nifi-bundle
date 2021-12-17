@@ -342,7 +342,7 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
     		getAckService().submit(new Callable<Object>() {
     			@Override
     			public Object call() throws Exception {
-    				return consumer.acknowledgeAsync(msg);
+    				return consumer.acknowledgeAsync(msg).get();
     			}
     		});
     	}
