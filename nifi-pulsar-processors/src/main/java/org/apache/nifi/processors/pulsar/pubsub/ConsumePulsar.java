@@ -146,7 +146,7 @@ public class ConsumePulsar extends AbstractPulsarConsumerProcessor<byte[]> {
                         	getAckService().submit(new Callable<Object>() {
                         		@Override
                         		public Object call() throws Exception {
-                        			return consumer.acknowledgeAsync(msg);
+                        			return consumer.acknowledgeAsync(msg).get();
                         		}
                         	});
                         }
@@ -214,7 +214,7 @@ public class ConsumePulsar extends AbstractPulsarConsumerProcessor<byte[]> {
             Map<String, String> lastAttributes = null;
             Map<String, String> currentAttributes = null;
 
-            while (((msg = consumer.receive(0, TimeUnit.SECONDS)) != null) && loopCounter.get() < maxMessages) {
+            while (loopCounter.get() < maxMessages && (msg = consumer.receive(0, TimeUnit.SECONDS)) != null) {
                 currentAttributes = getMappedFlowFileAttributes(context, msg);
 
                 if (lastMsg != null && !lastAttributes.equals(currentAttributes)) {
