@@ -18,7 +18,7 @@
     
     <groupId>io.streamnative.connectors</groupId>
     <artifactId>nifi-pulsar-bundle</artifactId>
-    <version>1.14.0</version>
+    <version>1.15.2</version>
     <packaging>pom</packaging>
     
     <name>NiFi Pulsar Connectors :: NiFi Pulsar Bundle</name>
@@ -89,7 +89,7 @@
     	<jackson-core.version>2.12.3</jackson-core.version>
     	<junit.version>4.13.2</junit.version>
     	<mockito-core.version>3.12.4</mockito-core.version>
-    	<nifi.version>1.14.0</nifi.version>
+    	<nifi.version>1.15.2</nifi.version>
     	<protobuf3.version>3.11.4</protobuf3.version>
     	<protoc.version>3.11.4</protoc.version>
     	<pulsar.version>2.9.0</pulsar.version>
