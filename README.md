@@ -6,9 +6,11 @@ This processor allows you to define the versions of the Apache NiFi and Apache P
 
 To build the NAR files using Maven, just run the following command:
 
-`mvn clean package -Dnifi.version=<NIFI VERSION> -Dulsar.version=<PULSAR VERSION> -Djdk.release=<JAVA VERSION>`
+`mvn clean package -Dnifi.version=<NIFI VERSION> -Dpulsar.version=<PULSAR VERSION> -Djdk.release=<JAVA VERSION>`
 
-The default values for these properties are, 1.11.3 for NiFi, 2.8.0 for Pulsar, and JDK 8 for Java. Note that currently NiFi version 1.14 is not currently supported due to an API change.
+The default values for these properties are, 1.11.3 for NiFi, 2.8.0 for Pulsar, and JDK 8 for Java. 
+
+Most current version is Apache NiFi 1.15.3.
 
 ## How to test
 
