@@ -116,6 +116,7 @@
       <module>nifi-pulsar-client-service-nar</module>
       <module>nifi-pulsar-processors</module>
       <module>nifi-pulsar-nar</module>
+      <module>docker-image</module>
     </modules>
     
     <build>
