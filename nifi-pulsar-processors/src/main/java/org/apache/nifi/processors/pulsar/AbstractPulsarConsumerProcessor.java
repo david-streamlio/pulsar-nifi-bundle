@@ -71,9 +71,9 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
             "Report a failure condition, and then route the message contents to the FAILED relationship.");
 
     static final AllowableValue OFFSET_EARLIEST = new AllowableValue("Earliest", "Earliest",
-            "Set the offset to the earliest offset");
+            "Set the offset to the earliest position");
     static final AllowableValue OFFSET_LATEST = new AllowableValue("Latest", "Latest",
-            "Set the offset to the latest offset");
+            "Set the offset to the latest position");
 
     public static final Relationship REL_SUCCESS = new Relationship.Builder()
             .name("success")
