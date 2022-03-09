@@ -71,9 +71,9 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
             "Report a failure condition, and then route the message contents to the FAILED relationship.");
 
     static final AllowableValue OFFSET_EARLIEST = new AllowableValue("Earliest", "Earliest",
-            "Automatically reset the offset to the earliest offset");
+            "Set the offset to the earliest offset");
     static final AllowableValue OFFSET_LATEST = new AllowableValue("Latest", "Latest",
-            "Automatically reset the offset to the latest offset");
+            "Set the offset to the latest offset");
 
     public static final Relationship REL_SUCCESS = new Relationship.Builder()
             .name("success")
@@ -121,9 +121,9 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
 
     public static final PropertyDescriptor SUBSCRIPTION_INITIAL_POSITION = new PropertyDescriptor.Builder()
             .name("SUBSCRIPTION_INITIAL_POSITION")
-            .displayName("Offset Reset")
-            .description("Allows you to manage the condition when there is no initial offset in Kafka or if the current offset does not exist any "
-                    + "more on the server (e.g. because that data has been deleted). Corresponds to Kafka's 'auto.offset.reset' property.")
+            .displayName("Subscription Initial Position")
+            .description("Specify subscription initial position. By default the subscription "
+                    + "will be created at the end of the topic.")
             .required(false)
             .allowableValues(OFFSET_EARLIEST, OFFSET_LATEST)
             .defaultValue(OFFSET_LATEST.getValue())
