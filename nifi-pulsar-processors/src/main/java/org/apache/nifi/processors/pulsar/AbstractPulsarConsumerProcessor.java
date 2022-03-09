@@ -50,13 +50,7 @@ import org.apache.nifi.processor.Relationship;
 import org.apache.nifi.processor.util.StandardValidators;
 import org.apache.nifi.pulsar.PulsarClientService;
 import org.apache.nifi.pulsar.cache.PulsarConsumerLRUCache;
-import org.apache.pulsar.client.api.Consumer;
-import org.apache.pulsar.client.api.ConsumerBuilder;
-import org.apache.pulsar.client.api.ConsumerCryptoFailureAction;
-import org.apache.pulsar.client.api.Message;
-import org.apache.pulsar.client.api.PulsarClientException;
-import org.apache.pulsar.client.api.Schema;
-import org.apache.pulsar.client.api.SubscriptionType;
+import org.apache.pulsar.client.api.*;
 import org.apache.pulsar.client.api.schema.GenericRecord;
 
 public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcessor {
@@ -75,6 +69,11 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
             "Discard the message and don't perform any addtional processing on the message");
     static final AllowableValue FAIL = new AllowableValue(ConsumerCryptoFailureAction.FAIL.name(), "Fail",
             "Report a failure condition, and then route the message contents to the FAILED relationship.");
+
+    static final AllowableValue OFFSET_EARLIEST = new AllowableValue("Earliest", "Earliest",
+            "Automatically reset the offset to the earliest offset");
+    static final AllowableValue OFFSET_LATEST = new AllowableValue("Latest", "Latest",
+            "Automatically reset the offset to the latest offset");
 
     public static final Relationship REL_SUCCESS = new Relationship.Builder()
             .name("success")
@@ -118,6 +117,16 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
             .description("Specify the subscription name for this consumer.")
             .required(true)
             .addValidator(StandardValidators.NON_BLANK_VALIDATOR)
+            .build();
+
+    public static final PropertyDescriptor SUBSCRIPTION_INITIAL_POSITION = new PropertyDescriptor.Builder()
+            .name("SUBSCRIPTION_INITIAL_POSITION")
+            .displayName("Offset Reset")
+            .description("Allows you to manage the condition when there is no initial offset in Kafka or if the current offset does not exist any "
+                    + "more on the server (e.g. because that data has been deleted). Corresponds to Kafka's 'auto.offset.reset' property.")
+            .required(false)
+            .allowableValues(OFFSET_EARLIEST, OFFSET_LATEST)
+            .defaultValue(OFFSET_LATEST.getValue())
             .build();
 
     public static final PropertyDescriptor ASYNC_ENABLED = new PropertyDescriptor.Builder()
@@ -246,6 +255,7 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
         properties.add(TOPICS);
         properties.add(TOPICS_PATTERN);
         properties.add(SUBSCRIPTION_NAME);
+        properties.add(SUBSCRIPTION_INITIAL_POSITION);
         properties.add(CONSUMER_NAME);
         properties.add(ASYNC_ENABLED);
         properties.add(MAX_ASYNC_REQUESTS);
@@ -439,6 +449,7 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
         }
 
         return builder.subscriptionName(context.getProperty(SUBSCRIPTION_NAME).getValue())
+                .subscriptionInitialPosition(SubscriptionInitialPosition.valueOf(context.getProperty(SUBSCRIPTION_INITIAL_POSITION).getValue()))
                 .ackTimeout(context.getProperty(ACK_TIMEOUT).asTimePeriod(TimeUnit.MILLISECONDS).intValue(), TimeUnit.MILLISECONDS)
                 .priorityLevel(context.getProperty(PRIORITY_LEVEL).asInteger())
                 .receiverQueueSize(context.getProperty(RECEIVER_QUEUE_SIZE).asInteger())
