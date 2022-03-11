@@ -15,7 +15,7 @@
 # limitations under the License.
 #
 
-FROM apache/nifi:1.15.3
+FROM apache/nifi:1.15.2
 
 
 #############################################################################
