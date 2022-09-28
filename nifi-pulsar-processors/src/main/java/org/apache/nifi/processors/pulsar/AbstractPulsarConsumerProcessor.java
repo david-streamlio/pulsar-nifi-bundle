@@ -50,7 +50,14 @@ import org.apache.nifi.processor.Relationship;
 import org.apache.nifi.processor.util.StandardValidators;
 import org.apache.nifi.pulsar.PulsarClientService;
 import org.apache.nifi.pulsar.cache.PulsarConsumerLRUCache;
-import org.apache.pulsar.client.api.*;
+import org.apache.pulsar.client.api.Consumer;
+import org.apache.pulsar.client.api.ConsumerBuilder;
+import org.apache.pulsar.client.api.ConsumerCryptoFailureAction;
+import org.apache.pulsar.client.api.Message;
+import org.apache.pulsar.client.api.PulsarClientException;
+import org.apache.pulsar.client.api.Schema;
+import org.apache.pulsar.client.api.SubscriptionInitialPosition;
+import org.apache.pulsar.client.api.SubscriptionType;
 import org.apache.pulsar.client.api.schema.GenericRecord;
 
 public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcessor {
@@ -246,6 +253,17 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
             .defaultValue("")
             .build();
 
+    public static final PropertyDescriptor REPLICATE_SUBSCRIPTION_STATE = new PropertyDescriptor.Builder()
+            .name("REPLICATE_SUBSCRIPTION_STATE")
+            .displayName("Replicate Subscription State")
+            .description("Control whether to replicate subscription state across multiple geographical regions "
+                    + "in case the topic is geo-replicated. In case of failover, the consumer can restart consuming "
+                    + "from the failure point in a different cluster.")
+            .required(false)
+            .allowableValues("true", "false")
+            .defaultValue("false")
+            .build();
+
     protected static final List<PropertyDescriptor> PROPERTIES;
     protected static final Set<Relationship> RELATIONSHIPS;
 
@@ -266,6 +284,7 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
         properties.add(CONSUMER_BATCH_SIZE);
         properties.add(MESSAGE_DEMARCATOR);
         properties.add(MAPPED_FLOWFILE_ATTRIBUTES);
+        properties.add(REPLICATE_SUBSCRIPTION_STATE);
 
         PROPERTIES = Collections.unmodifiableList(properties);
 
@@ -453,7 +472,8 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
                 .ackTimeout(context.getProperty(ACK_TIMEOUT).asTimePeriod(TimeUnit.MILLISECONDS).intValue(), TimeUnit.MILLISECONDS)
                 .priorityLevel(context.getProperty(PRIORITY_LEVEL).asInteger())
                 .receiverQueueSize(context.getProperty(RECEIVER_QUEUE_SIZE).asInteger())
-                .subscriptionType(SubscriptionType.valueOf(context.getProperty(SUBSCRIPTION_TYPE).getValue()));
+                .subscriptionType(SubscriptionType.valueOf(context.getProperty(SUBSCRIPTION_TYPE).getValue()))
+                .replicateSubscriptionState(context.getProperty(REPLICATE_SUBSCRIPTION_STATE).asBoolean());
     }
 
 	protected synchronized ExecutorService getConsumerPool() {
