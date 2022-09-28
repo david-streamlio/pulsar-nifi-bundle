@@ -25,37 +25,37 @@
    <artifactId>docker-image</artifactId>
    <packaging>pom</packaging>
    <name>NiFi Pulsar Connectors :: Docker Image</name>
-   
+
     <build>
-	  <plugins>
-	    <plugin>
-		   <groupId>io.fabric8</groupId>
-           <artifactId>docker-maven-plugin</artifactId>
-           <configuration>
-             <images>
-                <image>
-                   <name>streamnative/nifi</name>
-                   <build> 
-                     <dockerFileDir>nifi</dockerFileDir>
-                     <assembly>
-                       <targetDir>/connectors</targetDir>
-                       <mode>dir</mode>
-                       <descriptor>nifi/assembly.xml</descriptor>
-                     </assembly>
-                   </build>
-               </image>
-             </images>
-           </configuration>
-           <executions>
-             <execution>
-               <phase>package</phase>
-                <goals>
-                   <goal>build</goal>
-               </goals>
-             </execution>
-           </executions>
-        </plugin>
-      </plugins>
+        <plugins>
+            <plugin>
+                <groupId>io.fabric8</groupId>
+                <artifactId>docker-maven-plugin</artifactId>
+                <version>0.40.2</version>
+                <configuration>
+                    <images>
+                        <image>
+                            <name>streamnative/nifi</name>
+                            <build>
+                                <dockerFileDir>nifi</dockerFileDir>
+                                <assembly>
+                                    <targetDir>/connectors</targetDir>
+                                    <mode>dir</mode>
+                                    <descriptor>nifi/assembly.xml</descriptor>
+                                </assembly>
+                            </build>
+                        </image>
+                    </images>
+                </configuration>
+                <executions>
+                    <execution>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>build</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
     </build>
-     
 </project>
