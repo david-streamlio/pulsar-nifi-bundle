@@ -22,6 +22,7 @@ import static org.junit.Assert.assertTrue;
 
 import org.apache.nifi.components.ValidationContext;
 import org.apache.nifi.components.ValidationResult;
+import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.mockito.Mock;
@@ -34,11 +35,16 @@ public class PulsarBrokerUrlValidatorTest {
 	
 	@Mock
 	private ValidationContext ctx;
+	private AutoCloseable closeable;
 	
 	@Before
 	public final void init() {
 		validator = new PulsarBrokerUrlValidator();
-		MockitoAnnotations.initMocks(this);
+		closeable = MockitoAnnotations.openMocks(this);
+	}
+	@After
+	public final void cleanup() throws Exception {
+		closeable.close();
 	}
 
 	@Test

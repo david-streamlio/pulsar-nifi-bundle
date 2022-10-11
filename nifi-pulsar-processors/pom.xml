@@ -19,7 +19,7 @@
     <parent>
         <groupId>io.streamnative.connectors</groupId>
         <artifactId>nifi-pulsar-bundle</artifactId>
-        <version>1.15.2</version>
+        <version>1.18.0</version>
     </parent>
 
     <artifactId>nifi-pulsar-processors</artifactId>
@@ -81,8 +81,8 @@
 		</dependency>
         
         <dependency>
-           <groupId>org.apache.directory.studio</groupId>
-           <artifactId>org.apache.commons.io</artifactId>
+           <groupId>commons-io</groupId>
+           <artifactId>commons-io</artifactId>
            <version>${commons.io.version}</version>
         </dependency>
         
