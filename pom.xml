@@ -19,7 +19,7 @@
     <parent>
       <groupId>org.apache.nifi</groupId>
       <artifactId>nifi-nar-bundles</artifactId>
-      <version>1.14.0</version>
+      <version>1.18.0</version>
     </parent>
     
     <groupId>io.streamnative.connectors</groupId>
@@ -81,9 +81,10 @@
     	<groovy-eclipse-batch.version>2.5.6-01</groovy-eclipse-batch.version>
     	<grpc.version>1.41.0</grpc.version>
     	<jackson-core.version>2.12.3</jackson-core.version>
+        <nifi.version>1.18.0</nifi.version>
     	<protobuf3.version>3.11.4</protobuf3.version>
     	<protoc.version>3.11.4</protoc.version>
-    	<pulsar.version>2.9.0</pulsar.version>
+    	<pulsar.version>2.10.1</pulsar.version>
     	
     	<java.version>11</java.version>
     	

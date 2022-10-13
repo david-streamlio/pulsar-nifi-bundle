@@ -19,7 +19,7 @@
     <parent>
         <groupId>io.streamnative.connectors</groupId>
         <artifactId>nifi-pulsar-bundle</artifactId>
-        <version>1.14.0</version>
+        <version>1.18.0</version>
     </parent>
 
     <artifactId>nifi-pulsar-client-service</artifactId>
@@ -40,7 +40,7 @@
 		</dependency>
     
         <dependency>
-            <groupId>org.apache.nifi</groupId>
+            <groupId>io.streamnative.connectors</groupId>
             <artifactId>nifi-pulsar-client-service-api</artifactId>
             <version>${project.version}</version>
         </dependency>
@@ -48,19 +48,21 @@
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-api</artifactId>
+            <version>${nifi.version}</version>
             <scope>provided</scope>
         </dependency>
         
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-processor-utils</artifactId>
-            <version>${project.version}</version>
+            <version>1.15.3</version>
             <scope>provided</scope>
         </dependency>
         
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-mock</artifactId>
+            <version>${nifi.version}</version>
             <scope>test</scope>
             <exclusions>
             	<exclusion>

@@ -19,7 +19,7 @@
     <parent>
         <groupId>io.streamnative.connectors</groupId>
         <artifactId>nifi-pulsar-bundle</artifactId>
-        <version>1.14.0</version>
+        <version>1.18.0</version>
     </parent>
 
     <artifactId>nifi-pulsar-nar</artifactId>
@@ -27,20 +27,20 @@
 
     <dependencies>
         <dependency>
-            <groupId>org.apache.nifi</groupId>
+            <groupId>io.streamnative.connectors</groupId>
             <artifactId>nifi-pulsar-client-service-nar</artifactId>
             <version>${project.version}</version>
             <type>nar</type>
 		</dependency>
 
         <dependency>
-            <groupId>org.apache.nifi</groupId>
+            <groupId>io.streamnative.connectors</groupId>
             <artifactId>nifi-pulsar-processors</artifactId>
             <version>${project.version}</version>
         </dependency>
 
 		<dependency>
-            <groupId>org.apache.nifi</groupId>
+            <groupId>io.streamnative.connectors</groupId>
             <artifactId>nifi-pulsar-client-service</artifactId>
             <version>${project.version}</version>
         </dependency>

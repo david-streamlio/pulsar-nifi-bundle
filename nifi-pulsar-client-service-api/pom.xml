@@ -19,7 +19,7 @@
     <parent>
         <groupId>io.streamnative.connectors</groupId>
         <artifactId>nifi-pulsar-bundle</artifactId>
-        <version>1.14.0</version>
+        <version>1.18.0</version>
     </parent>
 
     <artifactId>nifi-pulsar-client-service-api</artifactId>
@@ -30,6 +30,7 @@
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-api</artifactId>
+            <version>${nifi.version}</version>
             <scope>provided</scope>
         </dependency>
         
