@@ -31,8 +31,6 @@ import org.apache.nifi.processors.pulsar.pubsub.TestPublishPulsarRecord;
 import org.apache.nifi.util.MockFlowFile;
 import org.apache.pulsar.client.api.PulsarClientException;
 import org.junit.Test;
-import org.mockito.ArgumentMatcher;
-import org.mockito.Matchers;
 
 public class TestAsyncPublishPulsarRecord extends TestPublishPulsarRecord {
 
