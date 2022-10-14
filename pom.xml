@@ -13,7 +13,8 @@
   See the License for the specific language governing permissions and
   limitations under the License.
 -->
-<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
     <parent>
@@ -24,55 +25,69 @@
     
     <groupId>io.streamnative.connectors</groupId>
     <artifactId>nifi-pulsar-bundle</artifactId>
+    <version>1.18.0</version>
     <packaging>pom</packaging>
-    
-    <name>${project.groupId}:${project.artifactId}</name>
-  	<description>A collection of NiFi Processors that can store and retrieve data from Apache Pulsar</description>
-  	<url>https://github.com/david-streamlio/pulsar-nifi-bundle</url>
-    
+
+    <name>NiFi Pulsar Connectors :: NiFi Pulsar Bundle</name>
+    <description>A collection of NiFi Processors that can store and retrieve data from Apache Pulsar</description>
+    <url>https://github.com/david-streamlio/pulsar-nifi-bundle</url>
+
     <licenses>
-      <license>
-        <name>Apache License, Version 2.0</name>
-      	<url>http://www.apache.org/licenses/LICENSE-2.0.txt</url>
-      	<distribution>repo</distribution>
-      </license>
+        <license>
+            <name>Apache License, Version 2.0</name>
+            <url>http://www.apache.org/licenses/LICENSE-2.0.txt</url>
+            <distribution>repo</distribution>
+        </license>
     </licenses>
-    
+
     <organization>
-      <name>StreamNative</name>
-      <url>https://streamnative.io/</url>
+        <name>StreamNative</name>
+        <url>https://streamnative.io/</url>
     </organization>
-    
+
     <developers>
-      <developer>
-        <name>David Kjerrumgaard</name>
-      	<email>david@streamnative.io</email>
-      	<organization>StreamNative</organization>
-      	<organizationUrl>http://www.streamnative.io</organizationUrl>
-      </developer>
+        <developer>
+            <name>David Kjerrumgaard</name>
+            <email>david@streamnative.io</email>
+            <organization>StreamNative</organization>
+            <organizationUrl>http://www.streamnative.io</organizationUrl>
+        </developer>
     </developers>
-    
+
     <scm>
-      <connection>scm:git:git@github.com:david-streamlio/pulsar-nifi-bundle.git</connection>
-      <developerConnection>scm:git:ssh://github.com:david-streamlio/pulsar-nifi-bundle.git</developerConnection>
-      <url>https://github.com/david-streamlio/pulsar-nifi-bundle/tree/main</url>
+        <connection>scm:git:git@github.com:david-streamlio/pulsar-nifi-bundle.git</connection>
+        <developerConnection>scm:git:ssh://github.com:david-streamlio/pulsar-nifi-bundle.git</developerConnection>
+        <url>https://github.com/david-streamlio/pulsar-nifi-bundle/tree/main</url>
     </scm>
-    
+
+    <distributionManagement>
+        <snapshotRepository>
+            <id>ossrh</id>
+            <url>https://s01.oss.sonatype.org/content/repositories/snapshots</url>
+        </snapshotRepository>
+        <repository>
+            <id>ossrh</id>
+            <url>https://s01.oss.sonatype.org/service/local/staging/deploy/maven2/</url>
+        </repository>
+    </distributionManagement>
+
     <mailingLists>
-      <mailingList>
-        <name>Dev</name>
-        <subscribe>david@streamnative.io</subscribe>
-        <unsubscribe>david@streamnative.io</unsubscribe>
-      </mailingList>
+        <mailingList>
+            <name>Dev</name>
+            <subscribe>david@streamnative.io</subscribe>
+            <unsubscribe>david@streamnative.io</unsubscribe>
+        </mailingList>
     </mailingLists>
-    
+
     <issueManagement>
-      <system>JIRA</system>
-      <url>https://github.com/david-streamlio/pulsar-nifi-bundle/issues</url>
+        <system>JIRA</system>
+        <url>https://github.com/david-streamlio/pulsar-nifi-bundle/issues</url>
     </issueManagement>
-    
+
     <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <!-- Dependency versions -->
+
     	<commons-collections4.version>4.4</commons-collections4.version>
     	<commons-compress.version>1.21</commons-compress.version>
     	<commons-lang3.version>3.12.0</commons-lang3.version>
@@ -81,7 +96,7 @@
     	<groovy-eclipse-batch.version>2.5.6-01</groovy-eclipse-batch.version>
     	<grpc.version>1.41.0</grpc.version>
     	<jackson-core.version>2.13.4</jackson-core.version>
-        <nifi.version>1.18.0</nifi.version>
+      <nifi.version>1.18.0</nifi.version>
     	<protobuf3.version>3.20.0</protobuf3.version>
     	<protoc.version>3.20.0</protoc.version>
     	<pulsar.version>2.10.1</pulsar.version>
@@ -98,107 +113,115 @@
         <maven-versions-plugin.version>2.5</maven-versions-plugin.version>
 
     </properties>
-    
+
     <modules>
-      <module>nifi-pulsar-processors</module>
-      <module>nifi-pulsar-nar</module>
-      <module>nifi-pulsar-client-service-api</module>
-      <module>nifi-pulsar-client-service</module>
-      <module>nifi-pulsar-client-service-nar</module>
+        <module>nifi-pulsar-client-service-api</module>
+        <module>nifi-pulsar-client-service</module>
+        <module>nifi-pulsar-client-service-nar</module>
+        <module>nifi-pulsar-processors</module>
+        <module>nifi-pulsar-nar</module>
+        <module>docker-image</module>
     </modules>
-    
+
     <build>
-      <plugins>
-    	<plugin>
-    		<groupId>org.codehaus.mojo</groupId>
-    		<artifactId>versions-maven-plugin</artifactId>
-    		<version>${maven-versions-plugin.version}</version>
-    		<configuration>
-        		<generateBackupPoms>false</generateBackupPoms>
-    		</configuration>
-		</plugin>
-			
-		<plugin>
-            <artifactId>maven-compiler-plugin</artifactId>            
-            <configuration>
-            	<source>${java.version}</source>
-                <release>${java.version}</release>
-                <encoding>UTF-8</encoding>
-            </configuration>                        
-            <dependencies>
-              <dependency>
-                <groupId>org.codehaus.groovy</groupId>
-                <artifactId>groovy-eclipse-batch</artifactId>
-                <version>${groovy-eclipse-batch.version}</version>
-              </dependency>
-            </dependencies>                 
-        </plugin>
-        
-        <plugin>
-    	  <groupId>org.apache.maven.plugins</groupId>
-          <artifactId>maven-source-plugin</artifactId>
-          <version>${maven-source-plugin.version}</version>
-          <executions>
-            <execution>
-              <id>attach-sources</id>
-              <goals>
-                <goal>jar-no-fork</goal>
-              </goals>
-            </execution>
-          </executions>
-        </plugin>
-        
-        <plugin>
-          <groupId>org.apache.maven.plugins</groupId>
-          <artifactId>maven-javadoc-plugin</artifactId>
-          <version>${maven-javadoc-plugin.version}</version>
-          <configuration>
-          	<detectJavaApiLink>false</detectJavaApiLink>
-          	<javadocVersion>${java.version}</javadocVersion>
-          </configuration>
-          <executions>
-            <execution>
-              <id>attach-javadocs</id>
-              <goals>
-                <goal>jar</goal>
-              </goals>
-            </execution>
-          </executions>
-        </plugin>
-      
-      </plugins>
-    </build>
-    
-	<profiles>
-      <profile>
-        <id>ci-cd</id>
-          <build>
-            <plugins>
-              <plugin>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>${maven-compiler-plugin.version}</version>
+                <configuration>
+                    <source>${java.version}</source>
+                    <target>${java.version}</target>
+                    <!--  <release>${java.version}</release> -->
+                    <encoding>UTF-8</encoding>
+                    <showDeprecation>true</showDeprecation>
+                </configuration>
+                <dependencies>
+                    <dependency>
+                        <groupId>org.codehaus.groovy</groupId>
+                        <artifactId>groovy-eclipse-batch</artifactId>
+                        <version>${groovy-eclipse-batch.version}</version>
+                    </dependency>
+                </dependencies>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-source-plugin</artifactId>
+                <version>${maven-source-plugin.version}</version>
+                <executions>
+                    <execution>
+                        <id>attach-sources</id>
+                        <goals>
+                            <goal>jar-no-fork</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-javadoc-plugin</artifactId>
+                <version>${maven-javadoc-plugin.version}</version>
+                <configuration>
+                    <detectJavaApiLink>false</detectJavaApiLink>
+                    <javadocVersion>${java.version}</javadocVersion>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>attach-javadocs</id>
+                        <goals>
+                            <goal>jar</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.nifi</groupId>
+                <artifactId>nifi-nar-maven-plugin</artifactId>
+                <version>${nifi-nar-maven-plugin.version}</version>
+                <extensions>true</extensions>
+                <configuration>
+                    <enforceDocGeneration>true</enforceDocGeneration>
+                </configuration>
+            </plugin>
+
+            <plugin>
+                <groupId>org.sonatype.plugins</groupId>
+                <artifactId>nexus-staging-maven-plugin</artifactId>
+                <version>${nexus-staging-maven-plugin.version}</version>
+                <extensions>true</extensions>
+                <configuration>
+                    <serverId>ossrh</serverId>
+                    <nexusUrl>https://s01.oss.sonatype.org/</nexusUrl>
+                    <autoReleaseAfterClose>true</autoReleaseAfterClose>
+                </configuration>
+            </plugin>
+
+            <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-gpg-plugin</artifactId>
                 <version>${maven-gpg-plugin.version}</version>
                 <executions>
-                  <execution>
-                    <id>sign-artifacts</id>
-                      <phase>verify</phase>
+                    <execution>
+                        <id>sign-artifacts</id>
+                        <phase>verify</phase>
                         <goals>
-                          <goal>sign</goal>
+                            <goal>sign</goal>
                         </goals>
-                        <configuration>
-                          <!-- Prevent gpg from using pinentry programs. Fixes: gpg: signing 
-                               failed: Inappropriate ioctl for device -->
-                          <gpgArguments>
-                            <arg>--pinentry-mode</arg>
-                            <arg>loopback</arg>
-                          </gpgArguments>
-                        </configuration>
-                      </execution>
-                    </executions>
-                  </plugin>
-                </plugins>
-            </build>
-        </profile>
-    </profiles>
-    
+                    </execution>
+                </executions>
+                <configuration>
+                    <!-- Prevent `gpg` from using pinentry programs -->
+                    <gpgArguments>
+                        <arg>--pinentry-mode</arg>
+                        <arg>loopback</arg>
+                    </gpgArguments>
+                </configuration>
+            </plugin>
+
+        </plugins>
+    </build>
+
 </project>

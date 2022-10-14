@@ -149,7 +149,7 @@ public class TestConsumePulsar extends AbstractPulsarProcessorTest<byte[]> {
         boolean shared = isSharedSubType(subType);
         
         // Verify that every message was acknowledged
-        verify(mockClientService.getMockConsumer(), times(batchSize + 1)).receive(0, TimeUnit.SECONDS);
+        verify(mockClientService.getMockConsumer(), times(batchSize)).receive(0, TimeUnit.SECONDS);
         
         if (shared) {
         	if (async) {
@@ -191,7 +191,7 @@ public class TestConsumePulsar extends AbstractPulsarProcessorTest<byte[]> {
             ff.assertContentEquals(msg);        
         }
 
-        verify(mockClientService.getMockConsumer(), times(iterations * 2)).receive(0, TimeUnit.SECONDS);
+        verify(mockClientService.getMockConsumer(), times(iterations)).receive(0, TimeUnit.SECONDS);
 
         boolean shared = isSharedSubType(subType);
         

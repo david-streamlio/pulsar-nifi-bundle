@@ -193,10 +193,11 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
         Message<GenericRecord> msg = null;
         AtomicInteger msgCount = new AtomicInteger(0);
 
-        while (((msg = consumer.receive(0, TimeUnit.SECONDS)) != null) && msgCount.get() < maxMessages) {
+        while (msgCount.get() < maxMessages && (msg = consumer.receive(0, TimeUnit.SECONDS)) != null) {
            messages.add(msg);
            msgCount.incrementAndGet();
         }
+
         return messages;
     }
 
@@ -342,7 +343,7 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
     		getAckService().submit(new Callable<Object>() {
     			@Override
     			public Object call() throws Exception {
-    				return consumer.acknowledgeAsync(msg);
+    				return consumer.acknowledgeAsync(msg).get();
     			}
     		});
     	}
@@ -406,7 +407,7 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
      * @param writerFactory - The factory used to write the messages.
      * @param demarcator - The bytes used to demarcate the individual messages.
      * 
-     * @throws PulsarClientException
+     * @throws PulsarClientException if there is an issue connecting to the Pulsar cluster. 
      */
     protected void handleAsync(ProcessContext context, ProcessSession session, final Consumer<GenericRecord> consumer,
          final RecordReaderFactory readerFactory, RecordSetWriterFactory writerFactory, byte[] demarcator) throws PulsarClientException {

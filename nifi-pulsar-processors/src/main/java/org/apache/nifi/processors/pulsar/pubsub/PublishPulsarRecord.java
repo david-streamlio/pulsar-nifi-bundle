@@ -26,7 +26,6 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
 import org.apache.commons.compress.utils.IOUtils;
-import org.apache.commons.lang3.tuple.Triple;
 import org.apache.nifi.annotation.behavior.InputRequirement;
 import org.apache.nifi.annotation.behavior.TriggerWhenEmpty;
 import org.apache.nifi.annotation.behavior.WritesAttribute;
@@ -173,7 +172,7 @@ public class PublishPulsarRecord extends AbstractPulsarProducerProcessor<byte[]>
                 recordCount++;
                 baos.reset();
 
-                try (final RecordSetWriter writer = writerFactory.createWriter(getLogger(), schema, baos)) {
+                try (final RecordSetWriter writer = writerFactory.createWriter(getLogger(), schema, baos, Collections.emptyMap())) {
                     writer.write(record);
                     writer.flush();
                 }

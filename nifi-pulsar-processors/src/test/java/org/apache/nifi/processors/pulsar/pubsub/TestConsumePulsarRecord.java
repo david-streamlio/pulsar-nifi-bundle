@@ -164,7 +164,7 @@ public class TestConsumePulsarRecord extends AbstractPulsarProcessorTest<byte[]>
         List<MockFlowFile> flowFiles = runner.getFlowFilesForRelationship(ConsumePulsarRecord.REL_SUCCESS);
         assertEquals(iterations, flowFiles.size());
 
-        verify(mockClientService.getMockConsumer(), times(iterations * (batchSize+1))).receive(0, TimeUnit.SECONDS);
+        verify(mockClientService.getMockConsumer(), times(iterations * batchSize)).receive(0, TimeUnit.SECONDS);
 
         boolean shared = isSharedSubType(subType);
         

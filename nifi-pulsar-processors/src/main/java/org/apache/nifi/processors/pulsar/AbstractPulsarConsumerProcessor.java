@@ -32,6 +32,7 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import org.apache.commons.lang3.StringUtils;
 import org.apache.nifi.annotation.lifecycle.OnScheduled;
 import org.apache.nifi.annotation.lifecycle.OnStopped;
 import org.apache.nifi.annotation.lifecycle.OnUnscheduled;
@@ -49,13 +50,13 @@ import org.apache.nifi.processor.Relationship;
 import org.apache.nifi.processor.util.StandardValidators;
 import org.apache.nifi.pulsar.PulsarClientService;
 import org.apache.nifi.pulsar.cache.PulsarConsumerLRUCache;
-import org.apache.nifi.util.StringUtils;
 import org.apache.pulsar.client.api.Consumer;
 import org.apache.pulsar.client.api.ConsumerBuilder;
 import org.apache.pulsar.client.api.ConsumerCryptoFailureAction;
 import org.apache.pulsar.client.api.Message;
 import org.apache.pulsar.client.api.PulsarClientException;
 import org.apache.pulsar.client.api.Schema;
+import org.apache.pulsar.client.api.SubscriptionInitialPosition;
 import org.apache.pulsar.client.api.SubscriptionType;
 import org.apache.pulsar.client.api.schema.GenericRecord;
 
@@ -75,6 +76,11 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
             "Discard the message and don't perform any addtional processing on the message");
     static final AllowableValue FAIL = new AllowableValue(ConsumerCryptoFailureAction.FAIL.name(), "Fail",
             "Report a failure condition, and then route the message contents to the FAILED relationship.");
+
+    static final AllowableValue OFFSET_EARLIEST = new AllowableValue("Earliest", "Earliest",
+            "The earliest position which means the start consuming position will be the first message.");
+    static final AllowableValue OFFSET_LATEST = new AllowableValue("Latest", "Latest",
+            "The latest position which means the start consuming position will be the last message.");
 
     public static final Relationship REL_SUCCESS = new Relationship.Builder()
             .name("success")
@@ -118,6 +124,16 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
             .description("Specify the subscription name for this consumer.")
             .required(true)
             .addValidator(StandardValidators.NON_BLANK_VALIDATOR)
+            .build();
+
+    public static final PropertyDescriptor SUBSCRIPTION_INITIAL_POSITION = new PropertyDescriptor.Builder()
+            .name("SUBSCRIPTION_INITIAL_POSITION")
+            .displayName("Subscription Initial Position")
+            .description("Specify subscription initial position. By default the subscription "
+                    + "will be created at the end of the topic.")
+            .required(false)
+            .allowableValues(OFFSET_EARLIEST, OFFSET_LATEST)
+            .defaultValue(OFFSET_LATEST.getValue())
             .build();
 
     public static final PropertyDescriptor ASYNC_ENABLED = new PropertyDescriptor.Builder()
@@ -237,6 +253,17 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
             .defaultValue("")
             .build();
 
+    public static final PropertyDescriptor REPLICATE_SUBSCRIPTION_STATE = new PropertyDescriptor.Builder()
+            .name("REPLICATE_SUBSCRIPTION_STATE")
+            .displayName("Replicate Subscription State")
+            .description("Control whether to replicate subscription state across multiple geographical regions "
+                    + "in case the topic is geo-replicated. In case of failover, the consumer can restart consuming "
+                    + "from the failure point in a different cluster.")
+            .required(false)
+            .allowableValues("true", "false")
+            .defaultValue("false")
+            .build();
+
     protected static final List<PropertyDescriptor> PROPERTIES;
     protected static final Set<Relationship> RELATIONSHIPS;
 
@@ -246,6 +273,7 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
         properties.add(TOPICS);
         properties.add(TOPICS_PATTERN);
         properties.add(SUBSCRIPTION_NAME);
+        properties.add(SUBSCRIPTION_INITIAL_POSITION);
         properties.add(CONSUMER_NAME);
         properties.add(ASYNC_ENABLED);
         properties.add(MAX_ASYNC_REQUESTS);
@@ -256,6 +284,7 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
         properties.add(CONSUMER_BATCH_SIZE);
         properties.add(MESSAGE_DEMARCATOR);
         properties.add(MAPPED_FLOWFILE_ATTRIBUTES);
+        properties.add(REPLICATE_SUBSCRIPTION_STATE);
 
         PROPERTIES = Collections.unmodifiableList(properties);
 
@@ -348,8 +377,8 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
      * Method returns a string that uniquely identifies a consumer by concatenating
      * the topic name and subscription properties together.
      * 
-     * @param context
-     * @param flowFile
+     * @param context - The Processor context
+     * @param flowFile - The current NiFi flow file
      * @return The consumer id.
      */
     protected String getConsumerId(final ProcessContext context, FlowFile flowFile) {
@@ -384,10 +413,11 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
                 Message<GenericRecord> msg = null;
                 AtomicInteger msgCount = new AtomicInteger(0);
 
-                while (((msg = consumer.receive(0, TimeUnit.SECONDS)) != null) && msgCount.get() < maxMessages) {
+                while (msgCount.get() < maxMessages && (msg = consumer.receive(0, TimeUnit.SECONDS)) != null) {
                     messages.add(msg);
                     msgCount.incrementAndGet();
                 }
+
                 return messages;
             });
         } catch (final RejectedExecutionException ex) {
@@ -438,10 +468,12 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
         }
 
         return builder.subscriptionName(context.getProperty(SUBSCRIPTION_NAME).getValue())
+                .subscriptionInitialPosition(SubscriptionInitialPosition.valueOf(context.getProperty(SUBSCRIPTION_INITIAL_POSITION).getValue()))
                 .ackTimeout(context.getProperty(ACK_TIMEOUT).asTimePeriod(TimeUnit.MILLISECONDS).intValue(), TimeUnit.MILLISECONDS)
                 .priorityLevel(context.getProperty(PRIORITY_LEVEL).asInteger())
                 .receiverQueueSize(context.getProperty(RECEIVER_QUEUE_SIZE).asInteger())
-                .subscriptionType(SubscriptionType.valueOf(context.getProperty(SUBSCRIPTION_TYPE).getValue()));
+                .subscriptionType(SubscriptionType.valueOf(context.getProperty(SUBSCRIPTION_TYPE).getValue()))
+                .replicateSubscriptionState(context.getProperty(REPLICATE_SUBSCRIPTION_STATE).asBoolean());
     }
 
 	protected synchronized ExecutorService getConsumerPool() {
