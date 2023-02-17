@@ -8,7 +8,7 @@ To build the NAR files using Maven, just run the following command:
 
 `mvn clean package -Dnifi.version=<NIFI VERSION> -Dpulsar.version=<PULSAR VERSION> -Djdk.release=<JAVA VERSION>`
 
-The default values for these properties are, 1.11.3 for NiFi, 2.8.0 for Pulsar, and JDK 8 for Java. 
+The default values for these properties are, 1.20.0 for NiFi, 2.10.3 for Pulsar, and JDK 11 for Java. 
 
 Most current version is Apache NiFi 1.15.3.
 
