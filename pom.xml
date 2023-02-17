@@ -96,12 +96,14 @@
     	<groovy-eclipse-batch.version>2.5.6-01</groovy-eclipse-batch.version>
     	<grpc.version>1.41.0</grpc.version>
     	<jackson-core.version>2.13.4</jackson-core.version>
-      <nifi.version>1.18.0</nifi.version>
+        <junit.version>4.13.2</junit.version>
+        <mockito-core.version>3.12.4</mockito-core.version>
     	<protobuf3.version>3.20.0</protobuf3.version>
     	<protoc.version>3.20.0</protoc.version>
-    	<pulsar.version>2.10.1</pulsar.version>
-
-    	<java.version>11</java.version>
+        <slf4j-simple.version>2.0.0</slf4j-simple.version>
+        <nifi.version>1.20.0</nifi.version>
+        <pulsar.version>2.10.3</pulsar.version>
+        <java.version>11</java.version>
 
     	<!-- Maven plugin versions -->
         <maven-compiler-plugin.version>3.10.1</maven-compiler-plugin.version>
