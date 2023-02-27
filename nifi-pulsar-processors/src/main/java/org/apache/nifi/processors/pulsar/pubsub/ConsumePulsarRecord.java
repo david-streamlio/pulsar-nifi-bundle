@@ -248,9 +248,13 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
                // if the current message's mapped attribute values differ from the previous set's,
                // write out the active record set and clear various references so that we'll start a new one
                if (lastAttributes != null && !lastAttributes.equals(currentAttributes)) {
-                   WriteResult result = writer.finishRecordSet();
-                   IOUtils.closeQuietly(writer);
-                   IOUtils.closeQuietly(rawOut);
+                   final WriteResult result;
+                   try {
+                       result = writer.finishRecordSet();
+                   } finally {
+                       writer.close();
+                   }
+                   closeOutputStream(rawOut);
 
                    if (result != WriteResult.EMPTY) {
                        flowFile = session.putAllAttributes(flowFile, result.getAttributes());
@@ -260,7 +264,6 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
                    } else {
                        session.rollback();
                    }
-
                    handleFailures(session, parseFailures, demarcator);
                    parseFailures.clear();
                    
@@ -284,7 +287,7 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
                    if (schema == null || writer == null) {
                        parseFailures.add(msg);
                        session.remove(flowFile);
-                       IOUtils.closeQuietly(rawOut);
+                       closeOutputStream(rawOut);
                        getLogger().error("Unable to create a record writer to consume from the Pulsar topic");
                        continue;
                    }
@@ -313,19 +316,24 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
                    parseFailures.add(msg);
                }
            }
+           if (writer != null) {
+               final WriteResult result;
+               try {
+                   result = writer.finishRecordSet();
+               } finally {
+                   writer.close();
+               }
+               closeOutputStream(rawOut);
 
-           WriteResult result = writer.finishRecordSet();
-           IOUtils.closeQuietly(writer);
-           IOUtils.closeQuietly(rawOut);
-
-           if (result != WriteResult.EMPTY) {
-               flowFile = session.putAllAttributes(flowFile, result.getAttributes());
-               flowFile = session.putAttribute(flowFile, MSG_COUNT, result.getRecordCount() + "");
-               session.getProvenanceReporter().receive(flowFile, getPulsarClientService().getPulsarBrokerRootURL() + "/" + consumer.getTopic());
-               session.transfer(flowFile, REL_SUCCESS);
-           } else {
-               // We were able to parse the records, but unable to write them to the FlowFile
-               session.rollback();
+               if (result != WriteResult.EMPTY) {
+                   flowFile = session.putAllAttributes(flowFile, result.getAttributes());
+                   flowFile = session.putAttribute(flowFile, MSG_COUNT, result.getRecordCount() + "");
+                   session.getProvenanceReporter().receive(flowFile, getPulsarClientService().getPulsarBrokerRootURL() + "/" + consumer.getTopic());
+                   session.transfer(flowFile, REL_SUCCESS);
+               } else {
+                   // We were able to parse the records, but unable to write them to the FlowFile
+                   session.rollback();
+               }
            }
        } catch (IOException e) {
            getLogger().error("Unable to consume from Pulsar topic ", e);
@@ -390,7 +398,7 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
                  rawOut.write(msg.getData());
               }
            }
-           IOUtils.closeQuietly(rawOut);
+           closeOutputStream(rawOut);
            session.transfer(flowFile, REL_PARSE_FAILURE);
         } catch (IOException e) {
            getLogger().error("Unable to route failures", e);
@@ -412,7 +420,7 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
     protected void handleAsync(ProcessContext context, ProcessSession session, final Consumer<GenericRecord> consumer,
          final RecordReaderFactory readerFactory, RecordSetWriterFactory writerFactory, byte[] demarcator) throws PulsarClientException {
 
-        final Integer queryTimeout = context.getProperty(MAX_WAIT_TIME).evaluateAttributeExpressions().asTimePeriod(TimeUnit.SECONDS).intValue();
+        final long queryTimeout = context.getProperty(MAX_WAIT_TIME).evaluateAttributeExpressions().asTimePeriod(TimeUnit.SECONDS);
 
         try {
              Future<List<Message<GenericRecord>>> done = null;
@@ -434,18 +442,13 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
 
     private RecordSchema getSchema(FlowFile flowFile, RecordReaderFactory readerFactory, byte[] msgValue) {
         RecordSchema schema = null;
-        InputStream in = null;
+        try(InputStream in = new ByteArrayInputStream(msgValue);) {
 
-        try {
-            in = new ByteArrayInputStream(msgValue);
             schema = readerFactory.createRecordReader(flowFile, in, getLogger()).getSchema();
         } catch (MalformedRecordException | IOException | SchemaNotFoundException e) {
            getLogger().error("Unable to determine the schema", e);
            return null;
-        } finally {
-           IOUtils.closeQuietly(in);
         }
-
         return schema;
     }
 
@@ -456,6 +459,16 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
             return writerFactory.createWriter(getLogger(), writeSchema, out, flowFile);
         } catch (SchemaNotFoundException | IOException e) {
            return null;
+        }
+    }
+
+    private void closeOutputStream(final OutputStream out) {
+        try {
+            if (out != null) {
+                out.close();
+            }
+        } catch (final IOException ioe) {
+            getLogger().warn("Failed to close Output Stream", ioe);
         }
     }
 }

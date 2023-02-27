@@ -17,9 +17,9 @@
     <modelVersion>4.0.0</modelVersion>
 
     <parent>
-        <groupId>io.streamnative.connectors</groupId>
+        <groupId>com.nifi.pulsar</groupId>
         <artifactId>nifi-pulsar-bundle</artifactId>
-        <version>1.18.0</version>
+        <version>1.20.0</version>
     </parent>
 
     <artifactId>nifi-pulsar-client-service</artifactId>
@@ -33,30 +33,57 @@
     <dependencies>
 
         <dependency>
-          <groupId>io.streamnative.connectors</groupId>
-          <artifactId>nifi-pulsar-client-service-api</artifactId>
-          <version>${project.version}</version>
+            <groupId>com.nifi.pulsar</groupId>
+            <artifactId>nifi-pulsar-client-service-api</artifactId>
+            <version>${project.version}</version>
+            <scope>provided</scope>
         </dependency>
     
     	 <dependency>
             <groupId>org.apache.pulsar</groupId>
             <artifactId>pulsar-client</artifactId>
             <version>${pulsar.version}</version>
+             <exclusions>
+                 <exclusion>
+                     <groupId>org.bouncycastle</groupId>
+                     <artifactId>bcpkix-jdk15on</artifactId>
+                 </exclusion>
+                 <exclusion>
+                     <groupId>org.bouncycastle</groupId>
+                     <artifactId>bcprov-jdk15on</artifactId>
+                 </exclusion>
+                 <exclusion>
+                     <groupId>org.bouncycastle</groupId>
+                     <artifactId>bcutil-jdk15on</artifactId>
+                 </exclusion>
+             </exclusions>
         </dependency>
-    
+
     	<dependency>
   			<groupId>org.apache.pulsar</groupId>
   			<artifactId>pulsar-client-admin</artifactId>
   			<version>${pulsar.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>com.fasterxml.jackson.core</groupId>
+                    <artifactId>jackson-databind</artifactId>
+                </exclusion>
+
+                <exclusion>
+                    <groupId>org.bouncycastle</groupId>
+                    <artifactId>bcpkix-jdk15on</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.bouncycastle</groupId>
+                    <artifactId>bcprov-jdk15on</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.bouncycastle</groupId>
+                    <artifactId>bcutil-jdk15on</artifactId>
+                </exclusion>
+            </exclusions>
 		  </dependency>
 
-    
-        <dependency>
-            <groupId>io.streamnative.connectors</groupId>
-            <artifactId>nifi-pulsar-client-service-api</artifactId>
-            <version>${project.version}</version>
-        </dependency>
-        
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-api</artifactId>
@@ -81,6 +108,10 @@
             	  <groupId>org.apache.httpcomponents</groupId>
                   <artifactId>httpcomponents-asyncclient</artifactId>
             	</exclusion>
+                <exclusion>
+                    <groupId>com.fasterxml.jackson.core</groupId>
+                    <artifactId>jackson-databind</artifactId>
+                </exclusion>
             </exclusions>
         </dependency>
         

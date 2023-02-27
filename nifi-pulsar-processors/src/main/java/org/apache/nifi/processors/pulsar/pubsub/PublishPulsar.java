@@ -66,7 +66,7 @@ public class PublishPulsar extends AbstractPulsarProducerProcessor<byte[]> {
          * to send the message successfully, so go ahead and route to failure now.
          */
         if (producer == null) {
-            getLogger().error("Unable to publish to topic {}", new Object[] {topic});
+            getLogger().error("Unable to publish to topic {}", topic);
             session.transfer(flowFile, REL_FAILURE);
 
             if (context.getProperty(ASYNC_ENABLED).asBoolean()) {

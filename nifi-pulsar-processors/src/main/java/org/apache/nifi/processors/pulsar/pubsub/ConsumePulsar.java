@@ -43,7 +43,6 @@ import org.apache.pulsar.client.api.Consumer;
 import org.apache.pulsar.client.api.Message;
 import org.apache.pulsar.client.api.PulsarClientException;
 import org.apache.pulsar.client.api.schema.GenericRecord;
-import org.apache.commons.io.IOUtils;
 
 @SeeAlso({PublishPulsar.class, ConsumePulsarRecord.class, PublishPulsarRecord.class})
 @Tags({"Pulsar", "Get", "Ingest", "Ingress", "Topic", "PubSub", "Consume"})
@@ -59,7 +58,7 @@ public class ConsumePulsar extends AbstractPulsarConsumerProcessor<byte[]> {
     @Override
     public void onTrigger(ProcessContext context, ProcessSession session) throws ProcessException {
         try {
-            Consumer<GenericRecord> consumer = getConsumer(context, getConsumerId(context, session.get()));
+            final Consumer<GenericRecord> consumer = getConsumer(context, getConsumerId(context, session.get()));
 
             if (consumer == null) {
                 context.yield();
@@ -72,10 +71,12 @@ public class ConsumePulsar extends AbstractPulsarConsumerProcessor<byte[]> {
             } else {
                 consume(consumer, context, session);
             }
-        } catch (PulsarClientException e) {
-            getLogger().error("Unable to consume from Pulsar Topic ", e);
+        } catch (final PulsarClientException e) {
+            getLogger().error("Exception while interacting with Pulsar, unable to consume from topic ", e);
             context.yield();
-            throw new ProcessException(e);
+//            throw new ProcessException(e);
+        } catch (final Throwable t) {
+            getLogger().error("Exception while processing data from Pulsar", t);
         }
     }
 
@@ -87,17 +88,13 @@ public class ConsumePulsar extends AbstractPulsarConsumerProcessor<byte[]> {
 
                 final byte[] demarcatorBytes = context.getProperty(MESSAGE_DEMARCATOR).isSet() ? context.getProperty(MESSAGE_DEMARCATOR)
                     .evaluateAttributeExpressions().getValue().getBytes(StandardCharsets.UTF_8) : null;
-
                 // Cumulative acks are NOT permitted on Shared subscriptions.
                 final boolean shared = isSharedSubscription(context);
-                
                 List<Message<GenericRecord>> messages = done.get();
-
                 if (CollectionUtils.isNotEmpty(messages)) {
                     FlowFile flowFile = null;
                     OutputStream out = null;
                     AtomicInteger msgCount = new AtomicInteger(0);
-
                     Map<String, String> lastAttributes = null;
                     Message<GenericRecord> lastMessage = null;
                     Map<String, String> currentAttributes = null;
@@ -105,12 +102,13 @@ public class ConsumePulsar extends AbstractPulsarConsumerProcessor<byte[]> {
                     for (Message<GenericRecord> msg : messages) {
                         currentAttributes = getMappedFlowFileAttributes(context, msg);
 
-                       if (lastAttributes != null && !lastAttributes.equals(currentAttributes)) {
+                        if (lastAttributes != null && !lastAttributes.equals(currentAttributes)) {
                             // mapped attributes changed, write the current flowfile and start a new one
-                            IOUtils.closeQuietly(out);
+                           closeOutputStream(out);
 
                             flowFile = session.putAttribute(flowFile, MSG_COUNT, msgCount.toString());
-                            session.getProvenanceReporter().receive(flowFile, getPulsarClientService().getPulsarBrokerRootURL() + "/" + consumer.getTopic());
+                            session.getProvenanceReporter().receive(flowFile,
+                                    getPulsarClientService().getPulsarBrokerRootURL() + "/" + consumer.getTopic());
                             session.transfer(flowFile, REL_SUCCESS);
                             session.commitAsync();
 
@@ -153,7 +151,7 @@ public class ConsumePulsar extends AbstractPulsarConsumerProcessor<byte[]> {
                         
                         try {
                         	//only write demarcators between messages
-                        	if (msgCount.get() > 0) {
+                        	if (msgCount.get() > 0 && demarcatorBytes != null) {
                         		out.write(demarcatorBytes);
                         	}
                         	
@@ -170,7 +168,7 @@ public class ConsumePulsar extends AbstractPulsarConsumerProcessor<byte[]> {
                         }
                     }
 
-                    IOUtils.closeQuietly(out);
+                    closeOutputStream(out);
 
                     flowFile = session.putAttribute(flowFile, MSG_COUNT, msgCount.toString());
                     session.getProvenanceReporter().receive(flowFile, getPulsarClientService().getPulsarBrokerRootURL() + "/" + consumer.getTopic());
@@ -218,7 +216,7 @@ public class ConsumePulsar extends AbstractPulsarConsumerProcessor<byte[]> {
                 currentAttributes = getMappedFlowFileAttributes(context, msg);
 
                 if (lastMsg != null && !lastAttributes.equals(currentAttributes)) {
-                    IOUtils.closeQuietly(out);
+                    closeOutputStream(out);
 
                     if (!shared)  {
                         consumer.acknowledgeCumulative(lastMsg);
@@ -232,7 +230,7 @@ public class ConsumePulsar extends AbstractPulsarConsumerProcessor<byte[]> {
                         session.getProvenanceReporter().receive(flowFile, getPulsarClientService().getPulsarBrokerRootURL() + "/" + consumer.getTopic());
                         session.transfer(flowFile, REL_SUCCESS);
                         getLogger().debug("Created {} from {} messages received from Pulsar Server and transferred to 'success'",
-                            new Object[]{flowFile, msgCount.toString()});
+                                flowFile, msgCount.toString());
                     }
 
                     lastAttributes = null;
@@ -257,7 +255,7 @@ public class ConsumePulsar extends AbstractPulsarConsumerProcessor<byte[]> {
                     }
                     
                     // only write demarcators between messages
-                    if (msgCount.get() > 0) {
+                    if (msgCount.get() > 0 && demarcatorBytes != null) {
                     	out.write(demarcatorBytes);
                     }
                     
@@ -278,8 +276,8 @@ public class ConsumePulsar extends AbstractPulsarConsumerProcessor<byte[]> {
                     return;
                 }
             }
-            
-            IOUtils.closeQuietly(out);
+
+            closeOutputStream(out);
 
             if (!shared && lastMsg != null)  {
                 consumer.acknowledgeCumulative(lastMsg);
@@ -295,13 +293,23 @@ public class ConsumePulsar extends AbstractPulsarConsumerProcessor<byte[]> {
                 session.getProvenanceReporter().receive(flowFile, getPulsarClientService().getPulsarBrokerRootURL() + "/" + consumer.getTopic());
                 session.transfer(flowFile, REL_SUCCESS);
                 getLogger().debug("Created {} from {} messages received from Pulsar Server and transferred to 'success'",
-                   new Object[]{flowFile, msgCount.toString()});
+                        flowFile, msgCount.toString());
             }
 
         } catch (PulsarClientException e) {
             getLogger().error("Error communicating with Apache Pulsar", e);
             context.yield();
             session.rollback();
+        }
+    }
+
+    private void closeOutputStream(final OutputStream out) {
+        try {
+            if (out != null) {
+                out.close();
+            }
+        } catch (final IOException ioe) {
+            getLogger().warn("Failed to close Output Stream", ioe);
         }
     }
 }

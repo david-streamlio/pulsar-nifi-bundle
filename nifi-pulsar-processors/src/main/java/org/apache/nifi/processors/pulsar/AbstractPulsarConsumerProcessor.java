@@ -340,7 +340,6 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
             setAckPool(Executors.newFixedThreadPool(context.getProperty(MAX_ASYNC_REQUESTS).asInteger() + 1));
             setAckService(new ExecutorCompletionService<>(getAckPool()));
         }
-
         setPulsarClientService(context.getProperty(PULSAR_CLIENT_SERVICE).asControllerService(PulsarClientService.class));
     }
 
@@ -385,17 +384,14 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
         if (context == null) {
             return null;
         }
-
-        StringBuffer sb = new StringBuffer();
+        StringBuilder sb = new StringBuilder();
 
         if (context.getProperty(TOPICS).isSet()) {
            sb.append(context.getProperty(TOPICS).evaluateAttributeExpressions(flowFile).getValue());
         } else {
            sb.append(context.getProperty(TOPICS_PATTERN).getValue());
         }
-
         sb.append("-").append(context.getProperty(SUBSCRIPTION_NAME).getValue());
-
         if (context.getProperty(CONSUMER_NAME).isSet()) {
             sb.append("-").append(context.getProperty(CONSUMER_NAME).getValue());
         }
@@ -422,7 +418,7 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
             });
         } catch (final RejectedExecutionException ex) {
             getLogger().error("Unable to consume any more Pulsar messages", ex);
-            context.yield();
+//            context.yield();
         }
     }
 

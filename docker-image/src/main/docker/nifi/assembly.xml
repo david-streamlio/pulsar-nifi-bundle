@@ -14,8 +14,8 @@
       
       <!-- Now, select which projects to include in this module-set. -->
      <includes>
-        <include>io.streamnative.connectors:nifi-pulsar-nar</include>
-        <include>io.streamnative.connectors:nifi-pulsar-client-service-nar</include>
+        <include>com.nifi.pulsar:nifi-pulsar-nar</include>
+        <include>com.nifi.pulsar:nifi-pulsar-client-service-nar</include>
       </includes>
       <binaries>
         <outputDirectory>modules/maven-assembly-plugin</outputDirectory>
