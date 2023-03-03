@@ -66,7 +66,7 @@ public class PublishPulsar extends AbstractPulsarProducerProcessor<byte[]> {
          * to send the message successfully, so go ahead and route to failure now.
          */
         if (producer == null) {
-            getLogger().error("Unable to publish to topic {}", new Object[] {topic});
+            getLogger().error("Unable to publish to topic {}", topic);
             session.transfer(flowFile, REL_FAILURE);
 
             if (context.getProperty(ASYNC_ENABLED).asBoolean()) {
@@ -89,8 +89,8 @@ public class PublishPulsar extends AbstractPulsarProducerProcessor<byte[]> {
         } else if (canPublish.get()) {
             byte[] messageContent;
 
-            try (final InputStream in = session.read(flowFile);
-                 final StreamDemarcator demarcator = new StreamDemarcator(in, demarcatorBytes, Integer.MAX_VALUE)) {
+            try (final InputStream in = session.read(flowFile)) {
+                final StreamDemarcator demarcator = new StreamDemarcator(in, demarcatorBytes, Integer.MAX_VALUE);
                 while ((messageContent = demarcator.nextToken()) != null) {
                    workQueue.put(new MessageTuple<>(
                                    topic,
@@ -110,13 +110,13 @@ public class PublishPulsar extends AbstractPulsarProducerProcessor<byte[]> {
     /**
      * Sends the FlowFile content using the demarcator.
      * 
-     * @param producer
+     * @param producer - The Pulsar producer.
      * @param context - The current ProcessContext
      * @param session - The current ProcessSession.
-     * @param flowFile
+     * @param flowFile - The current NiFi flow file
      * @param demarcatorBytes - The value used to identify unique records in the list
      * 
-     * @throws PulsarClientException
+     * @throws PulsarClientException if there is an issue connecting to the Pulsar cluster.
      */
     private void send(Producer<byte[]> producer, ProcessContext context, ProcessSession session, FlowFile flowFile, byte[] demarcatorBytes) throws PulsarClientException {
         AtomicInteger successCounter = new AtomicInteger(0);
@@ -125,14 +125,15 @@ public class PublishPulsar extends AbstractPulsarProducerProcessor<byte[]> {
         String key = getMessageKey(context, flowFile);
         Map<String, String> properties = getMappedMessageProperties(context, flowFile);
 
-        try (final InputStream in = session.read(flowFile); final StreamDemarcator demarcator = new StreamDemarcator(in, demarcatorBytes, Integer.MAX_VALUE)) {
-           while ((messageContent = demarcator.nextToken()) != null) {
-              if (send(producer, key, properties, messageContent) != null) {
-                 successCounter.incrementAndGet();
-              } else {
-                 failureCounter.incrementAndGet();
-                 break;  // Quit sending messages if we encounter a failure.
-              }
+        try (final InputStream in = session.read(flowFile)) {
+            final StreamDemarcator demarcator = new StreamDemarcator(in, demarcatorBytes, Integer.MAX_VALUE);
+            while ((messageContent = demarcator.nextToken()) != null) {
+                if (send(producer, key, properties, messageContent) != null) {
+                    successCounter.incrementAndGet();
+                } else {
+                    failureCounter.incrementAndGet();
+                    break;  // Quit sending messages if we encounter a failure.
+                }
             }
         } catch (final IOException ioEx) {
             getLogger().error("Unable to publish message to Pulsar broker " + getPulsarClientService().getPulsarBrokerRootURL(), ioEx);

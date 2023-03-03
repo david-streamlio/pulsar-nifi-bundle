@@ -25,7 +25,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
-import org.apache.commons.compress.utils.IOUtils;
 import org.apache.nifi.annotation.behavior.InputRequirement;
 import org.apache.nifi.annotation.behavior.TriggerWhenEmpty;
 import org.apache.nifi.annotation.behavior.WritesAttribute;
@@ -109,7 +108,7 @@ public class PublishPulsarRecord extends AbstractPulsarProducerProcessor<byte[]>
          * to send the message successfully, so go ahead and route to failure now.
          */
         if (producer == null) {
-            getLogger().error("Unable to publish to topic {}", new Object[] {topic});
+            getLogger().error("Unable to publish to topic {}", topic);
             session.transfer(flowFile, REL_FAILURE);
 
             if (context.getProperty(ASYNC_ENABLED).asBoolean()) {
@@ -128,7 +127,6 @@ public class PublishPulsarRecord extends AbstractPulsarProducerProcessor<byte[]>
         final Map<String, String> attributes = flowFile.getAttributes();
         final AtomicLong messagesSent = new AtomicLong(0L);
         final InputStream in = session.read(flowFile);
-
         try {
             final RecordReader reader = readerFactory.createRecordReader(flowFile, in, getLogger());
             final RecordSet recordSet = reader.createRecordSet();
@@ -139,7 +137,7 @@ public class PublishPulsarRecord extends AbstractPulsarProducerProcessor<byte[]>
 
             try {
                 messagesSent.addAndGet(send(producer, writerFactory, schema, reader, topic, key, properties, asyncFlag));
-                IOUtils.closeQuietly(in);
+                closeInputStream(in);
                 session.putAttribute(flowFile, MSG_COUNT, messagesSent.get() + "");
                 session.putAttribute(flowFile, TOPIC_NAME, topic);
                 session.adjustCounter("Messages Sent", messagesSent.get(), true);
@@ -150,7 +148,7 @@ public class PublishPulsarRecord extends AbstractPulsarProducerProcessor<byte[]>
             }
 
         } catch (final SchemaNotFoundException | MalformedRecordException | IOException e) {
-        	IOUtils.closeQuietly(in);
+            closeInputStream(in);
             session.transfer(flowFile, REL_FAILURE);
         }
     }

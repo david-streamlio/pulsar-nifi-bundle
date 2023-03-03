@@ -16,6 +16,9 @@
  */
 package org.apache.nifi.processors.pulsar;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
@@ -278,15 +281,13 @@ public abstract class AbstractPulsarProducerProcessor<T> extends AbstractProcess
     // Used to track whether we are reporting errors back to the user or not.
     protected AtomicBoolean trackFailures = new AtomicBoolean();
 
-    private int maxRequests = 1;
-
     protected BlockingQueue<MessageTuple<T>> workQueue;
     protected BlockingQueue<MessageTuple<T>> failureQueue;
     protected List<AsyncPublisher> asyncPublishers;
 
     @OnScheduled
     public void init(ProcessContext context) {
-        maxRequests = context.getProperty(MAX_ASYNC_REQUESTS).asInteger();
+        int maxRequests = context.getProperty(MAX_ASYNC_REQUESTS).asInteger();
         setPulsarClientService(context.getProperty(PULSAR_CLIENT_SERVICE).asControllerService(PulsarClientService.class));
 
         if (context.getProperty(ASYNC_ENABLED).isSet() && context.getProperty(ASYNC_ENABLED).asBoolean()) {
@@ -396,29 +397,29 @@ public abstract class AbstractPulsarProducerProcessor<T> extends AbstractProcess
     }
 
     protected synchronized Producer<T> getProducer(ProcessContext context, String topic) {
-
         /* Avoid creating producers for non-existent topics */
         if (StringUtils.isBlank(topic)) {
            return null;
         }
 
         Producer<T> producer = getProducers().get(topic);
-
         try {
             if (producer != null && producer.isConnected()) {
-              return producer;
+                getLogger().debug("Returned Pulsar Producer from LRUCache for topic {}", topic);
+                return producer;
             }
 
             producer = getBuilder(context, topic).create();
 
             if (producer != null && producer.isConnected()) {
-              getProducers().put(topic, producer);
+                getLogger().debug("Сreated new Pulsar Producer for topic {}", topic);
+                getProducers().put(topic, producer);
+                return producer;
             }
         } catch (PulsarClientException e) {
             getLogger().error("Unable to create Pulsar Producer ", e);
-            producer = null;
         }
-        return (producer != null && producer.isConnected()) ? producer : null;
+        return null;
     }
 
     private synchronized ProducerBuilder<T> getBuilder(ProcessContext context, String topic) {
@@ -544,6 +545,16 @@ public abstract class AbstractPulsarProducerProcessor<T> extends AbstractProcess
             } catch (InterruptedException e) {
                 // Ignore these
             }
+        }
+    }
+
+    protected void closeInputStream(final InputStream in) {
+        try {
+            if (in != null) {
+                in.close();
+            }
+        } catch (final IOException ioe) {
+            getLogger().warn("Failed to close Input Stream", ioe);
         }
     }
 }

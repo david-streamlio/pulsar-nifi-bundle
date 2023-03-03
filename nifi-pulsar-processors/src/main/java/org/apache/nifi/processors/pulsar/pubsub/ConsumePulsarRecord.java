@@ -37,8 +37,7 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import org.apache.commons.collections4.CollectionUtils;
-import org.apache.commons.io.IOUtils;
+
 import org.apache.nifi.annotation.behavior.InputRequirement;
 import org.apache.nifi.annotation.behavior.WritesAttribute;
 import org.apache.nifi.annotation.behavior.WritesAttributes;
@@ -189,7 +188,7 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
      * @throws PulsarClientException in the event we cannot communicate with the Pulsar broker.
      */
     private List<Message<GenericRecord>> getMessages(final Consumer<GenericRecord> consumer, int maxMessages) throws PulsarClientException {
-        List<Message<GenericRecord>> messages = new LinkedList<Message<GenericRecord>>();
+        final List<Message<GenericRecord>> messages = new LinkedList<Message<GenericRecord>>();
         Message<GenericRecord> msg = null;
         AtomicInteger msgCount = new AtomicInteger(0);
 
@@ -222,7 +221,7 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
        final RecordReaderFactory readerFactory, RecordSetWriterFactory writerFactory, 
        final byte[] demarcator, final boolean async) throws PulsarClientException {
 
-       if (CollectionUtils.isEmpty(messages)) {
+       if (messages.isEmpty()) {
           return;
        }
 
@@ -248,9 +247,13 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
                // if the current message's mapped attribute values differ from the previous set's,
                // write out the active record set and clear various references so that we'll start a new one
                if (lastAttributes != null && !lastAttributes.equals(currentAttributes)) {
-                   WriteResult result = writer.finishRecordSet();
-                   IOUtils.closeQuietly(writer);
-                   IOUtils.closeQuietly(rawOut);
+                   final WriteResult result;
+                   try {
+                       result = writer.finishRecordSet();
+                   } finally {
+                       writer.close();
+                   }
+                   closeOutputStream(rawOut);
 
                    if (result != WriteResult.EMPTY) {
                        flowFile = session.putAllAttributes(flowFile, result.getAttributes());
@@ -284,7 +287,7 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
                    if (schema == null || writer == null) {
                        parseFailures.add(msg);
                        session.remove(flowFile);
-                       IOUtils.closeQuietly(rawOut);
+                       closeOutputStream(rawOut);
                        getLogger().error("Unable to create a record writer to consume from the Pulsar topic");
                        continue;
                    }
@@ -314,18 +317,24 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
                }
            }
 
-           WriteResult result = writer.finishRecordSet();
-           IOUtils.closeQuietly(writer);
-           IOUtils.closeQuietly(rawOut);
+           if (writer != null) {
+               final WriteResult result;
+               try {
+                   result = writer.finishRecordSet();
+               } finally {
+                   writer.close();
+               }
+               closeOutputStream(rawOut);
 
-           if (result != WriteResult.EMPTY) {
-               flowFile = session.putAllAttributes(flowFile, result.getAttributes());
-               flowFile = session.putAttribute(flowFile, MSG_COUNT, result.getRecordCount() + "");
-               session.getProvenanceReporter().receive(flowFile, getPulsarClientService().getPulsarBrokerRootURL() + "/" + consumer.getTopic());
-               session.transfer(flowFile, REL_SUCCESS);
-           } else {
-               // We were able to parse the records, but unable to write them to the FlowFile
-               session.rollback();
+               if (result != WriteResult.EMPTY) {
+                   flowFile = session.putAllAttributes(flowFile, result.getAttributes());
+                   flowFile = session.putAttribute(flowFile, MSG_COUNT, result.getRecordCount() + "");
+                   session.getProvenanceReporter().receive(flowFile, getPulsarClientService().getPulsarBrokerRootURL() + "/" + consumer.getTopic());
+                   session.transfer(flowFile, REL_SUCCESS);
+               } else {
+                   // We were able to parse the records, but unable to write them to the FlowFile
+                   session.rollback();
+               }
            }
        } catch (IOException e) {
            getLogger().error("Unable to consume from Pulsar topic ", e);
@@ -369,7 +378,7 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
     private void handleFailures(ProcessSession session, 
     	BlockingQueue<Message<GenericRecord>> parseFailures, byte[] demarcator) {
 
-        if (CollectionUtils.isEmpty(parseFailures)) {
+        if (parseFailures.isEmpty()) {
            return;
         }
 
@@ -390,7 +399,7 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
                  rawOut.write(msg.getData());
               }
            }
-           IOUtils.closeQuietly(rawOut);
+            closeOutputStream(rawOut);
            session.transfer(flowFile, REL_PARSE_FAILURE);
         } catch (IOException e) {
            getLogger().error("Unable to route failures", e);
@@ -421,7 +430,7 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
 
                  if (done != null) {
                     List<Message<GenericRecord>> messages = done.get();
-                    if (CollectionUtils.isNotEmpty(messages)) {
+                    if (!messages.isEmpty()) {
                       consumeMessages(context, session, consumer, messages, readerFactory, writerFactory, demarcator, true);
                     }
                  }
@@ -433,20 +442,12 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
     }
 
     private RecordSchema getSchema(FlowFile flowFile, RecordReaderFactory readerFactory, byte[] msgValue) {
-        RecordSchema schema = null;
-        InputStream in = null;
-
-        try {
-            in = new ByteArrayInputStream(msgValue);
-            schema = readerFactory.createRecordReader(flowFile, in, getLogger()).getSchema();
-        } catch (MalformedRecordException | IOException | SchemaNotFoundException e) {
-           getLogger().error("Unable to determine the schema", e);
-           return null;
-        } finally {
-           IOUtils.closeQuietly(in);
+        try (InputStream in = new ByteArrayInputStream(msgValue)) {
+            return readerFactory.createRecordReader(flowFile, in, getLogger()).getSchema();
+        } catch (MalformedRecordException | IOException | SchemaNotFoundException e){
+            getLogger().error("Unable to determine the schema", e);
+            return null;
         }
-
-        return schema;
     }
 
     private RecordSetWriter getRecordWriter(RecordSetWriterFactory writerFactory, 

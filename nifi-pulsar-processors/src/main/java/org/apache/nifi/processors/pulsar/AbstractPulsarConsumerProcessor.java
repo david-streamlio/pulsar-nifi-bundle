@@ -16,6 +16,8 @@
  */
 package org.apache.nifi.processors.pulsar;
 
+import java.io.IOException;
+import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -25,11 +27,7 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.ExecutorCompletionService;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.RejectedExecutionException;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.commons.lang3.StringUtils;
@@ -233,7 +231,7 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
             .name("CONSUMER_BATCH_SIZE")
             .displayName("Consumer Message Batch Size")
             .description("Set the maximum number of messages consumed at a time, and published to a single FlowFile. "
-                    + "default: 1000. If set to a value greater than 1, messages within the FlowFile will be seperated "
+                    + "default: 1000. If set to a value greater than 1, messages within the FlowFile will be separated "
                     + "by the Message Demarcator.")
             .required(false)
             .addValidator(StandardValidators.POSITIVE_INTEGER_VALIDATOR)
@@ -334,14 +332,13 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
 
     @OnScheduled
     public void init(ProcessContext context) {
+        setPulsarClientService(context.getProperty(PULSAR_CLIENT_SERVICE).asControllerService(PulsarClientService.class));
         if (context.getProperty(ASYNC_ENABLED).isSet() && context.getProperty(ASYNC_ENABLED).asBoolean()) {
             setConsumerPool(Executors.newFixedThreadPool(context.getProperty(MAX_ASYNC_REQUESTS).asInteger()));
             setConsumerService(new ExecutorCompletionService<>(getConsumerPool()));
             setAckPool(Executors.newFixedThreadPool(context.getProperty(MAX_ASYNC_REQUESTS).asInteger() + 1));
             setAckService(new ExecutorCompletionService<>(getAckPool()));
         }
-
-        setPulsarClientService(context.getProperty(PULSAR_CLIENT_SERVICE).asControllerService(PulsarClientService.class));
     }
 
     @OnUnscheduled
@@ -357,6 +354,7 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
             try {
                 getConsumerPool().shutdown();
                 getAckPool().shutdown();
+
 
                 // Allow some time for the acks to be sent back to the Broker.
                 getConsumerPool().awaitTermination(10, TimeUnit.SECONDS);
@@ -399,6 +397,7 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
         if (context.getProperty(CONSUMER_NAME).isSet()) {
             sb.append("-").append(context.getProperty(CONSUMER_NAME).getValue());
         }
+
         return sb.toString();
     }
 
@@ -409,7 +408,7 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
                     .evaluateAttributeExpressions().asInteger() : Integer.MAX_VALUE;
 
             getConsumerService().submit(() -> {
-                List<Message<GenericRecord>> messages = new LinkedList<Message<GenericRecord>>();
+                final List<Message<GenericRecord>> messages = new LinkedList<>();
                 Message<GenericRecord> msg = null;
                 AtomicInteger msgCount = new AtomicInteger(0);
 
@@ -417,7 +416,6 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
                     messages.add(msg);
                     msgCount.incrementAndGet();
                 }
-
                 return messages;
             });
         } catch (final RejectedExecutionException ex) {
@@ -427,25 +425,29 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
     }
 
     protected synchronized Consumer<GenericRecord> getConsumer(ProcessContext context, String topic) throws PulsarClientException {
-
         /* Avoid creating producers for non-existent topics */
         if (StringUtils.isBlank(topic)) {
           return null;
         }
 
         Consumer<GenericRecord> consumer = getConsumers().get(topic);
+        try {
+            if (consumer != null && consumer.isConnected()) {
+                getLogger().debug("Returned Pulsar Consumer from LRUCache for topic {}", topic);
+                return consumer;
+            }
 
-        if (consumer != null && consumer.isConnected()) {
-           return consumer;
+            // Create a new consumer and validate that it is connected before returning it.
+            consumer = getConsumerBuilder(context).subscribe();
+            if (consumer != null && consumer.isConnected()) {
+                getLogger().debug("Сreated new Pulsar Consumer for topic {}", topic);
+                getConsumers().put(topic, consumer);
+                return consumer;
+            }
+        } catch (PulsarClientException e) {
+            getLogger().error("Unable to create Pulsar Consumer ", e);
         }
-
-        // Create a new consumer and validate that it is connected before returning it.
-        consumer = getConsumerBuilder(context).subscribe();
-        if (consumer != null && consumer.isConnected()) {
-           getConsumers().put(topic, consumer);
-        }
-
-        return (consumer != null && consumer.isConnected()) ? consumer : null;
+        return null;
     }
 
 	protected synchronized ConsumerBuilder<GenericRecord> getConsumerBuilder(ProcessContext context) throws PulsarClientException {
@@ -523,6 +525,7 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
         return consumers;
     }
 
+    // synchronized
     protected void setConsumers(PulsarConsumerLRUCache<String, Consumer<GenericRecord>> consumers) {
         this.consumers = consumers;
     }
@@ -539,4 +542,16 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
     	
     	return subscriptionType.equalsIgnoreCase(SHARED.getValue()) || subscriptionType.equalsIgnoreCase(KEY_SHARED.getValue());
     }
+
+    protected void closeOutputStream(final OutputStream out) {
+        try {
+            if (out != null) {
+                out.close();
+            }
+        } catch (final IOException ioe) {
+            getLogger().warn("Failed to close Output Stream", ioe);
+        }
+    }
+
+
 }

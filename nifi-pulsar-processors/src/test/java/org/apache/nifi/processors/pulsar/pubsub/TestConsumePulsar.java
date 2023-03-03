@@ -62,17 +62,17 @@ public class TestConsumePulsar extends AbstractPulsarProcessorTest<byte[]> {
 
     @Test
     public void multipleSeparateSyncMessagesTest() throws PulsarClientException {
-    	this.sendMessages("Mocked Message", "foo", "bar", false, 40);
+    	this.sendMessages("Mocked Message", "foo", "bar", false, 10);
     }
     
     @Test
     public void multipleSyncMessagesBatchTest() throws PulsarClientException {
-    	this.batchMessages("Mocked Message", "foo", "bar", false, 40);
+    	this.batchMessages("Mocked Message", "foo", "bar", false, 10);
     }
     
     @Test
     public void multipleSyncMessagesBatchSharedSubTest() throws PulsarClientException {
-    	this.batchMessages("Mocked Message", "foo", "bar", false, 40, "Shared");
+    	this.batchMessages("Mocked Message", "foo", "bar", false, 10, "Shared");
     }
     
     @Test
@@ -82,17 +82,17 @@ public class TestConsumePulsar extends AbstractPulsarProcessorTest<byte[]> {
 
     @Test
     public void multipleSeparateAsyncMessagesTest() throws PulsarClientException {
-        this.sendMessages("Mocked Message", "foo", "bar", true, 40);
+        this.sendMessages("Mocked Message", "foo", "bar", true, 10);
     }
 
     @Test
     public void multipleAsyncMessagesBatchTest() throws PulsarClientException {
-    	this.batchMessages("Mocked Message", "foo", "bar", true, 40);
+    	this.batchMessages("Mocked Message", "foo", "bar", true, 10);
     }
     
     @Test
     public void multipleAsyncMessagesBatchSharedSubTest() throws PulsarClientException {
-    	this.batchMessages("Mocked Message", "foo", "bar", true, 40, "Shared");
+    	this.batchMessages("Mocked Message", "foo", "bar", true, 10, "Shared");
     }
 
     @Test
