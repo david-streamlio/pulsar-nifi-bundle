@@ -37,9 +37,7 @@ public class PulsarConsumerLRUCache<K, V extends Closeable> extends LRUMap<K, V>
 
     @Override
     public void clear() {
-        this.values().parallelStream().forEach(closable -> {
-           releaseResources(closable);
-        });
+        this.values().parallelStream().forEach(this::releaseResources);
         super.clear();
     }
 
