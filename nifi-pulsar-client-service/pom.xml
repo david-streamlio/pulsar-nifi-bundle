@@ -48,7 +48,14 @@
   			<groupId>org.apache.pulsar</groupId>
   			<artifactId>pulsar-client-admin</artifactId>
   			<version>${pulsar.version}</version>
-		</dependency>
+		  </dependency>
+
+    
+        <dependency>
+            <groupId>io.streamnative.connectors</groupId>
+            <artifactId>nifi-pulsar-client-service-api</artifactId>
+            <version>${project.version}</version>
+        </dependency>
         
         <dependency>
             <groupId>org.apache.nifi</groupId>
