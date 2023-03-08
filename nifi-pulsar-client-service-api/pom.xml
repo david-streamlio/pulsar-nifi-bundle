@@ -68,7 +68,7 @@
   			<artifactId>conscrypt-openjdk-uber</artifactId>
   			<version>${conscrypt-openjdk.version}</version>
 		</dependency>
-		
+
 		<dependency>
             <groupId>junit</groupId>
             <artifactId>junit</artifactId>
