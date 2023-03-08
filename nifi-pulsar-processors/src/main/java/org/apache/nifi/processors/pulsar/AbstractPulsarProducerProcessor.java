@@ -16,9 +16,6 @@
  */
 package org.apache.nifi.processors.pulsar;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
@@ -235,27 +232,13 @@ public abstract class AbstractPulsarProducerProcessor<T> extends AbstractProcess
     protected static final Set<Relationship> RELATIONSHIPS;
 
     static {
-        final List<PropertyDescriptor> properties = new ArrayList<>();
-        properties.add(PULSAR_CLIENT_SERVICE);
-        properties.add(TOPIC);
-        properties.add(ASYNC_ENABLED);
-        properties.add(MAX_ASYNC_REQUESTS);
-        properties.add(BATCHING_ENABLED);
-        properties.add(BATCHING_MAX_MESSAGES);
-        properties.add(BATCH_INTERVAL);
-        properties.add(BLOCK_IF_QUEUE_FULL);
-        properties.add(COMPRESSION_TYPE);
-        properties.add(MESSAGE_ROUTING_MODE);
-        properties.add(MESSAGE_DEMARCATOR);
-        properties.add(PENDING_MAX_MESSAGES);
-        properties.add(MAPPED_MESSAGE_PROPERTIES);
-        properties.add(MESSAGE_KEY);
-        PROPERTIES = Collections.unmodifiableList(properties);
+        PROPERTIES = List.of(PULSAR_CLIENT_SERVICE, TOPIC, ASYNC_ENABLED,
+                MAX_ASYNC_REQUESTS, BATCHING_ENABLED, BATCHING_MAX_MESSAGES,
+                BATCH_INTERVAL, BLOCK_IF_QUEUE_FULL, COMPRESSION_TYPE,
+                MESSAGE_ROUTING_MODE, MESSAGE_DEMARCATOR, PENDING_MAX_MESSAGES,
+                MAPPED_MESSAGE_PROPERTIES, MESSAGE_KEY);
 
-        final Set<Relationship> relationships = new HashSet<>();
-        relationships.add(REL_SUCCESS);
-        relationships.add(REL_FAILURE);
-        RELATIONSHIPS = Collections.unmodifiableSet(relationships);
+        RELATIONSHIPS = Set.of(REL_SUCCESS, REL_FAILURE);
     }
 
     @Override
@@ -273,12 +256,10 @@ public abstract class AbstractPulsarProducerProcessor<T> extends AbstractProcess
     private ExecutorService publisherPool;
 
     // Used to sync between onTrigger method and shutdown code block.
-    protected AtomicBoolean canPublish = new AtomicBoolean();
+    protected AtomicBoolean canPublish = new AtomicBoolean(true);
 
     // Used to track whether we are reporting errors back to the user or not.
     protected AtomicBoolean trackFailures = new AtomicBoolean();
-
-    private int maxRequests = 1;
 
     protected BlockingQueue<MessageTuple<T>> workQueue;
     protected BlockingQueue<MessageTuple<T>> failureQueue;
@@ -286,7 +267,7 @@ public abstract class AbstractPulsarProducerProcessor<T> extends AbstractProcess
 
     @OnScheduled
     public void init(ProcessContext context) {
-        maxRequests = context.getProperty(MAX_ASYNC_REQUESTS).asInteger();
+        int maxRequests = context.getProperty(MAX_ASYNC_REQUESTS).asInteger();
         setPulsarClientService(context.getProperty(PULSAR_CLIENT_SERVICE).asControllerService(PulsarClientService.class));
 
         if (context.getProperty(ASYNC_ENABLED).isSet() && context.getProperty(ASYNC_ENABLED).asBoolean()) {
@@ -314,9 +295,9 @@ public abstract class AbstractPulsarProducerProcessor<T> extends AbstractProcess
     @OnUnscheduled
     public void shutDown(final ProcessContext context) {
         /*
-         * If we are running in asynchronous mode, then we need to stop all of the producer threads that
-         * are running in the PublisherPool. After, we have stopped them, we need to wait a little bit
-         * to ensure that all of the messages are properly acked, in order to prevent re-processing the
+         * If we are running in asynchronous mode, then we need to stop all the producer threads that
+         * are running in the PublisherPool. After, we have stopped them, we need to wait a bit
+         * to ensure that all the messages are properly acked, in order to prevent re-processing the
          * same messages in the event of a shutdown and restart of the processor since the un-acked
          * messages would be replayed on startup.
          */
@@ -326,22 +307,26 @@ public abstract class AbstractPulsarProducerProcessor<T> extends AbstractProcess
               canPublish.set(false);
 
               // Halt the background worker threads, allowing them to empty the workQueue
-              getAsyncPublishers().forEach(publisher->{
-                 publisher.halt();
-              });
+              getAsyncPublishers().forEach(AsyncPublisher::halt);
 
-              // Flush all of the pending messages in the producers
+              // Flush all the pending messages in the producers
               getProducers().values().forEach(producer -> {
                    try {
                      producer.flush();
                    } catch (PulsarClientException e) {
-                      // ignore
+                      getLogger().error("Unable to flush messages to Pulsar", e);
                    }
               });
 
               // Shutdown the thread pool
               getPublisherPool().shutdown();
-              getPublisherPool().awaitTermination(1, TimeUnit.SECONDS);
+
+              boolean shutdown = false;
+              
+              do {
+                  shutdown = getPublisherPool().awaitTermination(1, TimeUnit.SECONDS);
+              } while (!shutdown);
+
            } catch (InterruptedException e) {
               getLogger().error("Unable to stop all the Pulsar Producers", e);
            }
@@ -488,17 +473,14 @@ public abstract class AbstractPulsarProducerProcessor<T> extends AbstractProcess
 
     private final class AsyncPublisher implements Runnable {
         private boolean keepRunning = true;
-        private boolean completed = false;
 
         public void halt() {
            keepRunning = false;
 
            // Finish up
-           completed = workQueue.isEmpty();
-           while (!completed) {
+           do {
                process();
-               completed = workQueue.isEmpty();
-           }
+           } while (!workQueue.isEmpty());
         }
 
         @Override
@@ -520,7 +502,12 @@ public abstract class AbstractPulsarProducerProcessor<T> extends AbstractProcess
 
         private void process() {
             try {
-                MessageTuple<T> item = workQueue.take();
+                MessageTuple<T> item = workQueue.poll(50, TimeUnit.MILLISECONDS);
+
+                if (item == null) {
+                    return;
+                }
+
                 Producer<T> producer = getProducers().get(item.getTopic());
 
                 if (!trackFailures.get()) {

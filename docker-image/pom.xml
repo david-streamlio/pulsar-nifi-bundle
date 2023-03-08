@@ -19,7 +19,7 @@
     <parent>
         <groupId>io.streamnative.connectors</groupId>
         <artifactId>nifi-pulsar-bundle</artifactId>
-        <version>1.18.0</version>
+        <version>1.20.0</version>
     </parent>
 
    <artifactId>docker-image</artifactId>
@@ -40,7 +40,7 @@
                                 <dockerFileDir>nifi</dockerFileDir>
                                 <assembly>
                                     <targetDir>/connectors</targetDir>
-                                    <mode>dir</mode>
+            doc                        <mode>dir</mode>
                                     <descriptor>nifi/assembly.xml</descriptor>
                                 </assembly>
                             </build>

@@ -19,7 +19,7 @@
 
     <groupId>io.streamnative.connectors</groupId>
     <artifactId>nifi-pulsar-bundle</artifactId>
-    <version>1.18.0</version>
+    <version>1.20.0</version>
     <packaging>pom</packaging>
 
     <name>NiFi Pulsar Connectors :: NiFi Pulsar Bundle</name>
@@ -91,18 +91,18 @@
         <jackson-core.version>2.13.4</jackson-core.version>
         <junit.version>4.13.2</junit.version>
         <mockito-core.version>3.12.4</mockito-core.version>
-        <nifi.version>1.18.0</nifi.version>
+        <nifi.version>1.20.0</nifi.version>
         <protobuf3.version>3.20.1</protobuf3.version>
         <!--    	<protoc.version>3.20.1</protoc.version>-->
-        <pulsar.version>2.9.1</pulsar.version>
+        <pulsar.version>2.11.0</pulsar.version>
         <slf4j-simple.version>1.7.36</slf4j-simple.version>
 
-        <java.version>1.8</java.version>
+        <java.version>11</java.version>
 
         <!-- Maven plugin versions -->
         <maven-compiler-plugin.version>3.10.1</maven-compiler-plugin.version>
         <maven-gpg-plugin.version>3.0.1</maven-gpg-plugin.version>
-        <maven-javadoc-plugin.version>3.3.1</maven-javadoc-plugin.version>
+        <maven-javadoc-plugin.version>3.5.0</maven-javadoc-plugin.version>
         <maven-source-plugin.version>2.2.1</maven-source-plugin.version>
         <nifi-nar-maven-plugin.version>1.3.5</nifi-nar-maven-plugin.version>
         <nexus-staging-maven-plugin.version>1.6.13</nexus-staging-maven-plugin.version>
@@ -163,7 +163,6 @@
                 <version>${maven-javadoc-plugin.version}</version>
                 <configuration>
                     <detectJavaApiLink>false</detectJavaApiLink>
-                    <javadocVersion>${java.version}</javadocVersion>
                 </configuration>
                 <executions>
                     <execution>
