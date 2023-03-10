@@ -104,6 +104,8 @@ public class MockPulsarClientService<T> extends AbstractControllerService implem
         when(mockProducerBuilder.messageRoutingMode(any(MessageRoutingMode.class))).thenReturn(mockProducerBuilder);
         when(mockProducerBuilder.enableChunking(anyBoolean())).thenReturn(mockProducerBuilder);
         when(mockProducerBuilder.chunkMaxMessageSize(anyInt())).thenReturn(mockProducerBuilder);
+        when(mockProducerBuilder.autoUpdatePartitions(anyBoolean())).thenReturn(mockProducerBuilder);
+        when(mockProducerBuilder.autoUpdatePartitionsInterval(anyInt(), any(TimeUnit.class))).thenReturn(mockProducerBuilder);
 
         when(mockConsumerBuilder.topic(any(String[].class))).thenReturn(mockConsumerBuilder);
         when(mockConsumerBuilder.topic(anyString())).thenReturn(mockConsumerBuilder);

@@ -30,6 +30,7 @@ import org.mockito.Mock;
 import java.io.UnsupportedEncodingException;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
@@ -121,5 +122,22 @@ public class TestPublishPulsar extends AbstractPulsarProcessorTest<byte[]> {
         runner.run();
 
         verify(mockClientService.getMockProducerBuilder(), times(1)).enableChunking(true);
+    }
+
+    @Test
+    public void autoUpdatePartitionConfigTest() {
+        when(mockProducer.getTopic()).thenReturn("topic-b");
+        mockClientService.setMockProducer(mockProducer);
+
+        runner.setProperty(PublishPulsar.TOPIC, "test-topic");
+        runner.setProperty(PublishPulsar.AUTO_UPDATE_PARTITIONS, "true");
+        runner.setProperty(PublishPulsar.AUTO_UPDATE_PARTITION_INTERVAL, "30 sec");
+
+        final String content = "some content";
+        runner.enqueue(content);
+        runner.run();
+
+        verify(mockClientService.getMockProducerBuilder(), times(1)).autoUpdatePartitions(true);
+        verify(mockClientService.getMockProducerBuilder(), times(1)).autoUpdatePartitionsInterval(30, TimeUnit.SECONDS);
     }
 }

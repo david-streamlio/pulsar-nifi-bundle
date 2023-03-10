@@ -160,7 +160,7 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
 
     public static final PropertyDescriptor AUTO_UPDATE_PARTITION_INTERVAL = new PropertyDescriptor.Builder()
             .name("AUTO_UPDATE_PARTITION_INTERVAL")
-            .displayName("Acknowledgment Timeout")
+            .displayName("Auto Update Partition Interval")
             .description("Set the interval of updating partitions (default: 1 minute). This only works if " +
                     "autoUpdatePartitions is enabled.")
             .addValidator(StandardValidators.TIME_PERIOD_VALIDATOR)
