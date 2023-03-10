@@ -117,6 +117,25 @@ public abstract class AbstractPulsarProducerProcessor<T> extends AbstractProcess
             .defaultValue("2")
             .build();
 
+    public static final PropertyDescriptor AUTO_UPDATE_PARTITIONS = new PropertyDescriptor.Builder()
+            .name("AUTO_UPDATE_PARTITIONS")
+            .displayName("Auto update partitions")
+            .description("If enabled, the producer auto-subscribes for an increase in the number of partitions.")
+            .required(true)
+            .allowableValues("true", "false")
+            .defaultValue("false")
+            .build();
+
+    public static final PropertyDescriptor AUTO_UPDATE_PARTITION_INTERVAL = new PropertyDescriptor.Builder()
+            .name("AUTO_UPDATE_PARTITION_INTERVAL")
+            .displayName("Auto Update Partition Interval")
+            .description("Set the interval of updating partitions (default: 1 minute). This only works if " +
+                    "autoUpdatePartitions is enabled.")
+            .addValidator(StandardValidators.TIME_PERIOD_VALIDATOR)
+            .defaultValue("1 min")
+            .required(false)
+            .build();
+
     public static final PropertyDescriptor BATCHING_ENABLED = new PropertyDescriptor.Builder()
             .name("BATCHING_ENABLED")
             .displayName("Batching Enabled")
@@ -254,11 +273,10 @@ public abstract class AbstractPulsarProducerProcessor<T> extends AbstractProcess
     protected static final Set<Relationship> RELATIONSHIPS;
 
     static {
-        PROPERTIES = List.of(PULSAR_CLIENT_SERVICE, TOPIC, ASYNC_ENABLED,
-                MAX_ASYNC_REQUESTS, BATCHING_ENABLED, BATCHING_MAX_MESSAGES,
-                BATCH_INTERVAL, BLOCK_IF_QUEUE_FULL, COMPRESSION_TYPE, CHUNKING_ENABLED,
-                CHUNK_MAX_MESSAGE_SIZE, MESSAGE_ROUTING_MODE, MESSAGE_DEMARCATOR,
-                PENDING_MAX_MESSAGES, MAPPED_MESSAGE_PROPERTIES, MESSAGE_KEY);
+        PROPERTIES = List.of(PULSAR_CLIENT_SERVICE, TOPIC, ASYNC_ENABLED, MAX_ASYNC_REQUESTS, AUTO_UPDATE_PARTITIONS,
+                AUTO_UPDATE_PARTITION_INTERVAL, BATCHING_ENABLED, BATCHING_MAX_MESSAGES, BATCH_INTERVAL,
+                BLOCK_IF_QUEUE_FULL, COMPRESSION_TYPE, CHUNKING_ENABLED, CHUNK_MAX_MESSAGE_SIZE, MESSAGE_ROUTING_MODE,
+                MESSAGE_DEMARCATOR, PENDING_MAX_MESSAGES, MAPPED_MESSAGE_PROPERTIES, MESSAGE_KEY);
 
         RELATIONSHIPS = Set.of(REL_SUCCESS, REL_FAILURE);
     }
@@ -445,6 +463,9 @@ public abstract class AbstractPulsarProducerProcessor<T> extends AbstractProcess
         }
 
         return builder
+                .autoUpdatePartitions(context.getProperty(AUTO_UPDATE_PARTITIONS).asBoolean())
+                .autoUpdatePartitionsInterval(context.getProperty(AUTO_UPDATE_PARTITION_INTERVAL)
+                        .asTimePeriod(TimeUnit.SECONDS).intValue(), TimeUnit.SECONDS)
                 .blockIfQueueFull(context.getProperty(BLOCK_IF_QUEUE_FULL).asBoolean())
                 .compressionType(CompressionType.valueOf(context.getProperty(COMPRESSION_TYPE).getValue()))
                 .maxPendingMessages(context.getProperty(PENDING_MAX_MESSAGES).evaluateAttributeExpressions().asInteger())
