@@ -156,7 +156,7 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
                     + "Each asynchronous call requires memory, so avoid setting this value to high.")
             .required(false)
             .addValidator(StandardValidators.POSITIVE_INTEGER_VALIDATOR)
-            .defaultValue("50")
+            .defaultValue("2")
             .build();
 
     public static final PropertyDescriptor ACK_TIMEOUT = new PropertyDescriptor.Builder()
