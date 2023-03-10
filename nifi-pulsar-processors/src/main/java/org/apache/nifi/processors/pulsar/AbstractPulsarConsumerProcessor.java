@@ -149,6 +149,25 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
             .defaultValue("false")
             .build();
 
+    public static final PropertyDescriptor AUTO_UPDATE_PARTITIONS = new PropertyDescriptor.Builder()
+            .name("AUTO_UPDATE_PARTITIONS")
+            .displayName("Auto update partitions")
+            .description("If enabled, the consumer auto-subscribes for an increase in the number of partitions.")
+            .required(true)
+            .allowableValues("true", "false")
+            .defaultValue("false")
+            .build();
+
+    public static final PropertyDescriptor AUTO_UPDATE_PARTITION_INTERVAL = new PropertyDescriptor.Builder()
+            .name("AUTO_UPDATE_PARTITION_INTERVAL")
+            .displayName("Acknowledgment Timeout")
+            .description("Set the interval of updating partitions (default: 1 minute). This only works if " +
+                    "autoUpdatePartitions is enabled.")
+            .addValidator(StandardValidators.TIME_PERIOD_VALIDATOR)
+            .defaultValue("1 min")
+            .required(false)
+            .build();
+
     public static final PropertyDescriptor MAX_ASYNC_REQUESTS = new PropertyDescriptor.Builder()
             .name("MAX_ASYNC_REQUESTS")
             .displayName("Maximum Async Requests")
@@ -303,11 +322,11 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
     static {
 
         PROPERTIES = List.of(PULSAR_CLIENT_SERVICE, TOPICS, TOPICS_PATTERN, SUBSCRIPTION_NAME,
-                SUBSCRIPTION_INITIAL_POSITION, CONSUMER_NAME, ASYNC_ENABLED, MAX_ASYNC_REQUESTS,
-                ACK_TIMEOUT, PRIORITY_LEVEL, RECEIVER_QUEUE_SIZE, SUBSCRIPTION_TYPE, CONSUMER_BATCH_SIZE,
-                MESSAGE_DEMARCATOR, MAPPED_FLOWFILE_ATTRIBUTES, REPLICATE_SUBSCRIPTION_STATE,
-                AUTO_ACK_OLDEST_CHUNKED_ON_QUEUE_FULL, EXPIRE_TIME_OF_INCOMPLETE_CHUNKED_MESSAGE,
-                MAX_PENDING_CHUNKED_MESSAGE);
+                SUBSCRIPTION_INITIAL_POSITION, CONSUMER_NAME, ASYNC_ENABLED, MAX_ASYNC_REQUESTS, ACK_TIMEOUT,
+                AUTO_UPDATE_PARTITIONS, AUTO_UPDATE_PARTITION_INTERVAL, PRIORITY_LEVEL, RECEIVER_QUEUE_SIZE,
+                SUBSCRIPTION_TYPE, CONSUMER_BATCH_SIZE, MESSAGE_DEMARCATOR, MAPPED_FLOWFILE_ATTRIBUTES,
+                REPLICATE_SUBSCRIPTION_STATE, AUTO_ACK_OLDEST_CHUNKED_ON_QUEUE_FULL,
+                EXPIRE_TIME_OF_INCOMPLETE_CHUNKED_MESSAGE, MAX_PENDING_CHUNKED_MESSAGE);
 
         RELATIONSHIPS = Set.of(REL_SUCCESS);
     }
@@ -488,6 +507,9 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
 
         return builder.subscriptionName(context.getProperty(SUBSCRIPTION_NAME).getValue())
                 .subscriptionInitialPosition(SubscriptionInitialPosition.valueOf(context.getProperty(SUBSCRIPTION_INITIAL_POSITION).getValue()))
+                .autoUpdatePartitions(context.getProperty(AUTO_UPDATE_PARTITIONS).asBoolean())
+                .autoUpdatePartitionsInterval(context.getProperty(AUTO_UPDATE_PARTITION_INTERVAL)
+                        .asTimePeriod(TimeUnit.SECONDS).intValue(), TimeUnit.SECONDS)
                 .ackTimeout(context.getProperty(ACK_TIMEOUT).asTimePeriod(TimeUnit.MILLISECONDS).intValue(), TimeUnit.MILLISECONDS)
                 .autoAckOldestChunkedMessageOnQueueFull(context.getProperty(AUTO_ACK_OLDEST_CHUNKED_ON_QUEUE_FULL).asBoolean())
                 .expireTimeOfIncompleteChunkedMessage(context.getProperty(EXPIRE_TIME_OF_INCOMPLETE_CHUNKED_MESSAGE)

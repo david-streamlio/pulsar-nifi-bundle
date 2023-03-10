@@ -119,6 +119,8 @@ public class MockPulsarClientService<T> extends AbstractControllerService implem
         when(mockConsumerBuilder.autoAckOldestChunkedMessageOnQueueFull(anyBoolean())).thenReturn(mockConsumerBuilder);
         when(mockConsumerBuilder.expireTimeOfIncompleteChunkedMessage(anyLong(), any(TimeUnit.class))).thenReturn(mockConsumerBuilder);
         when(mockConsumerBuilder.maxPendingChunkedMessage(anyInt())).thenReturn(mockConsumerBuilder);
+        when(mockConsumerBuilder.autoUpdatePartitions(anyBoolean())).thenReturn(mockConsumerBuilder);
+        when(mockConsumerBuilder.autoUpdatePartitionsInterval(anyInt(), any(TimeUnit.class))).thenReturn(mockConsumerBuilder);
 
         when(mockSchema.getType()).thenReturn(SchemaType.BYTES);
 
