@@ -16,10 +16,8 @@
  */
 package org.apache.nifi.processors.pulsar;
 
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
@@ -171,6 +169,41 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
             .required(false)
             .build();
 
+    public static final PropertyDescriptor EXPIRE_TIME_OF_INCOMPLETE_CHUNKED_MESSAGE = new PropertyDescriptor.Builder()
+            .name("EXPIRE_TIME_OF_INCOMPLETE_CHUNKED_MESSAGE")
+            .displayName("Expire Time of Incomplete Chunked Message")
+            .description("If producer fails to publish all the chunks of a message then consumer can expire incomplete" +
+                    " chunks if consumer won't be able to receive all chunks in expire times (default 1 minute).")
+            .addValidator(StandardValidators.TIME_PERIOD_VALIDATOR)
+            .defaultValue("60 sec")
+            .required(false)
+            .build();
+
+    public static final PropertyDescriptor AUTO_ACK_OLDEST_CHUNKED_ON_QUEUE_FULL = new PropertyDescriptor.Builder()
+            .name("AUTO_ACK_OLDEST_CHUNKED_ON_QUEUE_FULL")
+            .displayName("Auto Ack Oldest Chunked Message on Queue Full")
+            .description("Buffering large number of outstanding uncompleted chunked messages can create memory pressure" +
+                    " and it can be guarded by providing this @maxPendingChunkedMessage threshold. Once, consumer reaches" +
+                    " this threshold, it drops the outstanding unchunked-messages by silently acknowledging if this property" +
+                    " is true else it marks them for redelivery.")
+            .required(true)
+            .allowableValues("true", "false")
+            .defaultValue("false")
+            .build();
+
+    public static final PropertyDescriptor MAX_PENDING_CHUNKED_MESSAGE = new PropertyDescriptor.Builder()
+            .name("MAX_PENDING_CHUNKED_MESSAGE")
+            .displayName("Maximum Pending Chunked Messages")
+            .description("Buffering large number of outstanding uncompleted chunked messages can create memory pressure " +
+                    "and it can be guarded by providing this @maxPendingChunkedMessage threshold. Once, consumer reaches" +
+                            " this threshold, it drops the outstanding unchunked-messages by silently acking or asking broker to" +
+                            " redeliver later by marking it unacked. This behavior can be controlled by the " +
+                            "AUTO_ACK_OLDEST_CHUNKED_ON_QUEUE_FULL property.")
+            .required(false)
+            .addValidator(StandardValidators.NON_NEGATIVE_INTEGER_VALIDATOR)
+            .defaultValue("10")
+            .build();
+
     public static final PropertyDescriptor CONSUMER_NAME = new PropertyDescriptor.Builder()
             .name("CONSUMER_NAME")
             .displayName("Consumer Name")
@@ -268,29 +301,15 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
     protected static final Set<Relationship> RELATIONSHIPS;
 
     static {
-        final List<PropertyDescriptor> properties = new ArrayList<>();
-        properties.add(PULSAR_CLIENT_SERVICE);
-        properties.add(TOPICS);
-        properties.add(TOPICS_PATTERN);
-        properties.add(SUBSCRIPTION_NAME);
-        properties.add(SUBSCRIPTION_INITIAL_POSITION);
-        properties.add(CONSUMER_NAME);
-        properties.add(ASYNC_ENABLED);
-        properties.add(MAX_ASYNC_REQUESTS);
-        properties.add(ACK_TIMEOUT);
-        properties.add(PRIORITY_LEVEL);
-        properties.add(RECEIVER_QUEUE_SIZE);
-        properties.add(SUBSCRIPTION_TYPE);
-        properties.add(CONSUMER_BATCH_SIZE);
-        properties.add(MESSAGE_DEMARCATOR);
-        properties.add(MAPPED_FLOWFILE_ATTRIBUTES);
-        properties.add(REPLICATE_SUBSCRIPTION_STATE);
 
-        PROPERTIES = Collections.unmodifiableList(properties);
+        PROPERTIES = List.of(PULSAR_CLIENT_SERVICE, TOPICS, TOPICS_PATTERN, SUBSCRIPTION_NAME,
+                SUBSCRIPTION_INITIAL_POSITION, CONSUMER_NAME, ASYNC_ENABLED, MAX_ASYNC_REQUESTS,
+                ACK_TIMEOUT, PRIORITY_LEVEL, RECEIVER_QUEUE_SIZE, SUBSCRIPTION_TYPE, CONSUMER_BATCH_SIZE,
+                MESSAGE_DEMARCATOR, MAPPED_FLOWFILE_ATTRIBUTES, REPLICATE_SUBSCRIPTION_STATE,
+                AUTO_ACK_OLDEST_CHUNKED_ON_QUEUE_FULL, EXPIRE_TIME_OF_INCOMPLETE_CHUNKED_MESSAGE,
+                MAX_PENDING_CHUNKED_MESSAGE);
 
-        final Set<Relationship> relationships = new HashSet<>();
-        relationships.add(REL_SUCCESS);
-        RELATIONSHIPS = Collections.unmodifiableSet(relationships);
+        RELATIONSHIPS = Set.of(REL_SUCCESS);
     }
 
     private PulsarClientService pulsarClientService;
@@ -347,9 +366,9 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
     @OnUnscheduled
     public void shutDown(final ProcessContext context) {
         /*
-         * If we are running in asynchronous mode, then we need to stop all of the consumer threads that
-         * are running in the ConsumerPool. After, we have stopped them, we need to wait a little bit
-         * to ensure that all of the messages are properly acked, in order to prevent re-processing the
+         * If we are running in asynchronous mode, then we need to stop all the consumer threads that
+         * are running in the ConsumerPool. After, we have stopped them, we need to wait a bit
+         * to ensure that all the messages are properly acked, in order to prevent re-processing the
          * same messages in the event of a shutdown and restart of the processor since the un-acked
          * messages would be replayed on startup.
          */
@@ -470,6 +489,10 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
         return builder.subscriptionName(context.getProperty(SUBSCRIPTION_NAME).getValue())
                 .subscriptionInitialPosition(SubscriptionInitialPosition.valueOf(context.getProperty(SUBSCRIPTION_INITIAL_POSITION).getValue()))
                 .ackTimeout(context.getProperty(ACK_TIMEOUT).asTimePeriod(TimeUnit.MILLISECONDS).intValue(), TimeUnit.MILLISECONDS)
+                .autoAckOldestChunkedMessageOnQueueFull(context.getProperty(AUTO_ACK_OLDEST_CHUNKED_ON_QUEUE_FULL).asBoolean())
+                .expireTimeOfIncompleteChunkedMessage(context.getProperty(EXPIRE_TIME_OF_INCOMPLETE_CHUNKED_MESSAGE)
+                        .asTimePeriod(TimeUnit.SECONDS), TimeUnit.SECONDS)
+                .maxPendingChunkedMessage(context.getProperty(MAX_PENDING_CHUNKED_MESSAGE).asInteger())
                 .priorityLevel(context.getProperty(PRIORITY_LEVEL).asInteger())
                 .receiverQueueSize(context.getProperty(RECEIVER_QUEUE_SIZE).asInteger())
                 .subscriptionType(SubscriptionType.valueOf(context.getProperty(SUBSCRIPTION_TYPE).getValue()))
