@@ -149,7 +149,7 @@ public abstract class AbstractPulsarProducerProcessor<T> extends AbstractProcess
             .displayName("Batch Interval")
             .description("Set the time period within which the messages sent will be batched if batch messages are enabled."
                     + " If set to a non zero value, messages will be queued until this time interval has been reached OR"
-                    + " until the Batching Max Messages threshould has been reached, whichever occurs first.")
+                    + " until the Batching Max Messages threshold has been reached, whichever occurs first.")
             .required(false)
             .addValidator(StandardValidators.TIME_PERIOD_VALIDATOR)
             .expressionLanguageSupported(ExpressionLanguageScope.VARIABLE_REGISTRY)
@@ -174,6 +174,28 @@ public abstract class AbstractPulsarProducerProcessor<T> extends AbstractProcess
             .required(true)
             .allowableValues(COMPRESSION_TYPE_NONE, COMPRESSION_TYPE_LZ4, COMPRESSION_TYPE_ZLIB)
             .defaultValue(COMPRESSION_TYPE_NONE.getValue())
+            .build();
+
+    public static final PropertyDescriptor CHUNKING_ENABLED = new PropertyDescriptor.Builder()
+            .name("ENABLE_CHUNKING")
+            .displayName("Enable chunking")
+            .description("If message size is higher than allowed max publish-payload size by broker " +
+                    "then enableChunking helps producer to split message into multiple chunks and " +
+                    "publish them to broker separately and in order.")
+            .required(false)
+            .allowableValues("true", "false")
+            .defaultValue("false")
+            .build();
+
+    public static final PropertyDescriptor CHUNK_MAX_MESSAGE_SIZE = new PropertyDescriptor.Builder()
+            .name("CHUNK_MAX_MESSAGE_SIZE")
+            .displayName("Chunk Max Message Size")
+            .description("Set the maximum size of message chunks (in bytes) permitted when message " +
+                    "chunking is enabled. default: 500 MB.")
+            .required(false)
+            .addValidator(StandardValidators.POSITIVE_INTEGER_VALIDATOR)
+            .defaultValue("536870912")
+            .expressionLanguageSupported(ExpressionLanguageScope.VARIABLE_REGISTRY)
             .build();
 
     public static final PropertyDescriptor MESSAGE_DEMARCATOR = new PropertyDescriptor.Builder()
@@ -234,9 +256,9 @@ public abstract class AbstractPulsarProducerProcessor<T> extends AbstractProcess
     static {
         PROPERTIES = List.of(PULSAR_CLIENT_SERVICE, TOPIC, ASYNC_ENABLED,
                 MAX_ASYNC_REQUESTS, BATCHING_ENABLED, BATCHING_MAX_MESSAGES,
-                BATCH_INTERVAL, BLOCK_IF_QUEUE_FULL, COMPRESSION_TYPE,
-                MESSAGE_ROUTING_MODE, MESSAGE_DEMARCATOR, PENDING_MAX_MESSAGES,
-                MAPPED_MESSAGE_PROPERTIES, MESSAGE_KEY);
+                BATCH_INTERVAL, BLOCK_IF_QUEUE_FULL, COMPRESSION_TYPE, CHUNKING_ENABLED,
+                CHUNK_MAX_MESSAGE_SIZE, MESSAGE_ROUTING_MODE, MESSAGE_DEMARCATOR,
+                PENDING_MAX_MESSAGES, MAPPED_MESSAGE_PROPERTIES, MESSAGE_KEY);
 
         RELATIONSHIPS = Set.of(REL_SUCCESS, REL_FAILURE);
     }
@@ -407,15 +429,26 @@ public abstract class AbstractPulsarProducerProcessor<T> extends AbstractProcess
     }
 
     private synchronized ProducerBuilder<T> getBuilder(ProcessContext context, String topic) {
-        ProducerBuilder<T> builder = (ProducerBuilder<T>) getPulsarClientService().getPulsarClient().newProducer();
-        return builder.topic(topic)
-                      .enableBatching(context.getProperty(BATCHING_ENABLED).asBoolean())
-                      .batchingMaxMessages(context.getProperty(BATCHING_MAX_MESSAGES).evaluateAttributeExpressions().asInteger())
-                      .batchingMaxPublishDelay(context.getProperty(BATCH_INTERVAL).evaluateAttributeExpressions().asTimePeriod(TimeUnit.MILLISECONDS).intValue(), TimeUnit.MILLISECONDS)
-                      .blockIfQueueFull(context.getProperty(BLOCK_IF_QUEUE_FULL).asBoolean())
-                      .compressionType(CompressionType.valueOf(context.getProperty(COMPRESSION_TYPE).getValue()))
-                      .maxPendingMessages(context.getProperty(PENDING_MAX_MESSAGES).evaluateAttributeExpressions().asInteger())
-                      .messageRoutingMode(MessageRoutingMode.valueOf(context.getProperty(MESSAGE_ROUTING_MODE).getValue()));
+        ProducerBuilder<T> builder = (ProducerBuilder<T>) getPulsarClientService().getPulsarClient().newProducer().topic(topic);
+
+        // TODO Why is the default value of `true` not set?
+        if (context.getProperty(BATCHING_ENABLED).asBoolean()) {
+            builder = builder
+                    .enableBatching(context.getProperty(BATCHING_ENABLED).asBoolean())
+                    .batchingMaxMessages(context.getProperty(BATCHING_MAX_MESSAGES).evaluateAttributeExpressions().asInteger())
+                    .batchingMaxPublishDelay(context.getProperty(BATCH_INTERVAL).evaluateAttributeExpressions().asTimePeriod(TimeUnit.MILLISECONDS).intValue(),
+                            TimeUnit.MILLISECONDS);
+        } else if (context.getProperty(CHUNKING_ENABLED).asBoolean()) {
+            builder = builder
+                    .enableChunking(context.getProperty(CHUNKING_ENABLED).asBoolean())
+                    .chunkMaxMessageSize(context.getProperty(CHUNK_MAX_MESSAGE_SIZE).evaluateAttributeExpressions().asInteger());
+        }
+
+        return builder
+                .blockIfQueueFull(context.getProperty(BLOCK_IF_QUEUE_FULL).asBoolean())
+                .compressionType(CompressionType.valueOf(context.getProperty(COMPRESSION_TYPE).getValue()))
+                .maxPendingMessages(context.getProperty(PENDING_MAX_MESSAGES).evaluateAttributeExpressions().asInteger())
+                .messageRoutingMode(MessageRoutingMode.valueOf(context.getProperty(MESSAGE_ROUTING_MODE).getValue()));
     }
 
     protected synchronized PulsarClientService getPulsarClientService() {
