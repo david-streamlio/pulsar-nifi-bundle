@@ -6,7 +6,7 @@ This processor allows you to define the versions of the Apache NiFi and Apache P
 
 To build the NAR files using Maven, just run the following command. 
 
-`mvn clean package`
+`mvn clean package -Denforcer.skip`
 
 This will also generate a Docker image inside your local docker daemon with the tag `streamnative/nifi`
 
