@@ -96,6 +96,7 @@ public class MockPulsarClientService<T> extends AbstractControllerService implem
         
         when(mockProducerBuilder.topic(anyString())).thenReturn(mockProducerBuilder);
         when(mockProducerBuilder.enableBatching(anyBoolean())).thenReturn(mockProducerBuilder);
+        when(mockProducerBuilder.batchingMaxBytes(anyInt())).thenReturn(mockProducerBuilder);
         when(mockProducerBuilder.batchingMaxMessages(anyInt())).thenReturn(mockProducerBuilder);
         when(mockProducerBuilder.batchingMaxPublishDelay(anyLong(), any(TimeUnit.class))).thenReturn(mockProducerBuilder);
         when(mockProducerBuilder.blockIfQueueFull(anyBoolean())).thenReturn(mockProducerBuilder);

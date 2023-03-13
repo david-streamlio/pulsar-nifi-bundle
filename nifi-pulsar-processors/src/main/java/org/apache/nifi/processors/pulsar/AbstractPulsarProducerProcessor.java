@@ -38,10 +38,7 @@ import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.components.Validator;
 import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.flowfile.FlowFile;
-import org.apache.nifi.processor.AbstractProcessor;
-import org.apache.nifi.processor.ProcessContext;
-import org.apache.nifi.processor.ProcessSession;
-import org.apache.nifi.processor.Relationship;
+import org.apache.nifi.processor.*;
 import org.apache.nifi.processor.util.StandardValidators;
 import org.apache.nifi.pulsar.PulsarClientService;
 import org.apache.nifi.pulsar.cache.PulsarConsumerLRUCache;
@@ -121,7 +118,7 @@ public abstract class AbstractPulsarProducerProcessor<T> extends AbstractProcess
             .name("AUTO_UPDATE_PARTITIONS")
             .displayName("Auto update partitions")
             .description("If enabled, the producer auto-subscribes for an increase in the number of partitions.")
-            .required(true)
+            .required(false)
             .allowableValues("true", "false")
             .defaultValue("false")
             .build();
@@ -148,7 +145,18 @@ public abstract class AbstractPulsarProducerProcessor<T> extends AbstractProcess
                     + "is set to 10 ms and default batch size is 1000 messages")
             .required(true)
             .allowableValues("true", "false")
-            .defaultValue("false")
+            .defaultValue("true")
+            .build();
+
+    public static final PropertyDescriptor BATCHING_MAX_BYTES = new PropertyDescriptor.Builder()
+            .name("BATCHING_MAX_BYTES")
+            .displayName("Batching Max Bytes")
+            .description("Set the maximum number of bytes permitted in a batch. default: 128KB If set to a value greater" +
+                    " than 0, messages will be queued until this threshold is reached or other batching conditions are met.")
+            .required(false)
+            .addValidator(StandardValidators.DATA_SIZE_VALIDATOR)
+            .defaultValue("128 KB")
+            .expressionLanguageSupported(ExpressionLanguageScope.VARIABLE_REGISTRY)
             .build();
 
     public static final PropertyDescriptor BATCHING_MAX_MESSAGES = new PropertyDescriptor.Builder()
@@ -212,8 +220,8 @@ public abstract class AbstractPulsarProducerProcessor<T> extends AbstractProcess
             .description("Set the maximum size of message chunks (in bytes) permitted when message " +
                     "chunking is enabled. default: 500 MB.")
             .required(false)
-            .addValidator(StandardValidators.POSITIVE_INTEGER_VALIDATOR)
-            .defaultValue("536870912")
+            .addValidator(StandardValidators.DATA_SIZE_VALIDATOR)
+            .defaultValue("100 MB")
             .expressionLanguageSupported(ExpressionLanguageScope.VARIABLE_REGISTRY)
             .build();
 
@@ -257,7 +265,6 @@ public abstract class AbstractPulsarProducerProcessor<T> extends AbstractProcess
                     + " If the optional source attribute name is omitted, it is assumed to be the same as the property.")
             .required(false)
             .addValidator(Validator.VALID)
-            .defaultValue("")
             .build();
 
     public static final PropertyDescriptor MESSAGE_KEY = new PropertyDescriptor.Builder()
@@ -274,7 +281,7 @@ public abstract class AbstractPulsarProducerProcessor<T> extends AbstractProcess
 
     static {
         PROPERTIES = List.of(PULSAR_CLIENT_SERVICE, TOPIC, ASYNC_ENABLED, MAX_ASYNC_REQUESTS, AUTO_UPDATE_PARTITIONS,
-                AUTO_UPDATE_PARTITION_INTERVAL, BATCHING_ENABLED, BATCHING_MAX_MESSAGES, BATCH_INTERVAL,
+                AUTO_UPDATE_PARTITION_INTERVAL, BATCHING_ENABLED, BATCHING_MAX_BYTES, BATCHING_MAX_MESSAGES, BATCH_INTERVAL,
                 BLOCK_IF_QUEUE_FULL, COMPRESSION_TYPE, CHUNKING_ENABLED, CHUNK_MAX_MESSAGE_SIZE, MESSAGE_ROUTING_MODE,
                 MESSAGE_DEMARCATOR, PENDING_MAX_MESSAGES, MAPPED_MESSAGE_PROPERTIES, MESSAGE_KEY);
 
@@ -447,19 +454,21 @@ public abstract class AbstractPulsarProducerProcessor<T> extends AbstractProcess
     }
 
     private synchronized ProducerBuilder<T> getBuilder(ProcessContext context, String topic) {
-        ProducerBuilder<T> builder = (ProducerBuilder<T>) getPulsarClientService().getPulsarClient().newProducer().topic(topic);
+        ProducerBuilder<T> builder = (ProducerBuilder<T>) getPulsarClientService().getPulsarClient()
+                .newProducer().topic(topic)
+                .enableBatching(context.getProperty(BATCHING_ENABLED).asBoolean())
+                .enableChunking(context.getProperty(CHUNKING_ENABLED).asBoolean());
 
-        // TODO Why is the default value of `true` not set?
         if (context.getProperty(BATCHING_ENABLED).asBoolean()) {
             builder = builder
-                    .enableBatching(context.getProperty(BATCHING_ENABLED).asBoolean())
+                    .batchingMaxBytes(context.getProperty(BATCHING_MAX_BYTES).asDataSize(DataUnit.B).intValue())
                     .batchingMaxMessages(context.getProperty(BATCHING_MAX_MESSAGES).evaluateAttributeExpressions().asInteger())
                     .batchingMaxPublishDelay(context.getProperty(BATCH_INTERVAL).evaluateAttributeExpressions().asTimePeriod(TimeUnit.MILLISECONDS).intValue(),
                             TimeUnit.MILLISECONDS);
         } else if (context.getProperty(CHUNKING_ENABLED).asBoolean()) {
             builder = builder
-                    .enableChunking(context.getProperty(CHUNKING_ENABLED).asBoolean())
-                    .chunkMaxMessageSize(context.getProperty(CHUNK_MAX_MESSAGE_SIZE).evaluateAttributeExpressions().asInteger());
+                    .chunkMaxMessageSize(context.getProperty(CHUNK_MAX_MESSAGE_SIZE)
+                            .evaluateAttributeExpressions().asDataSize(DataUnit.B).intValue());
         }
 
         return builder
