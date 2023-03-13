@@ -20,6 +20,7 @@ import org.apache.nifi.processors.pulsar.AbstractPulsarProcessorTest;
 import org.apache.nifi.reporting.InitializationException;
 import org.apache.nifi.util.TestRunners;
 
+import org.apache.pulsar.client.api.MessageRoutingMode;
 import org.apache.pulsar.client.api.Producer;
 
 import org.apache.pulsar.client.api.PulsarClientException;
@@ -139,5 +140,69 @@ public class TestPublishPulsar extends AbstractPulsarProcessorTest<byte[]> {
 
         verify(mockClientService.getMockProducerBuilder(), times(1)).autoUpdatePartitions(true);
         verify(mockClientService.getMockProducerBuilder(), times(1)).autoUpdatePartitionsInterval(30, TimeUnit.SECONDS);
+    }
+
+    @Test
+    public final void batchingConfigTest() {
+        when(mockProducer.getTopic()).thenReturn("topic-b");
+        mockClientService.setMockProducer(mockProducer);
+
+        runner.setProperty(PublishPulsar.TOPIC, "test-topic");
+        runner.setProperty(PublishPulsar.BATCHING_ENABLED, "true");
+        runner.setProperty(PublishPulsar.BATCHING_MAX_BYTES, "128 KB");
+        runner.setProperty(PublishPulsar.BATCHING_MAX_MESSAGES, "1000");
+        runner.setProperty(PublishPulsar.BATCH_INTERVAL, "30 ms");
+
+        final String content = "some content";
+        runner.enqueue(content);
+        runner.run();
+
+        verify(mockClientService.getMockProducerBuilder(), times(1)).enableBatching(true);
+        verify(mockClientService.getMockProducerBuilder(), times(1)).batchingMaxBytes(128 * 1024);
+        verify(mockClientService.getMockProducerBuilder(), times(1)).batchingMaxMessages(1000);
+        verify(mockClientService.getMockProducerBuilder(), times(1)).batchingMaxPublishDelay(30, TimeUnit.MILLISECONDS);
+    }
+
+    @Test
+    public final void testBatchOrChunking() {
+        when(mockProducer.getTopic()).thenReturn("topic-b");
+        mockClientService.setMockProducer(mockProducer);
+
+        runner.setProperty(PublishPulsar.TOPIC, "test-topic");
+        runner.setProperty(PublishPulsar.BATCHING_ENABLED, "false");
+        runner.setProperty(PublishPulsar.CHUNKING_ENABLED, "true");
+
+        final String content = "some content";
+        runner.enqueue(content);
+        runner.run();
+
+        verify(mockClientService.getMockProducerBuilder(), times(0)).enableBatching(true);
+        verify(mockClientService.getMockProducerBuilder(), times(1)).enableBatching(false);
+        verify(mockClientService.getMockProducerBuilder(), times(0)).enableChunking(false);
+        verify(mockClientService.getMockProducerBuilder(), times(1)).enableChunking(true);
+        verify(mockClientService.getMockProducerBuilder(), times(1)).chunkMaxMessageSize(100 * 1024 * 1024);
+    }
+
+    @Test
+    public final void testDefaultValues() {
+        when(mockProducer.getTopic()).thenReturn("topic-b");
+        mockClientService.setMockProducer(mockProducer);
+
+        runner.setProperty(PublishPulsar.TOPIC, "test-topic");
+
+        final String content = "some content";
+        runner.enqueue(content);
+        runner.run();
+
+        verify(mockClientService.getMockProducerBuilder(), times(1)).autoUpdatePartitions(false);
+        verify(mockClientService.getMockProducerBuilder(), times(1)).autoUpdatePartitionsInterval(60, TimeUnit.SECONDS);
+        verify(mockClientService.getMockProducerBuilder(), times(1)).enableBatching(true);
+        verify(mockClientService.getMockProducerBuilder(), times(1)).batchingMaxBytes(128 * 1024);
+        verify(mockClientService.getMockProducerBuilder(), times(1)).batchingMaxMessages(1000);
+        verify(mockClientService.getMockProducerBuilder(), times(1)).batchingMaxPublishDelay(10, TimeUnit.MILLISECONDS);
+        verify(mockClientService.getMockProducerBuilder(), times(1)).blockIfQueueFull(false);
+        verify(mockClientService.getMockProducerBuilder(), times(1)).enableChunking(false);
+        verify(mockClientService.getMockProducerBuilder(), times(1)).messageRoutingMode(MessageRoutingMode.RoundRobinPartition);
+        verify(mockClientService.getMockProducerBuilder(), times(1)).maxPendingMessages(1000);
     }
 }
