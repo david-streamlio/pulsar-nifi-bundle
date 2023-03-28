@@ -67,6 +67,13 @@
             <artifactId>nifi-ssl-context-service-api</artifactId>
              <version>${nifi.version}</version>
         </dependency>
+        
+        <dependency>
+            <groupId>io.streamnative.connectors</groupId>
+            <artifactId>nifi-pulsar-client-service-api</artifactId>
+            <version>${project.version}</version>
+	      </dependency>
+
 	    
 	    <dependency>
         	<groupId>org.apache.commons</groupId>
@@ -81,8 +88,8 @@
 		</dependency>
         
         <dependency>
-           <groupId>org.apache.directory.studio</groupId>
-           <artifactId>org.apache.commons.io</artifactId>
+           <groupId>commons-io</groupId>
+           <artifactId>commons-io</artifactId>
            <version>${commons.io.version}</version>
         </dependency>
         

@@ -31,8 +31,6 @@ import org.apache.nifi.processors.pulsar.pubsub.TestPublishPulsarRecord;
 import org.apache.nifi.util.MockFlowFile;
 import org.apache.pulsar.client.api.PulsarClientException;
 import org.junit.Test;
-import org.mockito.ArgumentMatcher;
-import org.mockito.Matchers;
 
 public class TestAsyncPublishPulsarRecord extends TestPublishPulsarRecord {
 
@@ -45,6 +43,7 @@ public class TestAsyncPublishPulsarRecord extends TestPublishPulsarRecord {
        runner.enqueue(content);
        runner.setProperty(AbstractPulsarProducerProcessor.TOPIC, TOPIC_NAME);
        runner.setProperty(AbstractPulsarProducerProcessor.ASYNC_ENABLED, Boolean.TRUE.toString());
+       runner.setProperty(PublishPulsar.MAX_ASYNC_REQUESTS, "2");
        runner.addConnection(PublishPulsarRecord.REL_FAILURE);
        /* We have to wait for the record to be processed asynchronously and eventually throw the
         * exception. When the exception is caught the record is then added to the failure queue
@@ -75,6 +74,7 @@ public class TestAsyncPublishPulsarRecord extends TestPublishPulsarRecord {
         runner.enqueue(content);
         runner.setProperty(AbstractPulsarProducerProcessor.TOPIC, TOPIC_NAME);
         runner.setProperty(AbstractPulsarProducerProcessor.ASYNC_ENABLED, Boolean.TRUE.toString());
+        runner.setProperty(PublishPulsar.MAX_ASYNC_REQUESTS, "2");
         runner.run();
         runner.assertAllFlowFilesTransferred(PublishPulsarRecord.REL_FAILURE);
 
@@ -90,6 +90,7 @@ public class TestAsyncPublishPulsarRecord extends TestPublishPulsarRecord {
         runner.enqueue(content);
         runner.setProperty(AbstractPulsarProducerProcessor.TOPIC, TOPIC_NAME);
         runner.setProperty(AbstractPulsarProducerProcessor.ASYNC_ENABLED, Boolean.TRUE.toString());
+        runner.setProperty(PublishPulsar.MAX_ASYNC_REQUESTS, "2");
         runner.run();
         runner.assertAllFlowFilesTransferred(PublishPulsarRecord.REL_SUCCESS);
 
@@ -112,6 +113,7 @@ public class TestAsyncPublishPulsarRecord extends TestPublishPulsarRecord {
         runner.enqueue(sb.toString());
         runner.setProperty(AbstractPulsarProducerProcessor.TOPIC, TOPIC_NAME);
         runner.setProperty(AbstractPulsarProducerProcessor.ASYNC_ENABLED, Boolean.TRUE.toString());
+        runner.setProperty(PublishPulsar.MAX_ASYNC_REQUESTS, "2");
         runner.run(1, true, true);
         runner.assertAllFlowFilesTransferred(PublishPulsarRecord.REL_SUCCESS);
 
@@ -141,6 +143,7 @@ public class TestAsyncPublishPulsarRecord extends TestPublishPulsarRecord {
         runner.enqueue(sb.toString());
         runner.setProperty(AbstractPulsarProducerProcessor.TOPIC, TOPIC_NAME);
         runner.setProperty(AbstractPulsarProducerProcessor.ASYNC_ENABLED, Boolean.TRUE.toString());
+        runner.setProperty(PublishPulsar.MAX_ASYNC_REQUESTS, "2");
         runner.run(1, true, true);
         runner.assertAllFlowFilesTransferred(PublishPulsarRecord.REL_SUCCESS);
 
@@ -159,6 +162,7 @@ public class TestAsyncPublishPulsarRecord extends TestPublishPulsarRecord {
     @Test
     public void mappedPropertiesTest() throws UnsupportedEncodingException, PulsarClientException {
         runner.setProperty(PublishPulsar.ASYNC_ENABLED, Boolean.toString(true));
+        runner.setProperty(PublishPulsar.MAX_ASYNC_REQUESTS, "2");
 
         super.doMappedPropertiesTest();
         verify(mockClientService.getMockTypedMessageBuilder()).sendAsync();
@@ -167,6 +171,7 @@ public class TestAsyncPublishPulsarRecord extends TestPublishPulsarRecord {
     @Test
     public void messageKeyTest() throws UnsupportedEncodingException {
         runner.setProperty(PublishPulsar.ASYNC_ENABLED, Boolean.toString(true));
+        runner.setProperty(PublishPulsar.MAX_ASYNC_REQUESTS, "2");
 
         super.doMessageKeyTest();
         verify(mockClientService.getMockTypedMessageBuilder(), times(2)).sendAsync();
