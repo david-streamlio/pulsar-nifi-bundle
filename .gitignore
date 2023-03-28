@@ -9,6 +9,9 @@ nb-configuration.xml
 .metadata
 .recommender
 
+docker-image/creds/
+*.versionsBackup
+
 *.nar
 .idea
 *.iml

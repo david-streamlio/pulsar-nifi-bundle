@@ -113,6 +113,7 @@
         <nexus-staging-maven-plugin.version>1.6.13</nexus-staging-maven-plugin.version>
         <maven-versions-plugin.version>2.5</maven-versions-plugin.version>
 
+        <maven.deploy.skip>true</maven.deploy.skip>
     </properties>
 
     <modules>
