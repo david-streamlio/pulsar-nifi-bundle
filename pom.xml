@@ -101,8 +101,7 @@
         <protobuf3.version>3.20.1</protobuf3.version>
         <pulsar.version>2.11.0</pulsar.version>
         <slf4j-simple.version>2.0.6</slf4j-simple.version>
-
-        <java.version>11</java.version>
+        <java.version>17</java.version>
 
         <!-- Maven plugin versions -->
         <maven-compiler-plugin.version>3.10.1</maven-compiler-plugin.version>
@@ -134,7 +133,6 @@
                 <configuration>
                     <source>${java.version}</source>
                     <target>${java.version}</target>
-                    <!--  <release>${java.version}</release> -->
                     <encoding>UTF-8</encoding>
                     <showDeprecation>true</showDeprecation>
                 </configuration>
