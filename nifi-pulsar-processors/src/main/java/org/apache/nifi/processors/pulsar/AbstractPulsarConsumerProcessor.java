@@ -468,19 +468,20 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
 
         /* Avoid creating producers for non-existent topics */
         if (StringUtils.isBlank(topic)) {
-          return null;
+            return null;
         }
 
         Consumer<GenericRecord> consumer = getConsumers().get(topic);
 
-        if (consumer != null && consumer.isConnected()) {
-           return consumer;
+        if (consumer != null) {
+            if (consumer.isConnected()) return consumer;
+            consumer.close();
         }
 
         // Create a new consumer and validate that it is connected before returning it.
         consumer = getConsumerBuilder(context).subscribe();
         if (consumer != null && consumer.isConnected()) {
-           getConsumers().put(topic, consumer);
+            getConsumers().put(topic, consumer);
         }
 
         return (consumer != null && consumer.isConnected()) ? consumer : null;
