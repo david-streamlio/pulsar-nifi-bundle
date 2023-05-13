@@ -103,8 +103,6 @@ public class MockPulsarClientService<T> extends AbstractControllerService implem
         when(mockProducerBuilder.compressionType(any(CompressionType.class))).thenReturn(mockProducerBuilder);
         when(mockProducerBuilder.maxPendingMessages(anyInt())).thenReturn(mockProducerBuilder);
         when(mockProducerBuilder.messageRoutingMode(any(MessageRoutingMode.class))).thenReturn(mockProducerBuilder);
-        when(mockProducerBuilder.enableChunking(anyBoolean())).thenReturn(mockProducerBuilder);
-        when(mockProducerBuilder.chunkMaxMessageSize(anyInt())).thenReturn(mockProducerBuilder);
         when(mockProducerBuilder.autoUpdatePartitions(anyBoolean())).thenReturn(mockProducerBuilder);
         when(mockProducerBuilder.autoUpdatePartitionsInterval(anyInt(), any(TimeUnit.class))).thenReturn(mockProducerBuilder);
 
@@ -119,9 +117,6 @@ public class MockPulsarClientService<T> extends AbstractControllerService implem
         when(mockConsumerBuilder.subscriptionType(any(SubscriptionType.class))).thenReturn(mockConsumerBuilder);
         when(mockConsumerBuilder.subscriptionInitialPosition(any(SubscriptionInitialPosition.class))).thenReturn(mockConsumerBuilder);
         when(mockConsumerBuilder.replicateSubscriptionState(anyBoolean())).thenReturn(mockConsumerBuilder);
-        when(mockConsumerBuilder.autoAckOldestChunkedMessageOnQueueFull(anyBoolean())).thenReturn(mockConsumerBuilder);
-        when(mockConsumerBuilder.expireTimeOfIncompleteChunkedMessage(anyLong(), any(TimeUnit.class))).thenReturn(mockConsumerBuilder);
-        when(mockConsumerBuilder.maxPendingChunkedMessage(anyInt())).thenReturn(mockConsumerBuilder);
         when(mockConsumerBuilder.autoUpdatePartitions(anyBoolean())).thenReturn(mockConsumerBuilder);
         when(mockConsumerBuilder.autoUpdatePartitionsInterval(anyInt(), any(TimeUnit.class))).thenReturn(mockConsumerBuilder);
 

@@ -203,28 +203,6 @@ public abstract class AbstractPulsarProducerProcessor<T> extends AbstractProcess
             .defaultValue(COMPRESSION_TYPE_NONE.getValue())
             .build();
 
-    public static final PropertyDescriptor CHUNKING_ENABLED = new PropertyDescriptor.Builder()
-            .name("ENABLE_CHUNKING")
-            .displayName("Enable chunking")
-            .description("If message size is higher than allowed max publish-payload size by broker " +
-                    "then enableChunking helps producer to split message into multiple chunks and " +
-                    "publish them to broker separately and in order.")
-            .required(false)
-            .allowableValues("true", "false")
-            .defaultValue("false")
-            .build();
-
-    public static final PropertyDescriptor CHUNK_MAX_MESSAGE_SIZE = new PropertyDescriptor.Builder()
-            .name("CHUNK_MAX_MESSAGE_SIZE")
-            .displayName("Chunk Max Message Size")
-            .description("Set the maximum size of message chunks (in bytes) permitted when message " +
-                    "chunking is enabled. default: 500 MB.")
-            .required(false)
-            .addValidator(StandardValidators.DATA_SIZE_VALIDATOR)
-            .defaultValue("100 MB")
-            .expressionLanguageSupported(ExpressionLanguageScope.VARIABLE_REGISTRY)
-            .build();
-
     public static final PropertyDescriptor MESSAGE_DEMARCATOR = new PropertyDescriptor.Builder()
             .name("MESSAGE_DEMARCATOR")
             .displayName("Message Demarcator")
@@ -282,7 +260,7 @@ public abstract class AbstractPulsarProducerProcessor<T> extends AbstractProcess
     static {
         PROPERTIES = List.of(PULSAR_CLIENT_SERVICE, TOPIC, ASYNC_ENABLED, MAX_ASYNC_REQUESTS, AUTO_UPDATE_PARTITIONS,
                 AUTO_UPDATE_PARTITION_INTERVAL, BATCHING_ENABLED, BATCHING_MAX_BYTES, BATCHING_MAX_MESSAGES, BATCH_INTERVAL,
-                BLOCK_IF_QUEUE_FULL, COMPRESSION_TYPE, CHUNKING_ENABLED, CHUNK_MAX_MESSAGE_SIZE, MESSAGE_ROUTING_MODE,
+                BLOCK_IF_QUEUE_FULL, COMPRESSION_TYPE, MESSAGE_ROUTING_MODE,
                 MESSAGE_DEMARCATOR, PENDING_MAX_MESSAGES, MAPPED_MESSAGE_PROPERTIES, MESSAGE_KEY);
 
         RELATIONSHIPS = Set.of(REL_SUCCESS, REL_FAILURE);
@@ -456,8 +434,7 @@ public abstract class AbstractPulsarProducerProcessor<T> extends AbstractProcess
     private synchronized ProducerBuilder<T> getBuilder(ProcessContext context, String topic) {
         ProducerBuilder<T> builder = (ProducerBuilder<T>) getPulsarClientService().getPulsarClient()
                 .newProducer().topic(topic)
-                .enableBatching(context.getProperty(BATCHING_ENABLED).asBoolean())
-                .enableChunking(context.getProperty(CHUNKING_ENABLED).asBoolean());
+                .enableBatching(context.getProperty(BATCHING_ENABLED).asBoolean());
 
         if (context.getProperty(BATCHING_ENABLED).asBoolean()) {
             builder = builder
@@ -465,10 +442,6 @@ public abstract class AbstractPulsarProducerProcessor<T> extends AbstractProcess
                     .batchingMaxMessages(context.getProperty(BATCHING_MAX_MESSAGES).evaluateAttributeExpressions().asInteger())
                     .batchingMaxPublishDelay(context.getProperty(BATCH_INTERVAL).evaluateAttributeExpressions().asTimePeriod(TimeUnit.MILLISECONDS).intValue(),
                             TimeUnit.MILLISECONDS);
-        } else if (context.getProperty(CHUNKING_ENABLED).asBoolean()) {
-            builder = builder
-                    .chunkMaxMessageSize(context.getProperty(CHUNK_MAX_MESSAGE_SIZE)
-                            .evaluateAttributeExpressions().asDataSize(DataUnit.B).intValue());
         }
 
         return builder

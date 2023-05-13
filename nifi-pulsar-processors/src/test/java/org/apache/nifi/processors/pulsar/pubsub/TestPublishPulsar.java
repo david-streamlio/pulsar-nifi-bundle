@@ -109,21 +109,6 @@ public class TestPublishPulsar extends AbstractPulsarProcessorTest<byte[]> {
         verify(mockClientService.getMockProducerBuilder(), times(1)).topic("topic-b");
     }
 
-    @Test
-    public void chunkedMessageTest() {
-        when(mockProducer.getTopic()).thenReturn("topic-b");
-        mockClientService.setMockProducer(mockProducer);
-
-        runner.setProperty(PublishPulsar.TOPIC, "test-topic");
-        runner.setProperty(PublishPulsar.CHUNKING_ENABLED, "true");
-        runner.setProperty(PublishPulsar.BATCHING_ENABLED, "false");
-
-        final String content = "some content";
-        runner.enqueue(content);
-        runner.run();
-
-        verify(mockClientService.getMockProducerBuilder(), times(1)).enableChunking(true);
-    }
 
     @Test
     public void autoUpdatePartitionConfigTest() {
@@ -164,26 +149,6 @@ public class TestPublishPulsar extends AbstractPulsarProcessorTest<byte[]> {
     }
 
     @Test
-    public final void testBatchOrChunking() {
-        when(mockProducer.getTopic()).thenReturn("topic-b");
-        mockClientService.setMockProducer(mockProducer);
-
-        runner.setProperty(PublishPulsar.TOPIC, "test-topic");
-        runner.setProperty(PublishPulsar.BATCHING_ENABLED, "false");
-        runner.setProperty(PublishPulsar.CHUNKING_ENABLED, "true");
-
-        final String content = "some content";
-        runner.enqueue(content);
-        runner.run();
-
-        verify(mockClientService.getMockProducerBuilder(), times(0)).enableBatching(true);
-        verify(mockClientService.getMockProducerBuilder(), times(1)).enableBatching(false);
-        verify(mockClientService.getMockProducerBuilder(), times(0)).enableChunking(false);
-        verify(mockClientService.getMockProducerBuilder(), times(1)).enableChunking(true);
-        verify(mockClientService.getMockProducerBuilder(), times(1)).chunkMaxMessageSize(100 * 1024 * 1024);
-    }
-
-    @Test
     public final void testDefaultValues() {
         when(mockProducer.getTopic()).thenReturn("topic-b");
         mockClientService.setMockProducer(mockProducer);
@@ -201,7 +166,6 @@ public class TestPublishPulsar extends AbstractPulsarProcessorTest<byte[]> {
         verify(mockClientService.getMockProducerBuilder(), times(1)).batchingMaxMessages(1000);
         verify(mockClientService.getMockProducerBuilder(), times(1)).batchingMaxPublishDelay(10, TimeUnit.MILLISECONDS);
         verify(mockClientService.getMockProducerBuilder(), times(1)).blockIfQueueFull(false);
-        verify(mockClientService.getMockProducerBuilder(), times(1)).enableChunking(false);
         verify(mockClientService.getMockProducerBuilder(), times(1)).messageRoutingMode(MessageRoutingMode.RoundRobinPartition);
         verify(mockClientService.getMockProducerBuilder(), times(1)).maxPendingMessages(1000);
     }

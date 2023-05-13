@@ -188,41 +188,6 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
             .required(false)
             .build();
 
-    public static final PropertyDescriptor EXPIRE_TIME_OF_INCOMPLETE_CHUNKED_MESSAGE = new PropertyDescriptor.Builder()
-            .name("EXPIRE_TIME_OF_INCOMPLETE_CHUNKED_MESSAGE")
-            .displayName("Expire Time of Incomplete Chunked Message")
-            .description("If producer fails to publish all the chunks of a message then consumer can expire incomplete" +
-                    " chunks if consumer won't be able to receive all chunks in expire times (default 1 minute).")
-            .addValidator(StandardValidators.TIME_PERIOD_VALIDATOR)
-            .defaultValue("60 sec")
-            .required(false)
-            .build();
-
-    public static final PropertyDescriptor AUTO_ACK_OLDEST_CHUNKED_ON_QUEUE_FULL = new PropertyDescriptor.Builder()
-            .name("AUTO_ACK_OLDEST_CHUNKED_ON_QUEUE_FULL")
-            .displayName("Auto Ack Oldest Chunked Message on Queue Full")
-            .description("Buffering large number of outstanding uncompleted chunked messages can create memory pressure" +
-                    " and it can be guarded by providing this @maxPendingChunkedMessage threshold. Once, consumer reaches" +
-                    " this threshold, it drops the outstanding unchunked-messages by silently acknowledging if this property" +
-                    " is true else it marks them for redelivery.")
-            .required(true)
-            .allowableValues("true", "false")
-            .defaultValue("false")
-            .build();
-
-    public static final PropertyDescriptor MAX_PENDING_CHUNKED_MESSAGE = new PropertyDescriptor.Builder()
-            .name("MAX_PENDING_CHUNKED_MESSAGE")
-            .displayName("Maximum Pending Chunked Messages")
-            .description("Buffering large number of outstanding uncompleted chunked messages can create memory pressure " +
-                    "and it can be guarded by providing this @maxPendingChunkedMessage threshold. Once, consumer reaches" +
-                            " this threshold, it drops the outstanding unchunked-messages by silently acking or asking broker to" +
-                            " redeliver later by marking it unacked. This behavior can be controlled by the " +
-                            "AUTO_ACK_OLDEST_CHUNKED_ON_QUEUE_FULL property.")
-            .required(false)
-            .addValidator(StandardValidators.NON_NEGATIVE_INTEGER_VALIDATOR)
-            .defaultValue("10")
-            .build();
-
     public static final PropertyDescriptor CONSUMER_NAME = new PropertyDescriptor.Builder()
             .name("CONSUMER_NAME")
             .displayName("Consumer Name")
@@ -325,8 +290,7 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
                 SUBSCRIPTION_INITIAL_POSITION, CONSUMER_NAME, ASYNC_ENABLED, MAX_ASYNC_REQUESTS, ACK_TIMEOUT,
                 AUTO_UPDATE_PARTITIONS, AUTO_UPDATE_PARTITION_INTERVAL, PRIORITY_LEVEL, RECEIVER_QUEUE_SIZE,
                 SUBSCRIPTION_TYPE, CONSUMER_BATCH_SIZE, MESSAGE_DEMARCATOR, MAPPED_FLOWFILE_ATTRIBUTES,
-                REPLICATE_SUBSCRIPTION_STATE, AUTO_ACK_OLDEST_CHUNKED_ON_QUEUE_FULL,
-                EXPIRE_TIME_OF_INCOMPLETE_CHUNKED_MESSAGE, MAX_PENDING_CHUNKED_MESSAGE);
+                REPLICATE_SUBSCRIPTION_STATE);
 
         RELATIONSHIPS = Set.of(REL_SUCCESS);
     }
@@ -511,10 +475,6 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
                 .autoUpdatePartitionsInterval(context.getProperty(AUTO_UPDATE_PARTITION_INTERVAL)
                         .asTimePeriod(TimeUnit.SECONDS).intValue(), TimeUnit.SECONDS)
                 .ackTimeout(context.getProperty(ACK_TIMEOUT).asTimePeriod(TimeUnit.MILLISECONDS).intValue(), TimeUnit.MILLISECONDS)
-                .autoAckOldestChunkedMessageOnQueueFull(context.getProperty(AUTO_ACK_OLDEST_CHUNKED_ON_QUEUE_FULL).asBoolean())
-                .expireTimeOfIncompleteChunkedMessage(context.getProperty(EXPIRE_TIME_OF_INCOMPLETE_CHUNKED_MESSAGE)
-                        .asTimePeriod(TimeUnit.SECONDS), TimeUnit.SECONDS)
-                .maxPendingChunkedMessage(context.getProperty(MAX_PENDING_CHUNKED_MESSAGE).asInteger())
                 .priorityLevel(context.getProperty(PRIORITY_LEVEL).asInteger())
                 .receiverQueueSize(context.getProperty(RECEIVER_QUEUE_SIZE).asInteger())
                 .subscriptionType(SubscriptionType.valueOf(context.getProperty(SUBSCRIPTION_TYPE).getValue()))
