@@ -16,10 +16,7 @@
  */
 package org.apache.nifi.processors.pulsar;
 
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
@@ -258,12 +255,31 @@ public abstract class AbstractPulsarProducerProcessor<T> extends AbstractProcess
     protected static final Set<Relationship> RELATIONSHIPS;
 
     static {
-        PROPERTIES = List.of(PULSAR_CLIENT_SERVICE, TOPIC, ASYNC_ENABLED, MAX_ASYNC_REQUESTS, AUTO_UPDATE_PARTITIONS,
-                AUTO_UPDATE_PARTITION_INTERVAL, BATCHING_ENABLED, BATCHING_MAX_BYTES, BATCHING_MAX_MESSAGES, BATCH_INTERVAL,
-                BLOCK_IF_QUEUE_FULL, COMPRESSION_TYPE, MESSAGE_ROUTING_MODE,
-                MESSAGE_DEMARCATOR, PENDING_MAX_MESSAGES, MAPPED_MESSAGE_PROPERTIES, MESSAGE_KEY);
+        List<PropertyDescriptor> descriptorList = new ArrayList<>();
+        descriptorList.add(PULSAR_CLIENT_SERVICE);
+        descriptorList.add(TOPIC);
+        descriptorList.add(ASYNC_ENABLED);
+        descriptorList.add(MAX_ASYNC_REQUESTS);
+        descriptorList.add(AUTO_UPDATE_PARTITIONS);
+        descriptorList.add(AUTO_UPDATE_PARTITION_INTERVAL);
+        descriptorList.add(BATCHING_ENABLED);
+        descriptorList.add(BATCHING_MAX_BYTES);
+        descriptorList.add(BATCHING_MAX_MESSAGES);
+        descriptorList.add(BATCH_INTERVAL);
+        descriptorList.add(BLOCK_IF_QUEUE_FULL);
+        descriptorList.add(COMPRESSION_TYPE);
+        descriptorList.add(MESSAGE_ROUTING_MODE);
+        descriptorList.add(MESSAGE_DEMARCATOR);
+        descriptorList.add(PENDING_MAX_MESSAGES);
+        descriptorList.add(MAPPED_MESSAGE_PROPERTIES);
+        descriptorList.add(MESSAGE_KEY);
 
-        RELATIONSHIPS = Set.of(REL_SUCCESS, REL_FAILURE);
+        PROPERTIES = Collections.unmodifiableList(descriptorList);
+
+        Set<Relationship> relationshipSet = new HashSet<>();
+        relationshipSet.add(REL_SUCCESS);
+        relationshipSet.add(REL_FAILURE);
+        RELATIONSHIPS = Collections.unmodifiableSet(relationshipSet);
     }
 
     @Override

@@ -16,13 +16,7 @@
  */
 package org.apache.nifi.processors.pulsar;
 
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.HashSet;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -285,14 +279,32 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
     protected static final Set<Relationship> RELATIONSHIPS;
 
     static {
+        List<PropertyDescriptor> descriptorList = new ArrayList<>();
+        descriptorList.add(PULSAR_CLIENT_SERVICE);
+        descriptorList.add(TOPICS);
+        descriptorList.add(TOPICS_PATTERN);
+        descriptorList.add(SUBSCRIPTION_NAME);
+        descriptorList.add(SUBSCRIPTION_INITIAL_POSITION);
+        descriptorList.add(CONSUMER_NAME);
+        descriptorList.add(ASYNC_ENABLED);
+        descriptorList.add(MAX_ASYNC_REQUESTS);
+        descriptorList.add(ACK_TIMEOUT);
+        descriptorList.add(AUTO_UPDATE_PARTITIONS);
+        descriptorList.add(AUTO_UPDATE_PARTITION_INTERVAL);
+        descriptorList.add(PRIORITY_LEVEL);
+        descriptorList.add(RECEIVER_QUEUE_SIZE);
+        descriptorList.add(SUBSCRIPTION_TYPE);
+        descriptorList.add(CONSUMER_BATCH_SIZE);
+        descriptorList.add(MESSAGE_DEMARCATOR);
+        descriptorList.add(MAPPED_FLOWFILE_ATTRIBUTES);
+        descriptorList.add(REPLICATE_SUBSCRIPTION_STATE);
 
-        PROPERTIES = List.of(PULSAR_CLIENT_SERVICE, TOPICS, TOPICS_PATTERN, SUBSCRIPTION_NAME,
-                SUBSCRIPTION_INITIAL_POSITION, CONSUMER_NAME, ASYNC_ENABLED, MAX_ASYNC_REQUESTS, ACK_TIMEOUT,
-                AUTO_UPDATE_PARTITIONS, AUTO_UPDATE_PARTITION_INTERVAL, PRIORITY_LEVEL, RECEIVER_QUEUE_SIZE,
-                SUBSCRIPTION_TYPE, CONSUMER_BATCH_SIZE, MESSAGE_DEMARCATOR, MAPPED_FLOWFILE_ATTRIBUTES,
-                REPLICATE_SUBSCRIPTION_STATE);
+        PROPERTIES = Collections.unmodifiableList(descriptorList);
 
-        RELATIONSHIPS = Set.of(REL_SUCCESS);
+        Set<Relationship> relationshipSet = new HashSet<>();
+        relationshipSet.add(REL_SUCCESS);
+        RELATIONSHIPS = Collections.unmodifiableSet(relationshipSet);
+
     }
 
     private PulsarClientService pulsarClientService;
