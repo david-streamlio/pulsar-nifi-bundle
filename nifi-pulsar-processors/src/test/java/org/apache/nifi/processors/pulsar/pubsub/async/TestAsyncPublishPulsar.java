@@ -43,7 +43,6 @@ public class TestAsyncPublishPulsar extends TestPublishPulsar {
 
         runner.setProperty(PublishPulsar.TOPIC, "my-topic");
         runner.setProperty(PublishPulsar.ASYNC_ENABLED, Boolean.TRUE.toString());
-        runner.setProperty(PublishPulsar.MAX_ASYNC_REQUESTS, "2");
 
         final String content = "some content";
         runner.enqueue(content.getBytes("UTF-8"));
@@ -67,7 +66,6 @@ public class TestAsyncPublishPulsar extends TestPublishPulsar {
         runner.setProperty(PublishPulsar.TOPIC, "my-topic");
         runner.setProperty(PublishPulsar.MESSAGE_DEMARCATOR, demarcator);
         runner.setProperty(PublishPulsar.ASYNC_ENABLED, Boolean.TRUE.toString());
-        runner.setProperty(PublishPulsar.MAX_ASYNC_REQUESTS, "2");
 
         final StringBuffer sb = new StringBuffer();
 
@@ -99,7 +97,7 @@ public class TestAsyncPublishPulsar extends TestPublishPulsar {
         List<MockFlowFile> failures = runner.getFlowFilesForRelationship("failure");
 
         assertNotNull(success);
-        assertEquals(1, success.size());
+        assertEquals(0, success.size());
 
         assertNotNull(failures);
         assertEquals(1, failures.size());
@@ -111,7 +109,6 @@ public class TestAsyncPublishPulsar extends TestPublishPulsar {
 
         runner.setProperty(PublishPulsar.TOPIC, "my-async-topic");
         runner.setProperty(PublishPulsar.ASYNC_ENABLED, Boolean.TRUE.toString());
-        runner.setProperty(PublishPulsar.MAX_ASYNC_REQUESTS, "2");
 
         final String content = "some content";
 
@@ -155,7 +152,6 @@ public class TestAsyncPublishPulsar extends TestPublishPulsar {
     @Test
     public void mappedPropertiesTest() throws UnsupportedEncodingException {
         runner.setProperty(PublishPulsar.ASYNC_ENABLED, Boolean.toString(true));
-        runner.setProperty(PublishPulsar.MAX_ASYNC_REQUESTS, "2");
 
         super.doMappedPropertiesTest();
         verify(mockClientService.getMockTypedMessageBuilder()).sendAsync();
@@ -164,7 +160,6 @@ public class TestAsyncPublishPulsar extends TestPublishPulsar {
     @Test
     public void messageKeyTest() throws UnsupportedEncodingException {
         runner.setProperty(PublishPulsar.ASYNC_ENABLED, Boolean.toString(true));
-        runner.setProperty(PublishPulsar.MAX_ASYNC_REQUESTS, "2");
 
         super.doMessageKeyTest();
         verify(mockClientService.getMockTypedMessageBuilder(), times(2)).sendAsync();

@@ -19,6 +19,9 @@ package org.apache.nifi.processors.pulsar.pubsub;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.Map;
 
@@ -35,6 +38,7 @@ import org.apache.nifi.processor.exception.ProcessException;
 import org.apache.nifi.processors.pulsar.AbstractPulsarProducerProcessor;
 import org.apache.nifi.processors.pulsar.MessageTuple;
 import org.apache.nifi.stream.io.util.StreamDemarcator;
+import org.apache.pulsar.client.api.MessageId;
 import org.apache.pulsar.client.api.Producer;
 import org.apache.pulsar.client.api.PulsarClientException;
 
@@ -51,8 +55,6 @@ public class PublishPulsar extends AbstractPulsarProducerProcessor<byte[]> {
 
     @Override
     public void onTrigger(ProcessContext context, ProcessSession session) throws ProcessException {
-
-        handleFailures(session);
 
         final FlowFile flowFile = session.get();
         if (flowFile == null) {
@@ -86,18 +88,29 @@ public class PublishPulsar extends AbstractPulsarProducerProcessor<byte[]> {
                 getLogger().error("Failed to connect to Pulsar Server due to {}", new Object[]{e});
                 session.transfer(flowFile, REL_FAILURE);
             }
-        } else if (canPublish.get()) {
+        } else {
             byte[] messageContent;
 
             try (final InputStream in = session.read(flowFile);
                  final StreamDemarcator demarcator = new StreamDemarcator(in, demarcatorBytes, Integer.MAX_VALUE)) {
+                List<CompletableFuture<MessageId>> futureList = new ArrayList<>();
+
                 while ((messageContent = demarcator.nextToken()) != null) {
-                   workQueue.put(new MessageTuple<>(
-                                   topic,
-                                   getMessageKey(context, flowFile),
-                                   getMappedMessageProperties(context, flowFile),
-                                   messageContent));
+                    futureList.add(sendAsync(producer,
+                            getMessageKey(context, flowFile),
+                            getMappedMessageProperties(context, flowFile),
+                            messageContent));
+
                 }
+                demarcator.close();
+
+                // Wait for futures to complete, flush all the producers in parallel etc.
+                // Block here until work queue is empty and all producers have been flushed.
+                CompletableFuture<MessageId>[] futureArray = futureList.toArray(new CompletableFuture[0]);
+                CompletableFuture<Void> allFutures = CompletableFuture.allOf(futureArray);
+                allFutures.join(); // wait for all futures to complete
+                producer.flush();
+
                 demarcator.close();
                 session.transfer(flowFile, REL_SUCCESS);
             } catch (Throwable t) {

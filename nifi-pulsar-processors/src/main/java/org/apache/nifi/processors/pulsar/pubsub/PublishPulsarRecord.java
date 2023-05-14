@@ -23,6 +23,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicLong;
 
 import org.apache.commons.compress.utils.IOUtils;
@@ -48,6 +49,7 @@ import org.apache.nifi.serialization.RecordSetWriterFactory;
 import org.apache.nifi.serialization.record.Record;
 import org.apache.nifi.serialization.record.RecordSchema;
 import org.apache.nifi.serialization.record.RecordSet;
+import org.apache.pulsar.client.api.MessageId;
 import org.apache.pulsar.client.api.Producer;
 
 @Tags({"Apache", "Pulsar", "Record", "csv", "json", "avro", "logs", "Put", "Send", "Message", "PubSub", "1.0"})
@@ -94,8 +96,6 @@ public class PublishPulsarRecord extends AbstractPulsarProducerProcessor<byte[]>
 
     @Override
     public void onTrigger(ProcessContext context, ProcessSession session) throws ProcessException {
-
-        handleFailures(session);
 
         final FlowFile flowFile = session.get();
         if (flowFile == null) {
@@ -145,7 +145,8 @@ public class PublishPulsarRecord extends AbstractPulsarProducerProcessor<byte[]>
                 session.adjustCounter("Messages Sent", messagesSent.get(), true);
                 session.getProvenanceReporter().send(flowFile, getPulsarClientService().getPulsarBrokerRootURL(), "Sent " + messagesSent.get() + " records");
                 session.transfer(flowFile, REL_SUCCESS);
-            } catch (InterruptedException e) {
+            } catch (Exception e) {
+                IOUtils.closeQuietly(in);
                 session.transfer(flowFile, REL_FAILURE);
             }
 
@@ -167,6 +168,8 @@ public class PublishPulsarRecord extends AbstractPulsarProducerProcessor<byte[]>
         Record record;
         int recordCount = 0;
 
+        List<CompletableFuture<MessageId>> futureList = new ArrayList<>();
+
         try {
             while ((record = recordSet.next()) != null) {
                 recordCount++;
@@ -177,11 +180,19 @@ public class PublishPulsarRecord extends AbstractPulsarProducerProcessor<byte[]>
                     writer.flush();
                 }
                 if (asyncFlag) {
-                   workQueue.put(new MessageTuple<>(topic, key, properties, baos.toByteArray()));
+                    futureList.add(sendAsync(producer, key, properties, baos.toByteArray()));
                 } else {
-                   send(producer, key, properties, baos.toByteArray());
+                    send(producer, key, properties, baos.toByteArray());
                 }
             }
+
+            if (asyncFlag) {
+                CompletableFuture<MessageId>[] futureArray = futureList.toArray(new CompletableFuture[0]);
+                CompletableFuture<Void> allFutures = CompletableFuture.allOf(futureArray);
+                allFutures.join(); // wait for all futures to complete
+                producer.flush();
+            }
+
             return recordCount;
         } finally {
             reader.close();
