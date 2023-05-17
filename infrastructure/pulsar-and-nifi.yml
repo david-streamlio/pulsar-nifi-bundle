@@ -1,0 +1,36 @@
+version: '3.9'
+
+services:
+
+  pulsar:
+    container_name: pulsar
+    hostname: pulsar
+    image: streamnative/sn-pulsar:2.9.3.4
+    command: >
+      bash -c "bin/apply-config-from-env.py conf/standalone.conf &&
+      exec bin/pulsar standalone -nss -nfw" # disable stream storage
+    environment:
+      allowAutoTopicCreationType: partitioned
+      brokerDeleteInactiveTopicsEnabled: "false"
+      PULSAR_PREFIX_functionsWorkerEnabled: "false"
+    ports:
+      - 6650:6650
+      - 8080:8080
+
+  nifi:
+    container_name: nifi
+    hostname: nifi
+    image: streamnative/nifi:latest
+#    volumes:
+#      - /Users/david/Downloads/nifi-test:/nifi-test
+    environment:
+      NIFI_JVM_DEBUGGER: true
+      SINGLE_USER_CREDENTIALS_USERNAME: admin
+      SINGLE_USER_CREDENTIALS_PASSWORD: ctsBtRBKHRAx69EqUghvvgEvjnaLjFEB
+    ports:
+      - 8443:8443
+      - 8000:8000
+
+networks:
+  default:
+    name: pulsar-nifi

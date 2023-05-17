@@ -24,3 +24,7 @@ FROM apache/nifi:1.15.3
 
 COPY --chown=nifi:nifi maven/modules/maven-assembly-plugin/nifi-pulsar-*.nar /opt/nifi/nifi-current/lib/
 
+#############################################################################
+# Add resource files for testing
+#############################################################################
+COPY --chown=nifi:nifi resources /resources
