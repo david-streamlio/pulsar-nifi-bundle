@@ -22,9 +22,12 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.Map;
 
+import org.apache.commons.compress.utils.IOUtils;
 import org.apache.nifi.annotation.behavior.InputRequirement;
 import org.apache.nifi.annotation.behavior.TriggerWhenEmpty;
 import org.apache.nifi.annotation.behavior.WritesAttribute;
@@ -36,7 +39,6 @@ import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSession;
 import org.apache.nifi.processor.exception.ProcessException;
 import org.apache.nifi.processors.pulsar.AbstractPulsarProducerProcessor;
-import org.apache.nifi.processors.pulsar.MessageTuple;
 import org.apache.nifi.stream.io.util.StreamDemarcator;
 import org.apache.pulsar.client.api.MessageId;
 import org.apache.pulsar.client.api.Producer;
@@ -70,11 +72,6 @@ public class PublishPulsar extends AbstractPulsarProducerProcessor<byte[]> {
         if (producer == null) {
             getLogger().error("Unable to publish to topic {}", new Object[] {topic});
             session.transfer(flowFile, REL_FAILURE);
-
-            if (context.getProperty(ASYNC_ENABLED).asBoolean()) {
-                // If we are running in asynchronous mode, then slow down the processor to prevent data loss
-                context.yield();
-            }
             return;
         }
 
@@ -90,9 +87,8 @@ public class PublishPulsar extends AbstractPulsarProducerProcessor<byte[]> {
             }
         } else {
             byte[] messageContent;
-
-            try (final InputStream in = session.read(flowFile);
-                 final StreamDemarcator demarcator = new StreamDemarcator(in, demarcatorBytes, Integer.MAX_VALUE)) {
+            InputStream in = session.read(flowFile);
+            try (final StreamDemarcator demarcator = new StreamDemarcator(in, demarcatorBytes, Integer.MAX_VALUE)) {
                 List<CompletableFuture<MessageId>> futureList = new ArrayList<>();
 
                 while ((messageContent = demarcator.nextToken()) != null) {
@@ -101,22 +97,40 @@ public class PublishPulsar extends AbstractPulsarProducerProcessor<byte[]> {
                             getMappedMessageProperties(context, flowFile),
                             messageContent));
 
+                    if (futureList.size() >= 100) {
+                        producer.flush();
+
+                        futureList.stream()
+                                // Call get() on each Future object to get the result
+                                .map(future -> {
+                                    try {
+                                        return future.get();
+                                    } catch (InterruptedException | ExecutionException e) {
+                                        throw new RuntimeException(e);
+                                    }
+                                });
+
+                        futureList.clear();
+                    }
+
                 }
-                demarcator.close();
 
                 // Wait for futures to complete, flush all the producers in parallel etc.
                 // Block here until work queue is empty and all producers have been flushed.
-                CompletableFuture<MessageId>[] futureArray = futureList.toArray(new CompletableFuture[0]);
-                CompletableFuture<Void> allFutures = CompletableFuture.allOf(futureArray);
-                allFutures.join(); // wait for all futures to complete
-                producer.flush();
-
-                demarcator.close();
+                if (!futureList.isEmpty()) {
+                    CompletableFuture<MessageId>[] futureArray = futureList.toArray(new CompletableFuture[0]);
+                    CompletableFuture<Void> allFutures = CompletableFuture.allOf(futureArray);
+                    producer.flush();
+                    allFutures.join(); // wait for all futures to complete
+                }
+                IOUtils.closeQuietly(in);
                 session.transfer(flowFile, REL_SUCCESS);
             } catch (Throwable t) {
                 getLogger().error("Unable to process session due to ", t);
+                IOUtils.closeQuietly(in);
                 session.transfer(flowFile, REL_FAILURE);
             }
+
         }
     }
 

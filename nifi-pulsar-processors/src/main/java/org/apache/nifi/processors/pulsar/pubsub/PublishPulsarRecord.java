@@ -39,7 +39,6 @@ import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSession;
 import org.apache.nifi.processor.exception.ProcessException;
 import org.apache.nifi.processors.pulsar.AbstractPulsarProducerProcessor;
-import org.apache.nifi.processors.pulsar.MessageTuple;
 import org.apache.nifi.schema.access.SchemaNotFoundException;
 import org.apache.nifi.serialization.MalformedRecordException;
 import org.apache.nifi.serialization.RecordReader;
@@ -111,11 +110,6 @@ public class PublishPulsarRecord extends AbstractPulsarProducerProcessor<byte[]>
         if (producer == null) {
             getLogger().error("Unable to publish to topic {}", new Object[] {topic});
             session.transfer(flowFile, REL_FAILURE);
-
-            if (context.getProperty(ASYNC_ENABLED).asBoolean()) {
-                // If we are running in asynchronous mode, then slow down the processor to prevent data loss
-                context.yield();
-            }
             return;
         }
 

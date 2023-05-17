@@ -137,6 +137,7 @@ public class TestPublishPulsar extends AbstractPulsarProcessorTest<byte[]> {
         runner.setProperty(PublishPulsar.BATCHING_MAX_BYTES, "128 KB");
         runner.setProperty(PublishPulsar.BATCHING_MAX_MESSAGES, "1000");
         runner.setProperty(PublishPulsar.BATCH_INTERVAL, "30 ms");
+        runner.setProperty(PublishPulsar.BLOCK_IF_QUEUE_FULL, "true");
 
         final String content = "some content";
         runner.enqueue(content);
@@ -146,6 +147,7 @@ public class TestPublishPulsar extends AbstractPulsarProcessorTest<byte[]> {
         verify(mockClientService.getMockProducerBuilder(), times(1)).batchingMaxBytes(128 * 1024);
         verify(mockClientService.getMockProducerBuilder(), times(1)).batchingMaxMessages(1000);
         verify(mockClientService.getMockProducerBuilder(), times(1)).batchingMaxPublishDelay(30, TimeUnit.MILLISECONDS);
+        verify(mockClientService.getMockProducerBuilder(), times(1)).blockIfQueueFull(true);
     }
 
     @Test
