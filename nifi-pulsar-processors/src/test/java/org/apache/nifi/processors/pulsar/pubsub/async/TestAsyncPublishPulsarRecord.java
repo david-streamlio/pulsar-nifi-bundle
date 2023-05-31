@@ -163,10 +163,18 @@ public class TestAsyncPublishPulsarRecord extends TestPublishPulsarRecord {
     }
 
     @Test
-    public void messageKeyTest() throws UnsupportedEncodingException {
-        runner.setProperty(PublishPulsar.ASYNC_ENABLED, Boolean.toString(true));
+    public void messageKeyFieldTest() throws UnsupportedEncodingException {
+        final String content = "Mary Jane, 32";
 
-        super.doMessageKeyTest();
-        verify(mockClientService.getMockTypedMessageBuilder(), times(2)).sendAsync();
+        runner.setProperty(PublishPulsar.TOPIC, "my-topic");
+        runner.setProperty(PublishPulsar.ASYNC_ENABLED, Boolean.toString(true));
+        runner.setProperty(PublishPulsarRecord.MESSAGE_KEY_FIELD, "name");
+        runner.enqueue(content.getBytes("UTF-8"));
+
+        runner.run(1);
+        runner.assertAllFlowFilesTransferred(PublishPulsar.REL_SUCCESS);
+
+        // Verify that we sent the data to topic-b.
+        verify(mockClientService.getMockTypedMessageBuilder(), times(1)).key("Mary Jane");
     }
 }

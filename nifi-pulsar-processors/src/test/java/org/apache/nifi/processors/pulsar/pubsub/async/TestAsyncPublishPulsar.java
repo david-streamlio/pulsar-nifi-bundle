@@ -28,6 +28,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import org.apache.commons.lang3.RandomStringUtils;
 import org.apache.nifi.processors.pulsar.pubsub.PublishPulsar;
 import org.apache.nifi.processors.pulsar.pubsub.PublishPulsarRecord;
 import org.apache.nifi.processors.pulsar.pubsub.TestPublishPulsar;
@@ -78,6 +79,30 @@ public class TestAsyncPublishPulsar extends TestPublishPulsar {
         runner.assertAllFlowFilesTransferred(PublishPulsar.REL_SUCCESS);
         verify(mockClientService.getMockTypedMessageBuilder(), times(20)).value(content.getBytes());
         verify(mockClientService.getMockTypedMessageBuilder(), times(20)).sendAsync();
+    }
+
+    @Test
+    public void asyncFuturesListTest() throws UnsupportedEncodingException {
+        int count = 584;
+        final String content = RandomStringUtils.randomAlphabetic(1000);
+        final String demarcator = "\n";
+        when(mockClientService.getMockProducer().getTopic()).thenReturn("my-topic");
+
+        runner.setProperty(PublishPulsar.TOPIC, "my-topic");
+        runner.setProperty(PublishPulsar.MESSAGE_DEMARCATOR, demarcator);
+        runner.setProperty(PublishPulsar.ASYNC_ENABLED, Boolean.TRUE.toString());
+
+        final StringBuffer sb = new StringBuffer();
+
+        for (int idx = 0; idx < count; idx++) {
+            sb.append(content).append(demarcator);
+        }
+
+        runner.enqueue(sb.toString().getBytes("UTF-8"));
+        runner.run(1, true, true);
+        runner.assertAllFlowFilesTransferred(PublishPulsar.REL_SUCCESS);
+        verify(mockClientService.getMockTypedMessageBuilder(), times(count)).value(content.getBytes());
+        verify(mockClientService.getMockTypedMessageBuilder(), times(count)).sendAsync();
     }
 
     @Test

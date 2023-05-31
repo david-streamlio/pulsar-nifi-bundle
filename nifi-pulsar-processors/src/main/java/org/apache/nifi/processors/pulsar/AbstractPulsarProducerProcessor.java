@@ -16,19 +16,13 @@
  */
 package org.apache.nifi.processors.pulsar;
 
+import java.nio.charset.StandardCharsets;
 import java.util.*;
-import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 
-import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.nifi.annotation.lifecycle.OnScheduled;
-import org.apache.nifi.annotation.lifecycle.OnStopped;
 import org.apache.nifi.annotation.lifecycle.OnUnscheduled;
 import org.apache.nifi.components.AllowableValue;
 import org.apache.nifi.components.PropertyDescriptor;
@@ -37,6 +31,8 @@ import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.processor.*;
 import org.apache.nifi.processor.util.StandardValidators;
+import org.apache.nifi.processors.pulsar.utils.PropertyMappingUtils;
+import org.apache.nifi.processors.pulsar.utils.PublisherPool;
 import org.apache.nifi.pulsar.PulsarClientService;
 import org.apache.nifi.pulsar.cache.PulsarConsumerLRUCache;
 import org.apache.pulsar.client.api.CompressionType;
@@ -235,7 +231,8 @@ public abstract class AbstractPulsarProducerProcessor<T> extends AbstractProcess
     public static final PropertyDescriptor MESSAGE_KEY = new PropertyDescriptor.Builder()
             .name("MESSAGE_KEY")
             .displayName("Message Key")
-            .description("The key of the outgoing message.")
+            .description("he Key to use for the Message."
+                    + "If not specified, the flow file attribute 'msg.key' is used as the message key, if it is present.")
             .required(false)
             .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
             .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
@@ -282,72 +279,39 @@ public abstract class AbstractPulsarProducerProcessor<T> extends AbstractProcess
     }
 
     private PulsarClientService pulsarClientService;
-    private PulsarConsumerLRUCache<String, Producer<T>> producers;
+
+    private PublisherPool publisherPool;
 
     @OnScheduled
     public void init(ProcessContext context) {
         setPulsarClientService(context.getProperty(PULSAR_CLIENT_SERVICE).asControllerService(PulsarClientService.class));
+        setPublisherPool(createPublisherPool(context));
     }
 
-    @OnUnscheduled
-    public void shutDown(final ProcessContext context) {
-        // Flush all the pending messages in the producers
-        getProducers().values().forEach(producer -> {
-            try {
-                producer.flush();
-            } catch (PulsarClientException e) {
-                getLogger().error("Unable to flush messages to Pulsar", e);
-            }
-        });
+    protected PublisherPool createPublisherPool(final ProcessContext context) {
+        return new PublisherPool(getLogger(), getPulsarProducerConfiguration(context), this.getPulsarClientService().getPulsarClient());
     }
 
-    protected synchronized Producer<T> getProducer(ProcessContext context, String topic) {
+    protected Map<String, Object> getPulsarProducerConfiguration(ProcessContext ctx) {
+        Map<String, Object> config = new HashMap<>();
 
-        /* Avoid creating producers for non-existent topics */
-        if (StringUtils.isBlank(topic)) {
-           return null;
+        config.put("autoUpdatePartitions", ctx.getProperty(AUTO_UPDATE_PARTITIONS).asBoolean());
+        config.put("autoUpdatePartitionsInterval", ctx.getProperty(AUTO_UPDATE_PARTITION_INTERVAL)
+                .asTimePeriod(TimeUnit.SECONDS).intValue());
+        config.put("blockIfQueueFull", ctx.getProperty(BLOCK_IF_QUEUE_FULL).asBoolean());
+        config.put("compressionType", CompressionType.valueOf(ctx.getProperty(COMPRESSION_TYPE).getValue()));
+
+        if (ctx.getProperty(BATCHING_ENABLED).asBoolean()) {
+            config.put("enableBatching", Boolean.TRUE);
+            config.put("batchingMaxBytes", ctx.getProperty(BATCHING_MAX_BYTES).asDataSize(DataUnit.B).intValue());
+            config.put("batchingMaxMessages", ctx.getProperty(BATCHING_MAX_MESSAGES).evaluateAttributeExpressions().asInteger());
+            config.put("batchingMaxPublishDelay", ctx.getProperty(BATCH_INTERVAL).evaluateAttributeExpressions()
+                    .asTimePeriod(TimeUnit.MILLISECONDS).intValue());
+        } else {
+            config.put("enableBatching", Boolean.FALSE);
         }
 
-        Producer<T> producer = getProducers().get(topic);
-
-        try {
-            if (producer != null && producer.isConnected()) {
-              return producer;
-            }
-
-            producer = getBuilder(context, topic).create();
-
-            if (producer != null && producer.isConnected()) {
-              getProducers().put(topic, producer);
-            }
-        } catch (PulsarClientException e) {
-            getLogger().error("Unable to create Pulsar Producer ", e);
-            producer = null;
-        }
-        return (producer != null && producer.isConnected()) ? producer : null;
-    }
-
-    private synchronized ProducerBuilder<T> getBuilder(ProcessContext context, String topic) {
-        ProducerBuilder<T> builder = (ProducerBuilder<T>) getPulsarClientService().getPulsarClient()
-                .newProducer().topic(topic)
-                .enableBatching(context.getProperty(BATCHING_ENABLED).asBoolean());
-
-        if (context.getProperty(BATCHING_ENABLED).asBoolean()) {
-            builder = builder
-                    .batchingMaxBytes(context.getProperty(BATCHING_MAX_BYTES).asDataSize(DataUnit.B).intValue())
-                    .batchingMaxMessages(context.getProperty(BATCHING_MAX_MESSAGES).evaluateAttributeExpressions().asInteger())
-                    .batchingMaxPublishDelay(context.getProperty(BATCH_INTERVAL).evaluateAttributeExpressions().asTimePeriod(TimeUnit.MILLISECONDS).intValue(),
-                            TimeUnit.MILLISECONDS);
-        }
-
-        return builder
-                .autoUpdatePartitions(context.getProperty(AUTO_UPDATE_PARTITIONS).asBoolean())
-                .autoUpdatePartitionsInterval(context.getProperty(AUTO_UPDATE_PARTITION_INTERVAL)
-                        .asTimePeriod(TimeUnit.SECONDS).intValue(), TimeUnit.SECONDS)
-                .blockIfQueueFull(context.getProperty(BLOCK_IF_QUEUE_FULL).asBoolean())
-                .compressionType(CompressionType.valueOf(context.getProperty(COMPRESSION_TYPE).getValue()))
-                .maxPendingMessages(context.getProperty(PENDING_MAX_MESSAGES).evaluateAttributeExpressions().asInteger())
-                .messageRoutingMode(MessageRoutingMode.valueOf(context.getProperty(MESSAGE_ROUTING_MODE).getValue()));
+        return config;
     }
 
     protected synchronized PulsarClientService getPulsarClientService() {
@@ -358,19 +322,21 @@ public abstract class AbstractPulsarProducerProcessor<T> extends AbstractProcess
        this.pulsarClientService = pulsarClientService;
     }
 
-    protected synchronized PulsarConsumerLRUCache<String, Producer<T>> getProducers() {
-       if (producers == null) {
-         producers = new PulsarConsumerLRUCache<String, Producer<T>>(20);
-       }
-       return producers;
+    protected synchronized PublisherPool getPublisherPool() {
+        return this.publisherPool;
     }
 
-    protected synchronized void setProducers(PulsarConsumerLRUCache<String, Producer<T>> producers) {
-       this.producers = producers;
+    protected synchronized void setPublisherPool(PublisherPool pool) {
+        this.publisherPool = pool;
     }
 
-    protected String getMessageKey(ProcessContext context, final FlowFile ff) {
-        String key = context.getProperty(MESSAGE_KEY).evaluateAttributeExpressions(ff).getValue();
+    protected byte[] getDemarcatorBytes(ProcessContext context, final FlowFile flowFile) {
+        return context.getProperty(MESSAGE_DEMARCATOR).isSet() ? context.getProperty(MESSAGE_DEMARCATOR)
+                .evaluateAttributeExpressions(flowFile).getValue().getBytes(StandardCharsets.UTF_8) : null;
+    }
+
+    protected String getMessageKey(ProcessContext context, final FlowFile flowFile) {
+        String key = context.getProperty(MESSAGE_KEY).evaluateAttributeExpressions(flowFile).getValue();
 
         if (!StringUtils.isBlank(key)) {
             return key;
@@ -379,29 +345,9 @@ public abstract class AbstractPulsarProducerProcessor<T> extends AbstractProcess
         return null;
     }
 
-    protected Map<String, String> getMappedMessageProperties(ProcessContext context, final FlowFile ff) {
+    protected Map<String, String> getMappedMessageProperties(ProcessContext context, final FlowFile flowFile) {
         String mappings = context.getProperty(MAPPED_MESSAGE_PROPERTIES).getValue();
-        return PropertyMappingUtils.getMappedValues(mappings, (a) -> ff.getAttribute(a));
-    }
-
-    protected MessageId send(Producer<T> producer, String key, Map<String, String> properties, T value) throws PulsarClientException {
-        TypedMessageBuilder<T> tmb = producer.newMessage().properties(properties).value(value);
-
-        if (key != null) {
-            tmb = tmb.key(key);
-        }
-
-        return tmb.send();
-    }
-
-    protected CompletableFuture<MessageId> sendAsync(Producer<T> producer, String key, Map<String, String> properties, T value) {
-        TypedMessageBuilder<T> tmb = producer.newMessage().properties(properties).value(value);
-
-        if (key != null) {
-            tmb = tmb.key(key);
-        }
-
-        return tmb.sendAsync();
+        return PropertyMappingUtils.getMappedValues(mappings, (a) -> flowFile.getAttribute(a));
     }
 
 }

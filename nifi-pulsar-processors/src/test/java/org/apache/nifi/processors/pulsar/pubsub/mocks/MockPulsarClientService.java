@@ -93,7 +93,8 @@ public class MockPulsarClientService<T> extends AbstractControllerService implem
         when(mockClient.newProducer()).thenReturn((ProducerBuilder<byte[]>) mockProducerBuilder);
         when(mockClient.newConsumer(Schema.AUTO_CONSUME())).thenReturn((ConsumerBuilder<GenericRecord>) mockConsumerBuilder);
         when(mockClient.newConsumer(any(Schema.class))).thenReturn((ConsumerBuilder<GenericRecord>) mockConsumerBuilder);
-        
+
+        when(mockProducerBuilder.loadConf(any(Map.class))).thenReturn(mockProducerBuilder);
         when(mockProducerBuilder.topic(anyString())).thenReturn(mockProducerBuilder);
         when(mockProducerBuilder.enableBatching(anyBoolean())).thenReturn(mockProducerBuilder);
         when(mockProducerBuilder.batchingMaxBytes(anyInt())).thenReturn(mockProducerBuilder);
