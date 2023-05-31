@@ -25,7 +25,7 @@
     
     <groupId>io.streamnative.connectors</groupId>
     <artifactId>nifi-pulsar-bundle</artifactId>
-    <version>1.15.3.1</version>
+    <version>1.15.3.2</version>
     <packaging>pom</packaging>
 
     <name>NiFi Pulsar Connectors :: NiFi Pulsar Bundle</name>
