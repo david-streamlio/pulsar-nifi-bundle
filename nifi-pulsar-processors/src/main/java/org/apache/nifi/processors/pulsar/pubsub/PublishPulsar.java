@@ -16,16 +16,10 @@
  */
 package org.apache.nifi.processors.pulsar.pubsub;
 
-import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Future;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.Map;
 
 import org.apache.commons.compress.utils.IOUtils;
 import org.apache.nifi.annotation.behavior.InputRequirement;
@@ -39,10 +33,8 @@ import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSession;
 import org.apache.nifi.processor.exception.ProcessException;
 import org.apache.nifi.processors.pulsar.AbstractPulsarProducerProcessor;
-import org.apache.nifi.stream.io.util.StreamDemarcator;
-import org.apache.pulsar.client.api.MessageId;
-import org.apache.pulsar.client.api.Producer;
-import org.apache.pulsar.client.api.PulsarClientException;
+import org.apache.nifi.processors.pulsar.utils.PublishPulsarUtils;
+import org.apache.nifi.processors.pulsar.utils.PublisherLease;
 
 @SeeAlso({ConsumePulsar.class, ConsumePulsarRecord.class, PublishPulsarRecord.class})
 @Tags({"Apache", "Pulsar", "Put", "Send", "Message", "PubSub"})
@@ -58,132 +50,42 @@ public class PublishPulsar extends AbstractPulsarProducerProcessor<byte[]> {
     @Override
     public void onTrigger(ProcessContext context, ProcessSession session) throws ProcessException {
 
-        final FlowFile flowFile = session.get();
-        if (flowFile == null) {
+        final List<FlowFile> flowFiles = PublishPulsarUtils.pollFlowFiles(session);
+
+        if (flowFiles.isEmpty()) {
             return;
         }
 
-        final String topic = context.getProperty(TOPIC).evaluateAttributeExpressions(flowFile).getValue();
-        final Producer<byte[]> producer = getProducer(context, topic);
+        final Iterator<FlowFile> itr = flowFiles.iterator();
 
-        /* If we are unable to create a producer, then we know we won't be able
-         * to send the message successfully, so go ahead and route to failure now.
-         */
-        if (producer == null) {
-            getLogger().error("Unable to publish to topic {}", new Object[] {topic});
-            session.transfer(flowFile, REL_FAILURE);
-            return;
-        }
+        while (itr.hasNext()) {
+            final FlowFile flowFile = itr.next();
+            final String topicName = context.getProperty(TOPIC).evaluateAttributeExpressions(flowFile).getValue();
+            final boolean asyncFlag = (context.getProperty(ASYNC_ENABLED).isSet() && context.getProperty(ASYNC_ENABLED).asBoolean());
 
-        final byte[] demarcatorBytes = context.getProperty(MESSAGE_DEMARCATOR).isSet() ? context.getProperty(MESSAGE_DEMARCATOR)
-                .evaluateAttributeExpressions(flowFile).getValue().getBytes(StandardCharsets.UTF_8) : null;
+            PublisherLease lease = getPublisherPool().obtainPublisher(topicName);
 
-        if (!context.getProperty(ASYNC_ENABLED).asBoolean()) {
-            try {
-                send(producer, context, session, flowFile, demarcatorBytes);
-            } catch (final PulsarClientException e) {
-                getLogger().error("Failed to connect to Pulsar Server due to {}", new Object[]{e});
+            if (lease == null) {
+                getLogger().error("Unable to publish to topic {}", new Object[] {topicName});
                 session.transfer(flowFile, REL_FAILURE);
-            }
-        } else {
-            byte[] messageContent;
-            InputStream in = session.read(flowFile);
-            try (final StreamDemarcator demarcator = new StreamDemarcator(in, demarcatorBytes, Integer.MAX_VALUE)) {
-                List<CompletableFuture<MessageId>> futureList = new ArrayList<>();
+            } else {
 
-                while ((messageContent = demarcator.nextToken()) != null) {
-                    futureList.add(sendAsync(producer,
+                InputStream in = session.read(flowFile);
+                try {
+
+                    lease.publish(flowFile, in,
                             getMessageKey(context, flowFile),
                             getMappedMessageProperties(context, flowFile),
-                            messageContent));
+                            getDemarcatorBytes(context, flowFile), asyncFlag);
 
-                    if (futureList.size() >= 100) {
-                        producer.flush();
-
-                        futureList.stream()
-                                // Call get() on each Future object to get the result
-                                .map(future -> {
-                                    try {
-                                        return future.get();
-                                    } catch (InterruptedException | ExecutionException e) {
-                                        throw new RuntimeException(e);
-                                    }
-                                });
-
-                        futureList.clear();
-                    }
-
+                    IOUtils.closeQuietly(in);
+                    session.transfer(flowFile, REL_SUCCESS);
+                } catch (Exception ex) {
+                    getLogger().error("Unable to process session due to ", ex);
+                    IOUtils.closeQuietly(in);
+                    session.transfer(flowFile, REL_FAILURE);
                 }
-
-                // Wait for futures to complete, flush all the producers in parallel etc.
-                // Block here until work queue is empty and all producers have been flushed.
-                if (!futureList.isEmpty()) {
-                    CompletableFuture<MessageId>[] futureArray = futureList.toArray(new CompletableFuture[0]);
-                    CompletableFuture<Void> allFutures = CompletableFuture.allOf(futureArray);
-                    producer.flush();
-                    allFutures.join(); // wait for all futures to complete
-                }
-                IOUtils.closeQuietly(in);
-                session.transfer(flowFile, REL_SUCCESS);
-            } catch (Throwable t) {
-                getLogger().error("Unable to process session due to ", t);
-                IOUtils.closeQuietly(in);
-                session.transfer(flowFile, REL_FAILURE);
             }
-
-        }
-    }
-
-    /**
-     * Sends the FlowFile content using the demarcator.
-     * 
-     * @param producer
-     * @param context - The current ProcessContext
-     * @param session - The current ProcessSession.
-     * @param flowFile
-     * @param demarcatorBytes - The value used to identify unique records in the list
-     * 
-     * @throws PulsarClientException
-     */
-    private void send(Producer<byte[]> producer, ProcessContext context, ProcessSession session, FlowFile flowFile, byte[] demarcatorBytes) throws PulsarClientException {
-        AtomicInteger successCounter = new AtomicInteger(0);
-        AtomicInteger failureCounter = new AtomicInteger(0);
-        byte[] messageContent;
-        String key = getMessageKey(context, flowFile);
-        Map<String, String> properties = getMappedMessageProperties(context, flowFile);
-
-        try (final InputStream in = session.read(flowFile); final StreamDemarcator demarcator = new StreamDemarcator(in, demarcatorBytes, Integer.MAX_VALUE)) {
-           while ((messageContent = demarcator.nextToken()) != null) {
-              if (send(producer, key, properties, messageContent) != null) {
-                 successCounter.incrementAndGet();
-              } else {
-                 failureCounter.incrementAndGet();
-                 break;  // Quit sending messages if we encounter a failure.
-              }
-            }
-        } catch (final IOException ioEx) {
-            getLogger().error("Unable to publish message to Pulsar broker " + getPulsarClientService().getPulsarBrokerRootURL(), ioEx);
-            session.transfer(flowFile, REL_FAILURE);
-            return;
-        }
-
-        /*
-         * Record the number of messages that were sent to Apache Pulsar.
-         */
-        if (successCounter.intValue() > 0) {
-            session.adjustCounter("Messages Sent", successCounter.get(), true);
-            session.getProvenanceReporter().send(flowFile, getPulsarClientService().getPulsarBrokerRootURL() + "/" + producer.getTopic(),
-                 "Sent " + successCounter.get() + " messages");
-        }
-
-        /* If we had any failures then route the entire FlowFile to Failure.
-         * The user will have to take care when re-trying this message to avoid
-         * sending duplicate messages.
-         */
-        if (failureCounter.intValue() == 0) {
-           session.transfer(flowFile, REL_SUCCESS);
-        } else {
-           session.transfer(flowFile, REL_FAILURE);
         }
     }
 }

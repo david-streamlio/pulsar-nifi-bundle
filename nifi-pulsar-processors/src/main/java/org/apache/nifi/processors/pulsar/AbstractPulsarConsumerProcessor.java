@@ -40,6 +40,7 @@ import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSession;
 import org.apache.nifi.processor.Relationship;
 import org.apache.nifi.processor.util.StandardValidators;
+import org.apache.nifi.processors.pulsar.utils.PropertyMappingUtils;
 import org.apache.nifi.pulsar.PulsarClientService;
 import org.apache.nifi.pulsar.cache.PulsarConsumerLRUCache;
 import org.apache.pulsar.client.api.Consumer;
@@ -547,7 +548,7 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
     protected Map<String, String> getMappedFlowFileAttributes(ProcessContext context, final Message<GenericRecord> msg) {
         String mappings = context.getProperty(MAPPED_FLOWFILE_ATTRIBUTES).getValue();
 
-        return PropertyMappingUtils.getMappedValues(mappings, 
+        return PropertyMappingUtils.getMappedValues(mappings,
         		(p) -> PULSAR_MESSAGE_KEY.equals(p) ? msg.getKey() : msg.getProperty(p));
     }
     

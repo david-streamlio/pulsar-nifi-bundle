@@ -21,7 +21,7 @@ import java.util.Map;
 
 import java.util.function.Function;
 
-import static org.apache.nifi.processors.pulsar.PropertyMappingUtils.getMappedValues;
+import static org.apache.nifi.processors.pulsar.utils.PropertyMappingUtils.getMappedValues;
 
 import org.junit.Before;
 import org.junit.Test;

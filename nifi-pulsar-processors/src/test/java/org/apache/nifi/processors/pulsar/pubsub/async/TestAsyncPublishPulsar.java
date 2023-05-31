@@ -99,7 +99,7 @@ public class TestAsyncPublishPulsar extends TestPublishPulsar {
         }
 
         runner.enqueue(sb.toString().getBytes("UTF-8"));
-        runner.run(10, true, true);
+        runner.run(1, true, true);
         runner.assertAllFlowFilesTransferred(PublishPulsar.REL_SUCCESS);
         verify(mockClientService.getMockTypedMessageBuilder(), times(count)).value(content.getBytes());
         verify(mockClientService.getMockTypedMessageBuilder(), times(count)).sendAsync();
