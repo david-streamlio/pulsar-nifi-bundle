@@ -25,6 +25,7 @@ import java.io.UnsupportedEncodingException;
 import java.util.List;
 
 import org.apache.nifi.processors.pulsar.AbstractPulsarProducerProcessor;
+import org.apache.nifi.processors.pulsar.pubsub.PublishPulsar;
 import org.apache.nifi.processors.pulsar.pubsub.PublishPulsarRecord;
 import org.apache.nifi.processors.pulsar.pubsub.TestPublishPulsarRecord;
 import org.apache.nifi.util.MockFlowFile;
@@ -141,9 +142,18 @@ public class TestSyncPublishPulsarRecord extends TestPublishPulsarRecord {
     }
 
     @Test
-    public void messageKeyTest() throws UnsupportedEncodingException, PulsarClientException {
-        super.doMessageKeyTest();
+    public void messageKeyFieldTest() throws UnsupportedEncodingException, PulsarClientException {
+        final String content = "Mary Jane, 32";
 
-        verify(mockClientService.getMockTypedMessageBuilder(), times(2)).send();
+        runner.setProperty(PublishPulsar.TOPIC, "my-topic");
+        runner.setProperty(PublishPulsar.ASYNC_ENABLED, Boolean.toString(true));
+        runner.setProperty(PublishPulsarRecord.MESSAGE_KEY_FIELD, "name");
+        runner.enqueue(content.getBytes("UTF-8"));
+
+        runner.run(1);
+        runner.assertAllFlowFilesTransferred(PublishPulsar.REL_SUCCESS);
+
+        // Verify that we sent the data to topic-b.
+        verify(mockClientService.getMockTypedMessageBuilder(), times(1)).key("Mary Jane");
     }
 }

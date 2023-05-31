@@ -112,24 +112,6 @@ public class TestConsumePulsar extends AbstractPulsarProcessorTest<byte[]> {
     }
 
     @Test
-    public void chunkedMessageConfigTest() {
-        when(mockMessage.getData()).thenReturn("Mocked Message".getBytes());
-        mockClientService.setMockMessage(mockMessage);
-
-        runner.setProperty(ConsumePulsar.TOPICS, "foo");
-        runner.setProperty(ConsumePulsar.SUBSCRIPTION_NAME, "bar");
-        runner.setProperty(ConsumePulsar.SUBSCRIPTION_TYPE, "Shared");
-        runner.setProperty(ConsumePulsar.AUTO_ACK_OLDEST_CHUNKED_ON_QUEUE_FULL, "true");
-        runner.setProperty(ConsumePulsar.EXPIRE_TIME_OF_INCOMPLETE_CHUNKED_MESSAGE, "2 m");
-        runner.setProperty(ConsumePulsar.MAX_PENDING_CHUNKED_MESSAGE, "20");
-        runner.run(1, true);
-
-        verify(mockClientService.getMockConsumerBuilder(), times(1)).autoAckOldestChunkedMessageOnQueueFull(true);
-        verify(mockClientService.getMockConsumerBuilder(), times(1)).expireTimeOfIncompleteChunkedMessage(120, TimeUnit.SECONDS);
-        verify(mockClientService.getMockConsumerBuilder(), times(1)).maxPendingChunkedMessage(20);
-    }
-
-    @Test
     public void autoUpdatePartitionConfigTest() {
         when(mockMessage.getData()).thenReturn("Mocked Message".getBytes());
         mockClientService.setMockMessage(mockMessage);

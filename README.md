@@ -19,10 +19,12 @@ the Docker image.
 
 A Dockerfile has been included in the project that can be used to test the Processor locally, and can be started with the following command:
 
-`docker run --name nifi -d -p 8443:8443 
+```
+docker run --name nifi -d -p 8443:8443 
 -e SINGLE_USER_CREDENTIALS_USERNAME=admin 
 -e SINGLE_USER_CREDENTIALS_PASSWORD=ctsBtRBKHRAx69EqUghvvgEvjnaLjFEB 
-streamnative/nifi`
+streamnative/nifi
+```
 
 See the [documentation](https://hub.docker.com/r/apache/nifi) on the base image for more configuration options
 
@@ -32,11 +34,15 @@ Visit https://localhost:8443/nifi/login and enter the username and password you 
 
 The JVM Debugger can be enabled by setting the environment variable NIFI_JVM_DEBUGGER to any value when running the docker image, e.g.
 
-`docker run --name nifi \
+```
+docker run -d --name nifi \
+-v /Users/david/Downloads/nifi-test/:/nifi-test
 -p 8443:8443 -p 8000:8000 \
--d \
 -e NIFI_JVM_DEBUGGER=true
-streamnative/nifi`
+-e SINGLE_USER_CREDENTIALS_USERNAME=admin
+-e SINGLE_USER_CREDENTIALS_PASSWORD=ctsBtRBKHRAx69EqUghvvgEvjnaLjFEB
+streamnative/nifi
+```
 
 ## References
 https://stackoverflow.com/questions/55811413/is-it-possible-to-debug-apache-nifi-custom-processor

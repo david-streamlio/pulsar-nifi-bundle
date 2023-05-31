@@ -16,22 +16,13 @@
  */
 package org.apache.nifi.processors.pulsar;
 
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.BlockingQueue;
+import java.nio.charset.StandardCharsets;
+import java.util.*;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 
-import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.nifi.annotation.lifecycle.OnScheduled;
-import org.apache.nifi.annotation.lifecycle.OnStopped;
 import org.apache.nifi.annotation.lifecycle.OnUnscheduled;
 import org.apache.nifi.components.AllowableValue;
 import org.apache.nifi.components.PropertyDescriptor;
@@ -40,6 +31,8 @@ import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.processor.*;
 import org.apache.nifi.processor.util.StandardValidators;
+import org.apache.nifi.processors.pulsar.utils.PropertyMappingUtils;
+import org.apache.nifi.processors.pulsar.utils.PublisherPool;
 import org.apache.nifi.pulsar.PulsarClientService;
 import org.apache.nifi.pulsar.cache.PulsarConsumerLRUCache;
 import org.apache.pulsar.client.api.CompressionType;
@@ -102,16 +95,6 @@ public abstract class AbstractPulsarProducerProcessor<T> extends AbstractProcess
             .required(true)
             .allowableValues("true", "false")
             .defaultValue("false")
-            .build();
-
-    public static final PropertyDescriptor MAX_ASYNC_REQUESTS = new PropertyDescriptor.Builder()
-            .name("MAX_ASYNC_REQUESTS")
-            .displayName("Maximum Async Requests")
-            .description("The maximum number of outstanding asynchronous publish requests for this processor. "
-                    + "Each asynchronous call requires memory, so avoid setting this value to high.")
-            .required(false)
-            .addValidator(StandardValidators.POSITIVE_INTEGER_VALIDATOR)
-            .defaultValue("2")
             .build();
 
     public static final PropertyDescriptor AUTO_UPDATE_PARTITIONS = new PropertyDescriptor.Builder()
@@ -203,28 +186,6 @@ public abstract class AbstractPulsarProducerProcessor<T> extends AbstractProcess
             .defaultValue(COMPRESSION_TYPE_NONE.getValue())
             .build();
 
-    public static final PropertyDescriptor CHUNKING_ENABLED = new PropertyDescriptor.Builder()
-            .name("ENABLE_CHUNKING")
-            .displayName("Enable chunking")
-            .description("If message size is higher than allowed max publish-payload size by broker " +
-                    "then enableChunking helps producer to split message into multiple chunks and " +
-                    "publish them to broker separately and in order.")
-            .required(false)
-            .allowableValues("true", "false")
-            .defaultValue("false")
-            .build();
-
-    public static final PropertyDescriptor CHUNK_MAX_MESSAGE_SIZE = new PropertyDescriptor.Builder()
-            .name("CHUNK_MAX_MESSAGE_SIZE")
-            .displayName("Chunk Max Message Size")
-            .description("Set the maximum size of message chunks (in bytes) permitted when message " +
-                    "chunking is enabled. default: 500 MB.")
-            .required(false)
-            .addValidator(StandardValidators.DATA_SIZE_VALIDATOR)
-            .defaultValue("100 MB")
-            .expressionLanguageSupported(ExpressionLanguageScope.VARIABLE_REGISTRY)
-            .build();
-
     public static final PropertyDescriptor MESSAGE_DEMARCATOR = new PropertyDescriptor.Builder()
             .name("MESSAGE_DEMARCATOR")
             .displayName("Message Demarcator")
@@ -270,7 +231,8 @@ public abstract class AbstractPulsarProducerProcessor<T> extends AbstractProcess
     public static final PropertyDescriptor MESSAGE_KEY = new PropertyDescriptor.Builder()
             .name("MESSAGE_KEY")
             .displayName("Message Key")
-            .description("The key of the outgoing message.")
+            .description("he Key to use for the Message."
+                    + "If not specified, the flow file attribute 'msg.key' is used as the message key, if it is present.")
             .required(false)
             .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
             .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
@@ -280,12 +242,30 @@ public abstract class AbstractPulsarProducerProcessor<T> extends AbstractProcess
     protected static final Set<Relationship> RELATIONSHIPS;
 
     static {
-        PROPERTIES = List.of(PULSAR_CLIENT_SERVICE, TOPIC, ASYNC_ENABLED, MAX_ASYNC_REQUESTS, AUTO_UPDATE_PARTITIONS,
-                AUTO_UPDATE_PARTITION_INTERVAL, BATCHING_ENABLED, BATCHING_MAX_BYTES, BATCHING_MAX_MESSAGES, BATCH_INTERVAL,
-                BLOCK_IF_QUEUE_FULL, COMPRESSION_TYPE, CHUNKING_ENABLED, CHUNK_MAX_MESSAGE_SIZE, MESSAGE_ROUTING_MODE,
-                MESSAGE_DEMARCATOR, PENDING_MAX_MESSAGES, MAPPED_MESSAGE_PROPERTIES, MESSAGE_KEY);
+        List<PropertyDescriptor> descriptorList = new ArrayList<>();
+        descriptorList.add(PULSAR_CLIENT_SERVICE);
+        descriptorList.add(TOPIC);
+        descriptorList.add(ASYNC_ENABLED);
+        descriptorList.add(AUTO_UPDATE_PARTITIONS);
+        descriptorList.add(AUTO_UPDATE_PARTITION_INTERVAL);
+        descriptorList.add(BATCHING_ENABLED);
+        descriptorList.add(BATCHING_MAX_BYTES);
+        descriptorList.add(BATCHING_MAX_MESSAGES);
+        descriptorList.add(BATCH_INTERVAL);
+        descriptorList.add(BLOCK_IF_QUEUE_FULL);
+        descriptorList.add(COMPRESSION_TYPE);
+        descriptorList.add(MESSAGE_ROUTING_MODE);
+        descriptorList.add(MESSAGE_DEMARCATOR);
+        descriptorList.add(PENDING_MAX_MESSAGES);
+        descriptorList.add(MAPPED_MESSAGE_PROPERTIES);
+        descriptorList.add(MESSAGE_KEY);
 
-        RELATIONSHIPS = Set.of(REL_SUCCESS, REL_FAILURE);
+        PROPERTIES = Collections.unmodifiableList(descriptorList);
+
+        Set<Relationship> relationshipSet = new HashSet<>();
+        relationshipSet.add(REL_SUCCESS);
+        relationshipSet.add(REL_FAILURE);
+        RELATIONSHIPS = Collections.unmodifiableSet(relationshipSet);
     }
 
     @Override
@@ -299,186 +279,39 @@ public abstract class AbstractPulsarProducerProcessor<T> extends AbstractProcess
     }
 
     private PulsarClientService pulsarClientService;
-    private PulsarConsumerLRUCache<String, Producer<T>> producers;
-    private ExecutorService publisherPool;
 
-    // Used to sync between onTrigger method and shutdown code block.
-    protected AtomicBoolean canPublish = new AtomicBoolean(true);
-
-    // Used to track whether we are reporting errors back to the user or not.
-    protected AtomicBoolean trackFailures = new AtomicBoolean();
-
-    protected BlockingQueue<MessageTuple<T>> workQueue;
-    protected BlockingQueue<MessageTuple<T>> failureQueue;
-    protected List<AsyncPublisher> asyncPublishers;
+    private PublisherPool publisherPool;
 
     @OnScheduled
     public void init(ProcessContext context) {
-        int maxRequests = context.getProperty(MAX_ASYNC_REQUESTS).asInteger();
         setPulsarClientService(context.getProperty(PULSAR_CLIENT_SERVICE).asControllerService(PulsarClientService.class));
-
-        if (context.getProperty(ASYNC_ENABLED).isSet() && context.getProperty(ASYNC_ENABLED).asBoolean()) {
-            setPublisherPool(Executors.newFixedThreadPool(maxRequests));
-            setAsyncPublishers(new LinkedList<AsyncPublisher>());
-            // Limit the depth of the work queue to 500 per worker, to prevent long shutdown times.
-            workQueue = new LinkedBlockingQueue<>(500 * maxRequests);
-
-            if (context.hasConnection(REL_FAILURE)) {
-                failureQueue = new LinkedBlockingQueue<>();
-                trackFailures.set(true);
-            } else {
-                trackFailures.set(false);
-            }
-
-            for (int idx = 0; idx < maxRequests; idx++) {
-                AsyncPublisher worker = new AsyncPublisher();
-                getAsyncPublishers().add(worker);
-                getPublisherPool().submit(worker);
-            }
-            canPublish.set(true);
-        }
+        setPublisherPool(createPublisherPool(context));
     }
 
-    @OnUnscheduled
-    public void shutDown(final ProcessContext context) {
-        /*
-         * If we are running in asynchronous mode, then we need to stop all the producer threads that
-         * are running in the PublisherPool. After, we have stopped them, we need to wait a bit
-         * to ensure that all the messages are properly acked, in order to prevent re-processing the
-         * same messages in the event of a shutdown and restart of the processor since the un-acked
-         * messages would be replayed on startup.
-         */
-       if (context.getProperty(ASYNC_ENABLED).isSet() && context.getProperty(ASYNC_ENABLED).asBoolean()) {
-           try {
-              // Stop accepting incoming work
-              canPublish.set(false);
-
-              // Halt the background worker threads, allowing them to empty the workQueue
-              getAsyncPublishers().forEach(AsyncPublisher::halt);
-
-              // Flush all the pending messages in the producers
-              getProducers().values().forEach(producer -> {
-                   try {
-                     producer.flush();
-                   } catch (PulsarClientException e) {
-                      getLogger().error("Unable to flush messages to Pulsar", e);
-                   }
-              });
-
-              // Shutdown the thread pool
-              getPublisherPool().shutdown();
-
-              boolean shutdown = false;
-              
-              do {
-                  shutdown = getPublisherPool().awaitTermination(1, TimeUnit.SECONDS);
-              } while (!shutdown);
-
-           } catch (InterruptedException e) {
-              getLogger().error("Unable to stop all the Pulsar Producers", e);
-           }
-       }
+    protected PublisherPool createPublisherPool(final ProcessContext context) {
+        return new PublisherPool(getLogger(), getPulsarProducerConfiguration(context), this.getPulsarClientService().getPulsarClient());
     }
 
-    @OnStopped
-    public void cleanUp(final ProcessContext context) {
-        if (context.getProperty(ASYNC_ENABLED).isSet() && context.getProperty(ASYNC_ENABLED).asBoolean()) {
-            if (canPublish.get()) {
-               shutDown(context);
-            }
-            workQueue.clear();
-            getProducers().clear();
-            getAsyncPublishers().clear();
-        }
-    }
+    protected Map<String, Object> getPulsarProducerConfiguration(ProcessContext ctx) {
+        Map<String, Object> config = new HashMap<>();
 
-    /**
-     * If the processor is configured to run in asynchronous mode, then we need to periodically
-     * check the failureList and route those records to the FAILURE relationship, so that the end
-     * user is aware of the failures and can handle them as they see fit.
-     * 
-     * @param session - The current processor session
-     */
-    protected void handleFailures(ProcessSession session) {
+        config.put("autoUpdatePartitions", ctx.getProperty(AUTO_UPDATE_PARTITIONS).asBoolean());
+        config.put("autoUpdatePartitionsInterval", ctx.getProperty(AUTO_UPDATE_PARTITION_INTERVAL)
+                .asTimePeriod(TimeUnit.SECONDS).intValue());
+        config.put("blockIfQueueFull", ctx.getProperty(BLOCK_IF_QUEUE_FULL).asBoolean());
+        config.put("compressionType", CompressionType.valueOf(ctx.getProperty(COMPRESSION_TYPE).getValue()));
 
-        if (!trackFailures.get() || CollectionUtils.isEmpty(failureQueue)) {
-           return;
+        if (ctx.getProperty(BATCHING_ENABLED).asBoolean()) {
+            config.put("enableBatching", Boolean.TRUE);
+            config.put("batchingMaxBytes", ctx.getProperty(BATCHING_MAX_BYTES).asDataSize(DataUnit.B).intValue());
+            config.put("batchingMaxMessages", ctx.getProperty(BATCHING_MAX_MESSAGES).evaluateAttributeExpressions().asInteger());
+            config.put("batchingMaxPublishDelay", ctx.getProperty(BATCH_INTERVAL).evaluateAttributeExpressions()
+                    .asTimePeriod(TimeUnit.MILLISECONDS).intValue());
+        } else {
+            config.put("enableBatching", Boolean.FALSE);
         }
 
-        MessageTuple<T> failure = failureQueue.poll();
-
-        while (failure != null) {
-            FlowFile flowFile = session.create();
-            final byte[] value = (byte[]) failure.getContent();
-            flowFile = session.write(flowFile, out -> {
-                 out.write(value);
-            });
-            session.putAttribute(flowFile, TOPIC_NAME, failure.getTopic());
-            session.transfer(flowFile, REL_FAILURE);
-            failure = failureQueue.poll();
-        }
-    }
-
-    private synchronized List<AbstractPulsarProducerProcessor<T>.AsyncPublisher> getAsyncPublishers() {
-        return asyncPublishers;
-    }
-
-    private synchronized void setAsyncPublishers(List<AbstractPulsarProducerProcessor<T>.AsyncPublisher> list) {
-       asyncPublishers = list;
-    }
-
-    protected synchronized Producer<T> getProducer(ProcessContext context, String topic) {
-
-        /* Avoid creating producers for non-existent topics */
-        if (StringUtils.isBlank(topic)) {
-           return null;
-        }
-
-        Producer<T> producer = getProducers().get(topic);
-
-        try {
-            if (producer != null && producer.isConnected()) {
-              return producer;
-            }
-
-            producer = getBuilder(context, topic).create();
-
-            if (producer != null && producer.isConnected()) {
-              getProducers().put(topic, producer);
-            }
-        } catch (PulsarClientException e) {
-            getLogger().error("Unable to create Pulsar Producer ", e);
-            producer = null;
-        }
-        return (producer != null && producer.isConnected()) ? producer : null;
-    }
-
-    private synchronized ProducerBuilder<T> getBuilder(ProcessContext context, String topic) {
-        ProducerBuilder<T> builder = (ProducerBuilder<T>) getPulsarClientService().getPulsarClient()
-                .newProducer().topic(topic)
-                .enableBatching(context.getProperty(BATCHING_ENABLED).asBoolean())
-                .enableChunking(context.getProperty(CHUNKING_ENABLED).asBoolean());
-
-        if (context.getProperty(BATCHING_ENABLED).asBoolean()) {
-            builder = builder
-                    .batchingMaxBytes(context.getProperty(BATCHING_MAX_BYTES).asDataSize(DataUnit.B).intValue())
-                    .batchingMaxMessages(context.getProperty(BATCHING_MAX_MESSAGES).evaluateAttributeExpressions().asInteger())
-                    .batchingMaxPublishDelay(context.getProperty(BATCH_INTERVAL).evaluateAttributeExpressions().asTimePeriod(TimeUnit.MILLISECONDS).intValue(),
-                            TimeUnit.MILLISECONDS);
-        } else if (context.getProperty(CHUNKING_ENABLED).asBoolean()) {
-            builder = builder
-                    .chunkMaxMessageSize(context.getProperty(CHUNK_MAX_MESSAGE_SIZE)
-                            .evaluateAttributeExpressions().asDataSize(DataUnit.B).intValue());
-        }
-
-        return builder
-                .autoUpdatePartitions(context.getProperty(AUTO_UPDATE_PARTITIONS).asBoolean())
-                .autoUpdatePartitionsInterval(context.getProperty(AUTO_UPDATE_PARTITION_INTERVAL)
-                        .asTimePeriod(TimeUnit.SECONDS).intValue(), TimeUnit.SECONDS)
-                .blockIfQueueFull(context.getProperty(BLOCK_IF_QUEUE_FULL).asBoolean())
-                .compressionType(CompressionType.valueOf(context.getProperty(COMPRESSION_TYPE).getValue()))
-                .maxPendingMessages(context.getProperty(PENDING_MAX_MESSAGES).evaluateAttributeExpressions().asInteger())
-                .messageRoutingMode(MessageRoutingMode.valueOf(context.getProperty(MESSAGE_ROUTING_MODE).getValue()));
+        return config;
     }
 
     protected synchronized PulsarClientService getPulsarClientService() {
@@ -489,27 +322,21 @@ public abstract class AbstractPulsarProducerProcessor<T> extends AbstractProcess
        this.pulsarClientService = pulsarClientService;
     }
 
-    protected synchronized PulsarConsumerLRUCache<String, Producer<T>> getProducers() {
-       if (producers == null) {
-         producers = new PulsarConsumerLRUCache<String, Producer<T>>(20);
-       }
-       return producers;
+    protected synchronized PublisherPool getPublisherPool() {
+        return this.publisherPool;
     }
 
-    protected synchronized void setProducers(PulsarConsumerLRUCache<String, Producer<T>> producers) {
-       this.producers = producers;
+    protected synchronized void setPublisherPool(PublisherPool pool) {
+        this.publisherPool = pool;
     }
 
-    protected synchronized ExecutorService getPublisherPool() {
-       return publisherPool;
+    protected byte[] getDemarcatorBytes(ProcessContext context, final FlowFile flowFile) {
+        return context.getProperty(MESSAGE_DEMARCATOR).isSet() ? context.getProperty(MESSAGE_DEMARCATOR)
+                .evaluateAttributeExpressions(flowFile).getValue().getBytes(StandardCharsets.UTF_8) : null;
     }
 
-    protected synchronized void setPublisherPool(ExecutorService publisherPool) {
-       this.publisherPool = publisherPool;
-    }
-
-    protected String getMessageKey(ProcessContext context, final FlowFile ff) {
-        String key = context.getProperty(MESSAGE_KEY).evaluateAttributeExpressions(ff).getValue();
+    protected String getMessageKey(ProcessContext context, final FlowFile flowFile) {
+        String key = context.getProperty(MESSAGE_KEY).evaluateAttributeExpressions(flowFile).getValue();
 
         if (!StringUtils.isBlank(key)) {
             return key;
@@ -518,82 +345,9 @@ public abstract class AbstractPulsarProducerProcessor<T> extends AbstractProcess
         return null;
     }
 
-    protected Map<String, String> getMappedMessageProperties(ProcessContext context, final FlowFile ff) {
+    protected Map<String, String> getMappedMessageProperties(ProcessContext context, final FlowFile flowFile) {
         String mappings = context.getProperty(MAPPED_MESSAGE_PROPERTIES).getValue();
-
-        return PropertyMappingUtils.getMappedValues(mappings, (a) -> ff.getAttribute(a));
+        return PropertyMappingUtils.getMappedValues(mappings, (a) -> flowFile.getAttribute(a));
     }
 
-    protected MessageId send(Producer<T> producer, String key, Map<String, String> properties, T value) throws PulsarClientException {
-        TypedMessageBuilder<T> tmb = producer.newMessage().properties(properties).value(value);
-
-        if (key != null) {
-            tmb = tmb.key(key);
-        }
-
-        return tmb.send();
-    }
-
-    private final class AsyncPublisher implements Runnable {
-        private boolean keepRunning = true;
-
-        public void halt() {
-           keepRunning = false;
-
-           // Finish up
-           do {
-               process();
-           } while (!workQueue.isEmpty());
-        }
-
-        @Override
-        public void run() {
-            while (keepRunning) {
-               process();
-            }
-        }
-
-        private CompletableFuture<MessageId> sendAsync(Producer<T> producer, String key, Map<String, String> properties, T value) {
-            TypedMessageBuilder<T> tmb = producer.newMessage().properties(properties).value(value);
-
-            if (key != null) {
-                tmb = tmb.key(key);
-            }
-
-            return tmb.sendAsync();
-        }
-
-        private void process() {
-            try {
-                MessageTuple<T> item = workQueue.poll(50, TimeUnit.MILLISECONDS);
-
-                if (item == null) {
-                    return;
-                }
-
-                Producer<T> producer = getProducers().get(item.getTopic());
-
-                if (!trackFailures.get()) {
-                    // We don't care about failures, so just fire & forget
-                    sendAsync(producer, item.getKey(), item.getProperties(), item.getContent());
-                } else if (producer == null || !producer.isConnected()) {
-                    // We cannot get a valid producer, so add the item to the failure queue
-                    failureQueue.put(item);
-                } else {
-                    try {
-                        // Send the item asynchronously and confirm we get a messageId back from Pulsar.
-                        if (sendAsync(producer, item.getKey(), item.getProperties(), item.getContent()).join() == null) {
-                            // No messageId indicates failure
-                            failureQueue.put(item);
-                        }
-                    } catch (final Throwable t) {
-                        // Any exception during sendAsync() call indicates failure
-                        failureQueue.put(item);
-                    }
-                }
-            } catch (InterruptedException e) {
-                // Ignore these
-            }
-        }
-    }
 }
