@@ -19,7 +19,7 @@
     <parent>
         <groupId>io.streamnative.connectors</groupId>
         <artifactId>nifi-pulsar-bundle</artifactId>
-        <version>1.15.3.2</version>
+        <version>1.19.1</version>
     </parent>
 
    <artifactId>docker-image</artifactId>
@@ -31,7 +31,7 @@
             <plugin>
                 <groupId>io.fabric8</groupId>
                 <artifactId>docker-maven-plugin</artifactId>
-                <version>0.40.2</version>
+                <version>0.43.0</version>
                 <configuration>
                     <images>
                         <image>
@@ -40,7 +40,7 @@
                                 <dockerFileDir>nifi</dockerFileDir>
                                 <assembly>
                                     <targetDir>/connectors</targetDir>
-            doc                        <mode>dir</mode>
+                                    <mode>dir</mode>
                                     <descriptor>nifi/assembly.xml</descriptor>
                                 </assembly>
                             </build>
