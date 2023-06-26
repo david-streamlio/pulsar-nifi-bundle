@@ -20,12 +20,12 @@
     <parent>
       <groupId>org.apache.nifi</groupId>
       <artifactId>nifi-nar-bundles</artifactId>
-      <version>1.15.3</version>
+      <version>1.19.1</version>
     </parent>
     
     <groupId>io.streamnative.connectors</groupId>
     <artifactId>nifi-pulsar-bundle</artifactId>
-    <version>1.15.3.2</version>
+    <version>1.19.1</version>
     <packaging>pom</packaging>
 
     <name>NiFi Pulsar Connectors :: NiFi Pulsar Bundle</name>
@@ -97,9 +97,9 @@
         <jackson-core.version>2.13.4</jackson-core.version>
         <junit.version>4.13.2</junit.version>
         <mockito-core.version>3.12.4</mockito-core.version>
-        <nifi.version>1.15.3</nifi.version>
+        <nifi.version>1.19.1</nifi.version>
         <protobuf3.version>3.20.1</protobuf3.version>
-        <pulsar.version>2.9.3</pulsar.version>
+        <pulsar.version>2.10.3</pulsar.version>
         <slf4j-simple.version>2.0.6</slf4j-simple.version>
         <java.version>1.8</java.version>
 
