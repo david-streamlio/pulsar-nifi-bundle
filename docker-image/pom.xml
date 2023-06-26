@@ -22,25 +22,34 @@
         <version>1.15.3.2</version>
     </parent>
 
-   <artifactId>docker-image</artifactId>
-   <packaging>pom</packaging>
-   <name>NiFi Pulsar Connectors :: Docker Image</name>
+    <artifactId>docker-image</artifactId>
+    <packaging>pom</packaging>
+    <name>NiFi Pulsar Connectors :: Docker Image</name>
+
+    <properties>
+        <docker.platforms>linux/arm64</docker.platforms>
+    </properties>
 
     <build>
         <plugins>
             <plugin>
                 <groupId>io.fabric8</groupId>
                 <artifactId>docker-maven-plugin</artifactId>
-                <version>0.40.2</version>
+                <version>0.43.0</version>
                 <configuration>
                     <images>
                         <image>
                             <name>streamnative/nifi</name>
                             <build>
+                                <buildx>
+                                    <platforms>
+                                        <platform>${docker.platforms}</platform>
+                                    </platforms>
+                                </buildx>
                                 <dockerFileDir>nifi</dockerFileDir>
                                 <assembly>
                                     <targetDir>/connectors</targetDir>
-            doc                        <mode>dir</mode>
+                                    <mode>dir</mode>
                                     <descriptor>nifi/assembly.xml</descriptor>
                                 </assembly>
                             </build>
