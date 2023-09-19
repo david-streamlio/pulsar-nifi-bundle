@@ -19,6 +19,7 @@ package org.apache.nifi.processors.pulsar.pubsub;
 import java.util.*;
 
 import org.apache.nifi.annotation.behavior.InputRequirement;
+import org.apache.nifi.annotation.behavior.SupportsBatching;
 import org.apache.nifi.annotation.behavior.TriggerWhenEmpty;
 import org.apache.nifi.annotation.behavior.WritesAttribute;
 import org.apache.nifi.annotation.documentation.CapabilityDescription;
@@ -52,6 +53,7 @@ import static org.apache.nifi.expression.ExpressionLanguageScope.FLOWFILE_ATTRIB
         + "FlowFiles that are routed to success.")
 @SeeAlso({PublishPulsar.class, ConsumePulsar.class, ConsumePulsarRecord.class})
 @TriggerWhenEmpty
+@SupportsBatching
 public class PublishPulsarRecord extends AbstractPulsarProducerProcessor<byte[]> {
 
     public static final PropertyDescriptor RECORD_READER = new PropertyDescriptor.Builder()
@@ -101,6 +103,9 @@ public class PublishPulsarRecord extends AbstractPulsarProducerProcessor<byte[]>
         final List<FlowFile> flowFiles = PublishPulsarUtils.pollFlowFiles(session);
 
         if (flowFiles.isEmpty()) {
+            // Because we TriggerWhenEmpty, the framework can give us many more threads that we actually need,
+            // so yield when there is no work to do.
+            context.yield();
             return;
         }
 
