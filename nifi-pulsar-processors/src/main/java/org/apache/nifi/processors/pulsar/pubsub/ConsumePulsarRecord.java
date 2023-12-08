@@ -66,6 +66,7 @@ import org.apache.nifi.serialization.record.RecordSchema;
 import org.apache.pulsar.client.api.Consumer;
 import org.apache.pulsar.client.api.Message;
 import org.apache.pulsar.client.api.PulsarClientException;
+import org.apache.pulsar.client.api.Schema;
 import org.apache.pulsar.client.api.schema.GenericRecord;
 
 @CapabilityDescription("Consumes messages from Apache Pulsar. "
@@ -277,6 +278,10 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
                if (lastMessage == null) {
                    flowFile = session.create();
                    flowFile = session.putAllAttributes(flowFile, currentAttributes);
+                   if (msg.getReaderSchema().isPresent()) {
+                       String msgSchema = new String(msg.getReaderSchema().get().getSchemaInfo().getSchema());
+                       flowFile = session.putAttribute(flowFile, "avro.schema", msgSchema);
+                   }
                    schema = getSchema(flowFile, readerFactory, data);
                    rawOut = session.write(flowFile);
                    writer = getRecordWriter(writerFactory, schema, rawOut, flowFile);
@@ -305,6 +310,7 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
                
                final InputStream in = new ByteArrayInputStream(data);
                try {
+
                    RecordReader r = readerFactory.createRecordReader(flowFile, in, getLogger());
                    for (Record record = r.nextRecord(); record != null; record = r.nextRecord()) {
                        writer.write(record);
