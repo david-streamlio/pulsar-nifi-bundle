@@ -21,14 +21,7 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashSet;
-import java.util.Iterator;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
@@ -55,14 +48,10 @@ import org.apache.nifi.processor.exception.ProcessException;
 import org.apache.nifi.processor.util.StandardValidators;
 import org.apache.nifi.processors.pulsar.AbstractPulsarConsumerProcessor;
 import org.apache.nifi.schema.access.SchemaNotFoundException;
-import org.apache.nifi.serialization.MalformedRecordException;
-import org.apache.nifi.serialization.RecordReader;
-import org.apache.nifi.serialization.RecordReaderFactory;
-import org.apache.nifi.serialization.RecordSetWriter;
-import org.apache.nifi.serialization.RecordSetWriterFactory;
-import org.apache.nifi.serialization.WriteResult;
+import org.apache.nifi.serialization.*;
 import org.apache.nifi.serialization.record.Record;
 import org.apache.nifi.serialization.record.RecordSchema;
+import org.apache.nifi.serialization.record.SchemaIdentifier;
 import org.apache.pulsar.client.api.Consumer;
 import org.apache.pulsar.client.api.Message;
 import org.apache.pulsar.client.api.PulsarClientException;
@@ -227,6 +216,8 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
           return;
        }
 
+       messages.sort(Comparator.comparing(Message::getTopicName));
+
        final BlockingQueue<Message<GenericRecord>> parseFailures = 
     	  new LinkedBlockingQueue<Message<GenericRecord>>();
        
@@ -245,7 +236,9 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
        try {
            for (Message<GenericRecord> msg : messages) {
                currentAttributes = getMappedFlowFileAttributes(context, msg);
-               
+               // Introduce an attribute to distinguish between current and previously captured attributes,
+               // particularly when the message originates from a different topic.
+               currentAttributes.put("topicName", msg.getTopicName());
                // if the current message's mapped attribute values differ from the previous set's,
                // write out the active record set and clear various references so that we'll start a new one
                if (lastAttributes != null && !lastAttributes.equals(currentAttributes)) {
@@ -281,8 +274,14 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
                    if (msg.getReaderSchema().isPresent()) {
                        String msgSchema = new String(msg.getReaderSchema().get().getSchemaInfo().getSchema());
                        flowFile = session.putAttribute(flowFile, "avro.schema", msgSchema);
+                       schema = new SimpleRecordSchema(
+                               new String(msg.getReaderSchema().get().getSchemaInfo().getSchema()),
+                               "avro",
+                               SchemaIdentifier.EMPTY
+                       );
+                   }else {
+                       schema = getSchema(flowFile, readerFactory, data);
                    }
-                   schema = getSchema(flowFile, readerFactory, data);
                    rawOut = session.write(flowFile);
                    writer = getRecordWriter(writerFactory, schema, rawOut, flowFile);
 
