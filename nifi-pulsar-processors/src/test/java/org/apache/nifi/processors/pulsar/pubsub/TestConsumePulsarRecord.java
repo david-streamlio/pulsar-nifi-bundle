@@ -115,7 +115,9 @@ public class TestConsumePulsarRecord extends AbstractPulsarProcessorTest<byte[]>
     	}
     	
     	when(mockMessage.getData()).thenReturn(msg.getBytes());
-    	mockClientService.setMockMessage(mockMessage);
+        when(mockMessage.getTopicName()).thenReturn("foo");
+
+        mockClientService.setMockMessage(mockMessage);
     	
     	runner.run();
     	runner.assertAllFlowFilesTransferred(ConsumePulsarRecord.REL_PARSE_FAILURE);
@@ -144,6 +146,7 @@ public class TestConsumePulsarRecord extends AbstractPulsarProcessorTest<byte[]>
     
     protected List<MockFlowFile> sendMessages(String msg, String topic, String sub, boolean async, int iterations, int batchSize, String subType) throws PulsarClientException {
         when(mockMessage.getData()).thenReturn(msg.getBytes());
+        when(mockMessage.getTopicName()).thenReturn(topic);
         mockClientService.setMockMessage(mockMessage);
 
         runner.setProperty(ConsumePulsarRecord.ASYNC_ENABLED, Boolean.toString(async));
@@ -201,6 +204,8 @@ public class TestConsumePulsarRecord extends AbstractPulsarProcessorTest<byte[]>
           .thenReturn(null)
           .thenReturn(null)
           .thenReturn("K");
+
+        when(mockMessage.getTopicName()).thenReturn("foo");
         
         mockClientService.setMockMessage(mockMessage);
 

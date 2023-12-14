@@ -23,6 +23,7 @@ import java.util.List;
 
 import org.apache.commons.compress.utils.IOUtils;
 import org.apache.nifi.annotation.behavior.InputRequirement;
+import org.apache.nifi.annotation.behavior.SupportsBatching;
 import org.apache.nifi.annotation.behavior.TriggerWhenEmpty;
 import org.apache.nifi.annotation.behavior.WritesAttribute;
 import org.apache.nifi.annotation.documentation.CapabilityDescription;
@@ -45,6 +46,7 @@ import org.apache.nifi.processors.pulsar.utils.PublisherLease;
 @WritesAttribute(attribute = "msg.count", description = "The number of messages that were sent to Pulsar for this FlowFile. This attribute is added only to "
         + "This attribute is added only to FlowFiles that are routed to success.")
 @TriggerWhenEmpty
+@SupportsBatching
 public class PublishPulsar extends AbstractPulsarProducerProcessor<byte[]> {
 
     @Override
@@ -53,6 +55,9 @@ public class PublishPulsar extends AbstractPulsarProducerProcessor<byte[]> {
         final List<FlowFile> flowFiles = PublishPulsarUtils.pollFlowFiles(session);
 
         if (flowFiles.isEmpty()) {
+            // Because we TriggerWhenEmpty, the framework can give us many more threads that we actually need,
+            // so yield when there is no work to do.
+            context.yield();
             return;
         }
 
