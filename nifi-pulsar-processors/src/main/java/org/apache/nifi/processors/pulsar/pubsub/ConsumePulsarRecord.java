@@ -43,6 +43,7 @@ import org.apache.pulsar.client.api.Consumer;
 import org.apache.pulsar.client.api.Message;
 import org.apache.pulsar.client.api.PulsarClientException;
 import org.apache.pulsar.client.api.schema.GenericRecord;
+import org.apache.pulsar.common.schema.SchemaInfo;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -187,35 +188,50 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
         return messages;
     }
 
-    class TopicSchemaKey {
+    class RecordSchemaAttributesKey {
 
-        //        String topicName;
-        Map<String, String> attributes;
-        RecordSchema schema;
+        private Map<String, String> attributes;
+        private RecordSchema schema;
 
-        public TopicSchemaKey(/*String topicName, */RecordSchema schema, Map<String, String> attributes) {
-//            this.topicName = topicName;
+        public RecordSchemaAttributesKey(RecordSchema schema, Map<String, String> attributes) {
             this.attributes = attributes;
             this.schema = schema;
         }
 
         @Override
-        public boolean equals(Object o) {
-            if (this == o) return true;
-            if (!(o instanceof TopicSchemaKey)) return false;
-            TopicSchemaKey that = (TopicSchemaKey) o;
+        public boolean equals(Object other) {
+            if (this == other) {
+                return true;
+            }
+            if (other == null || getClass() != other.getClass()) {
+                return false;
+            }
+            RecordSchemaAttributesKey that = (RecordSchemaAttributesKey) other;
 
-            if (this.schema == null || that.schema == null) return false;
-
-            return Objects.equals(this.schema.getSchemaText(), that.schema.getSchemaText())
-                    && Objects.equals(this.attributes, that.attributes);
+            return Objects.equals(schema != null ? schema.getSchemaText() : null,
+                    that.schema != null ? that.schema.getSchemaText() : null)
+                    && Objects.equals(attributes, that.attributes);
         }
-
 
         @Override
         public int hashCode() {
-            return Objects.hash(schema.getSchemaText(), attributes);
+            return Objects.hash(schema != null ? schema.getSchemaText() : null, attributes);
         }
+
+    }
+
+    private RecordSchema extractSchemaAndSetAttribute(SchemaInfo readerSchema, FlowFile flowFile, ProcessSession session) {
+        String schemaText = new String(readerSchema.getSchema());
+        session.putAttribute(flowFile, "avro.schema", schemaText);
+        return new SimpleRecordSchema(schemaText, "avro", SchemaIdentifier.EMPTY);
+    }
+
+    private void handleRecordWriterFailure(Message<GenericRecord> message, BlockingQueue<Message<GenericRecord>> parseFailures,
+                                           ProcessSession session, FlowFile flowFile, OutputStream rawOut) {
+        parseFailures.add(message);
+        session.remove(flowFile);
+        IOUtils.closeQuietly(rawOut);
+        getLogger().error("Unable to create a record writer to consume from the Pulsar topic");
     }
 
     private void consumeMessages(ProcessContext context, ProcessSession session,
@@ -236,31 +252,25 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
         // Cumulative acks are NOT permitted on Shared subscriptions
         final boolean shared = isSharedSubscription(context);
         try {
-            HashMap<TopicSchemaKey, ArrayList<Message<GenericRecord>>> messageStore = new HashMap<>();
+            HashMap<RecordSchemaAttributesKey, ArrayList<Message<GenericRecord>>> messageStore = new HashMap<>();
             flowFile = session.create();
+
             for (Message<GenericRecord> message : messages) {
                 Map<String, String> attributes = getMappedFlowFileAttributes(context, message);
                 if (message.getReaderSchema().isPresent()) {
-                    String schemaText = new String(message.getReaderSchema().get().getSchemaInfo().getSchema());
-                    schema = new SimpleRecordSchema(schemaText, "avro", SchemaIdentifier.EMPTY);
-                    flowFile = session.putAttribute(flowFile, "avro.schema", schemaText);
+                    schema = extractSchemaAndSetAttribute(message.getReaderSchema().get().getSchemaInfo(), flowFile, session);
                 } else {
                     schema = this.getSchema(flowFile, readerFactory, message.getData());
                 }
-
-                TopicSchemaKey key = new TopicSchemaKey(/*message.getTopicName(), */schema, attributes);
-                Optional<ArrayList> value = Optional.ofNullable(messageStore.get(key));
-                if (messageStore.containsKey(key) && value.isPresent()) {
-                    value.get().add(message);
-                } else {
-                    ArrayList<Message<GenericRecord>> msgs = new ArrayList<>();
-                    msgs.add(message);
-                    messageStore.put(key, msgs);
-                }
+                RecordSchemaAttributesKey key = new RecordSchemaAttributesKey(schema, attributes);
+                messageStore.computeIfAbsent(key, k -> new ArrayList<>()).add(message);
             }
+
+            // initial session was only needed to set up attributes on flow file to extract the schema for each type
+            // we reset the session to start from a clean slate
             session.rollback();
 
-            for (Map.Entry<TopicSchemaKey, ArrayList<Message<GenericRecord>>> entry : messageStore.entrySet()) {
+            for (Map.Entry<RecordSchemaAttributesKey, ArrayList<Message<GenericRecord>>> entry : messageStore.entrySet()) {
                 flowFile = session.create();
                 flowFile = session.putAllAttributes(flowFile, entry.getKey().attributes);
                 flowFile = session.putAttribute(flowFile, "avro.schema", entry.getKey().schema.toString());
@@ -270,29 +280,25 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
                 }
                 RecordSetWriter entryWriter = null;
                 ArrayList<Message<GenericRecord>> messageList = entry.getValue();
-                for (int i = 0; i < messageList.size(); i++) {
-                    Message<GenericRecord> message = messageList.get(i);
-                    if (i == 0) {
+                boolean isFirstMessage = true;
+                for (Message<GenericRecord> message : messageList) {
+                    if (isFirstMessage) {
                         entryWriter = getRecordWriter(writerFactory, entry.getKey().schema, rawOut, flowFile);
-                        if (entryWriter != null) {
-                            entryWriter.beginRecordSet();
-                        } else {
-                            parseFailures.add(message);
-                            session.remove(flowFile);
-                            IOUtils.closeQuietly(rawOut);
-                            getLogger().error("Unable to create a record writer to consume from the Pulsar topic");
+                        if (entryWriter == null) {
+                            handleRecordWriterFailure(message, parseFailures, session, flowFile, rawOut);
                             continue;
                         }
+                        entryWriter.beginRecordSet();
+                        isFirstMessage = false;
                     }
 
                     if (shared) {
                         acknowledge(consumer, message, async);
                     }
 
-                    final InputStream in = new ByteArrayInputStream(message.getData());
-                    try {
-                        RecordReader r = readerFactory.createRecordReader(flowFile, in, getLogger());
-                        for (Record record = r.nextRecord(); record != null; record = r.nextRecord()) {
+                    try (InputStream in = new ByteArrayInputStream(message.getData());
+                         RecordReader reader = readerFactory.createRecordReader(flowFile, in, getLogger())) {
+                        for (Record record = reader.nextRecord(); record != null; record = reader.nextRecord()) {
                             entryWriter.write(record);
                         }
                     } catch (MalformedRecordException | IOException | SchemaNotFoundException e) {
