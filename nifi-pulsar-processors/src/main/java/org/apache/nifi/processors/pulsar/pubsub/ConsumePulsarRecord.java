@@ -205,13 +205,8 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
             if (!(o instanceof TopicSchemaKey)) return false;
             TopicSchemaKey that = (TopicSchemaKey) o;
 
-            // Adjusted to handle both schemas being null
-//            if (this.schema == null && that.schema == null) {
-//                return Objects.equals(topicName, that.topicName);
-//            }
             if (this.schema == null || that.schema == null) return false;
 
-            // Assuming getSchema() returns a serialized form of the schema
             return Objects.equals(this.schema.getSchemaText(), that.schema.getSchemaText())
                     && Objects.equals(this.attributes, that.attributes);
         }
@@ -219,7 +214,7 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
 
         @Override
         public int hashCode() {
-            return Objects.hash(/*topicName,*/ schema.getSchemaText(), attributes);
+            return Objects.hash(schema.getSchemaText(), attributes);
         }
     }
 
@@ -298,8 +293,7 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
                     try {
                         RecordReader r = readerFactory.createRecordReader(flowFile, in, getLogger());
                         for (Record record = r.nextRecord(); record != null; record = r.nextRecord()) {
-                            WriteResult result = entryWriter.write(record);
-                            System.out.println(result);
+                            entryWriter.write(record);
                         }
                     } catch (MalformedRecordException | IOException | SchemaNotFoundException e) {
                         parseFailures.add(message);
@@ -320,16 +314,6 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
                     session.rollback();
                 }
             }
-
-//            if (!results.stream().allMatch(isEqual(WriteResult.EMPTY))) {
-//                flowFile = session.putAllAttributes(flowFile, mergeResultAttributesIntoMap(results.stream()));
-//                flowFile = session.putAttribute(flowFile, MSG_COUNT, results.stream().map(result -> result.getRecordCount()).collect(Collectors.toList()).stream().reduce(0, Integer::sum) + "");
-//                session.getProvenanceReporter().receive(flowFile, getPulsarClientService().getPulsarBrokerRootURL() + "/" + consumer.getTopic());
-//                session.transfer(flowFile, REL_SUCCESS);
-//            } else {
-//                // We were able to parse the records, but unable to write them to the FlowFile
-//                session.rollback();
-//            }
         } catch (IOException e) {
             getLogger().error("Unable to consume from Pulsar topic ", e);
         }
