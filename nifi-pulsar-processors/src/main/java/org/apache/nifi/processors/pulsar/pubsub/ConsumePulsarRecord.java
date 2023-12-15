@@ -234,6 +234,21 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
         getLogger().error("Unable to create a record writer to consume from the Pulsar topic");
     }
 
+    /**
+     * Perform the actual processing of the messages, by parsing the messages and writing them out to a FlowFile.
+     * All of the messages passed in shall be routed to either SUCCESS or PARSE_FAILURE, allowing us to acknowledge
+     * the receipt of the messages to Pulsar, so they are not re-sent.
+     *
+     * @param context       - The current ProcessContext
+     * @param session       - The current ProcessSession.
+     * @param consumer      - The Pulsar consumer.
+     * @param messages      - A list of messages.
+     * @param readerFactory - The factory used to read the messages.
+     * @param writerFactory - The factory used to write the messages.
+     * @param demarcator    - The value used to identify unique records in the list
+     * @param async         - Whether or not to consume the messages asynchronously.
+     * @throws PulsarClientException if there is an issue communicating with Apache Pulsar.
+     */
     private void consumeMessages(ProcessContext context, ProcessSession session,
                                  final Consumer<GenericRecord> consumer, final List<Message<GenericRecord>> messages,
                                  final RecordReaderFactory readerFactory, RecordSetWriterFactory writerFactory,
@@ -359,7 +374,7 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
      * @param async         - Whether or not to consume the messages asynchronously.
      * @throws PulsarClientException if there is an issue communicating with Apache Pulsar.
      */
-    private void consumeMessagesV1(ProcessContext context, ProcessSession session,
+    private void consumeMessagesV2(ProcessContext context, ProcessSession session,
                                    final Consumer<GenericRecord> consumer, final List<Message<GenericRecord>> messages,
                                    final RecordReaderFactory readerFactory, RecordSetWriterFactory writerFactory,
                                    final byte[] demarcator, final boolean async) throws PulsarClientException {
