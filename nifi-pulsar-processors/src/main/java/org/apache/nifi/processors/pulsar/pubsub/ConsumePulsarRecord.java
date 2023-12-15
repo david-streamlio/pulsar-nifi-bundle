@@ -188,7 +188,7 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
         return messages;
     }
 
-    class RecordSchemaAttributesKey {
+    static class RecordSchemaAttributesKey {
 
         private Map<String, String> attributes;
         private RecordSchema schema;
