@@ -346,19 +346,6 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
         }
     }
 
-    public HashMap<String, String> mergeResultAttributesIntoMap(Stream<WriteResult> resultsStream) {
-        Set<Map.Entry<String, String>> entries = resultsStream
-                .map(result -> result.getAttributes().entrySet())
-                .flatMap(Set::stream)
-                .collect(Collectors.toSet());
-
-        HashMap<String, String> map = new HashMap<>();
-        for (Map.Entry<String, String> entry : entries) {
-            map.put(entry.getKey(), entry.getValue());
-        }
-        return map;
-    }
-
     /**
      * Perform the actual processing of the messages, by parsing the messages and writing them out to a FlowFile.
      * All of the messages passed in shall be routed to either SUCCESS or PARSE_FAILURE, allowing us to acknowledge
@@ -374,7 +361,7 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
      * @param async         - Whether or not to consume the messages asynchronously.
      * @throws PulsarClientException if there is an issue communicating with Apache Pulsar.
      */
-    private void consumeMessagesV2(ProcessContext context, ProcessSession session,
+    private void consumeMessages__Old(ProcessContext context, ProcessSession session,
                                    final Consumer<GenericRecord> consumer, final List<Message<GenericRecord>> messages,
                                    final RecordReaderFactory readerFactory, RecordSetWriterFactory writerFactory,
                                    final byte[] demarcator, final boolean async) throws PulsarClientException {
