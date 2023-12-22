@@ -19,9 +19,10 @@ package org.apache.nifi.processors.pulsar.pubsub.mocks;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 import org.apache.nifi.controller.AbstractControllerService;
 import org.apache.nifi.pulsar.PulsarClientService;
@@ -47,6 +48,7 @@ import org.apache.pulsar.common.schema.SchemaType;
 import org.mockito.Mock;
 import org.mockito.invocation.InvocationOnMock;
 import org.mockito.stubbing.Answer;
+
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -59,11 +61,11 @@ public class MockPulsarClientService<T> extends AbstractControllerService implem
 
     @Mock
     PulsarClient mockClient = mock(PulsarClient.class);
-    
+
     @Mock
     PulsarAdmin mockAdmin = mock(PulsarAdmin.class);
 
-	@Mock
+    @Mock
     ProducerBuilder<T> mockProducerBuilder = mock(ProducerBuilder.class);
 
     @Mock
@@ -79,8 +81,8 @@ public class MockPulsarClientService<T> extends AbstractControllerService implem
     TypedMessageBuilder<T> mockTypedMessageBuilder = mock(TypedMessageBuilder.class);
 
     @Mock
-    protected Message<GenericRecord> mockMessage;
-    
+    protected Message<GenericRecord>[] mockMessages = new Message[0];
+
     @Mock
     SchemaInfo mockSchema = mock(SchemaInfo.class);
 
@@ -126,35 +128,74 @@ public class MockPulsarClientService<T> extends AbstractControllerService implem
         try {
             when(mockConsumerBuilder.subscribe()).thenReturn(mockConsumer);
             when(mockConsumer.isConnected()).thenReturn(true);
-            when(mockConsumer.receive()).thenReturn(mockMessage);
-            doAnswer(new Answer<Message<GenericRecord>>() {
-               public Message<GenericRecord> answer(InvocationOnMock invocation) {
-                       return mockMessage;
-               }
-             }).when(mockConsumer).receive(0, TimeUnit.SECONDS);
+
+            if (mockMessages.length >1 ) {
+                setMockMessages(Arrays.asList(mockMessages));
+            } else if (mockMessages.length==1){
+                setMockMessage(mockMessages[0]);
+            }else{
+                setMockMessage(null);
+            }
+
 
             when(mockProducerBuilder.create()).thenReturn(mockProducer);
             defineDefaultProducerBehavior();
         } catch (PulsarClientException e) {
-           e.printStackTrace();
+            e.printStackTrace();
         }
     }
 
+    /**
+     * sets a message and this message will be returned infinite amount of times by the consumer
+     */
     public void setMockMessage(Message<GenericRecord> mockMessage2) {
-        this.mockMessage = mockMessage2;
+        this.mockMessages = new Message[]{mockMessage2};
 
         // Configure the consumer behavior
         try {
-          when(mockConsumer.receive()).thenReturn(mockMessage);
+            when(mockConsumer.receive()).thenReturn(mockMessage2);
         } catch (PulsarClientException e) {
-          e.printStackTrace();
+            e.printStackTrace();
         }
 
         CompletableFuture<Message<GenericRecord>> future = CompletableFuture.supplyAsync(() -> {
-           return mockMessage;
+            return mockMessage2;
         });
 
         when(mockConsumer.receiveAsync()).thenReturn(future);
+
+        try {
+            doAnswer(new Answer<Message<GenericRecord>>() {
+                public Message<GenericRecord> answer(InvocationOnMock invocation) {
+                    return mockMessage2;
+                }
+            }).when(mockConsumer).receive(0, TimeUnit.SECONDS);
+        } catch (PulsarClientException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public void setMockMessages(List<Message<GenericRecord>> mockMessages2) {
+        this.mockMessages = mockMessages2.toArray(new Message[]{});
+
+        // Configure the consumer behavior
+        try {
+            when(mockConsumer.receive()).thenReturn(mockMessages[0], Arrays.copyOfRange(mockMessages, 1, mockMessages.length));
+        } catch (PulsarClientException e) {
+            e.printStackTrace();
+        }
+
+        List<CompletableFuture<Message<GenericRecord>>> future = Arrays.stream(mockMessages)
+                .map(mockMessage -> CompletableFuture.supplyAsync(() -> mockMessage))
+                .collect(Collectors.toList());
+
+        when(mockConsumer.receiveAsync()).thenReturn(future.get(0), (CompletableFuture<Message<GenericRecord>>[]) future.subList(1, future.size()).toArray(new CompletableFuture<?>[]{}));
+
+        try {
+            when(mockConsumer.receive(0, TimeUnit.SECONDS)).thenReturn(mockMessages[0], Arrays.copyOfRange(mockMessages, 1, mockMessages.length));
+        } catch (PulsarClientException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     public Producer<T> getMockProducer() {
@@ -200,29 +241,29 @@ public class MockPulsarClientService<T> extends AbstractControllerService implem
     }
 
     public Consumer<GenericRecord> getMockConsumer() {
-      return mockConsumer;
+        return mockConsumer;
     }
 
     public ProducerBuilder<T> getMockProducerBuilder() {
-      return mockProducerBuilder;
+        return mockProducerBuilder;
     }
 
     public ConsumerBuilder<GenericRecord> getMockConsumerBuilder() {
-      return mockConsumerBuilder;
+        return mockConsumerBuilder;
     }
 
     public TypedMessageBuilder<T> getMockTypedMessageBuilder() {
-      return mockTypedMessageBuilder;
+        return mockTypedMessageBuilder;
     }
 
     @Override
     public PulsarClient getPulsarClient() {
-      return mockClient;
+        return mockClient;
     }
 
     @Override
     public String getPulsarBrokerRootURL() {
-       return "pulsar://mocked:6650";
+        return "pulsar://mocked:6650";
     }
 
 }

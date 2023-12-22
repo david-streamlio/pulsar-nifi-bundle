@@ -32,11 +32,11 @@ import org.junit.Before;
 import org.junit.Test;
 import org.mockito.Mock;
 
-import java.util.List;
-import java.util.Optional;
+import java.util.*;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Predicate;
 
+import static java.util.Collections.singletonMap;
 import static org.apache.nifi.processors.pulsar.pubsub.ConsumePulsarRecord.RECORD_READER;
 import static org.apache.nifi.processors.pulsar.pubsub.ConsumePulsarRecord.RECORD_WRITER;
 import static org.junit.Assert.assertEquals;
@@ -188,33 +188,25 @@ public class TestConsumePulsarRecord extends AbstractPulsarProcessorTest<byte[]>
         return flowFiles;
     }
 
+    private static Message<GenericRecord> createTestMessage(byte[] data, String key, Map<String, String> props) {
+        Message mockA = mock(Message.class);
+        when(mockA.getData()).thenReturn(data);
+        props.entrySet().forEach(e ->
+                when(mockA.getProperty(e.getKey())).thenReturn(e.getValue())
+        );
+        when(mockA.getKey()).thenReturn(key);
+        return mockA;
+    }
+
     protected void doMappedAttributesTest() throws PulsarClientException {
-        when(mockMessage.getData())
-                .thenReturn("A,10".getBytes())
-                .thenReturn("B,10".getBytes())
-                .thenReturn("C,10".getBytes())
-                .thenReturn("D,10".getBytes())
-                .thenReturn("A,10".getBytes())
-                .thenReturn("B,10".getBytes())
-                .thenReturn("C,10".getBytes())
-                .thenReturn("D,10".getBytes());
-
-
-        when(mockMessage.getProperty("prop"))
-                .thenReturn(null)
-                .thenReturn(null)
-                .thenReturn("val")
-                .thenReturn("val");
-
-        when(mockMessage.getKey())
-                .thenReturn(null)
-                .thenReturn(null)
-                .thenReturn(null)
-                .thenReturn("K");
+        List<Message<GenericRecord>> mockMessages = new ArrayList<>();
+        mockMessages.add(createTestMessage("A,10".getBytes(), null, singletonMap("prop", null)));
+        mockMessages.add(createTestMessage("B,10".getBytes(), null, singletonMap("prop", null)));
+        mockMessages.add(createTestMessage("C,10".getBytes(), null, singletonMap("prop", "val")));
+        mockMessages.add(createTestMessage("D,10".getBytes(), "K", singletonMap("prop", "val")));
+        mockClientService.setMockMessages(mockMessages);
 
         when(mockMessage.getTopicName()).thenReturn("foo");
-
-        mockClientService.setMockMessage(mockMessage);
 
         runner.setProperty(ConsumePulsar.MAPPED_FLOWFILE_ATTRIBUTES, "prop,key=__KEY__");
         runner.setProperty(ConsumePulsarRecord.CONSUMER_BATCH_SIZE, "4");
@@ -231,28 +223,29 @@ public class TestConsumePulsarRecord extends AbstractPulsarProcessorTest<byte[]>
         assertEquals(3, flowFiles.size());
 
         // first flow file should have A, second should have B
-        Optional<MockFlowFile> flowFileWithA = flowFiles.stream().filter(item ->
-                item.getContent().contains("\"A\",\"10\"\n")
-        ).findFirst();
-        if (!flowFileWithA.isPresent()) {
-            fail("Flow file missing");
-        } else {
-            flowFileWithA.get().assertAttributeExists("prop");
-            flowFileWithA.get().assertAttributeExists("key");
-        }
-        Optional<MockFlowFile> flowFileWithBC = flowFiles.stream().filter(item -> item.getContent().contains("\"B\",\"10\"\n\"C\",\"10\"\n")).findFirst();
-        if (!flowFileWithBC.isPresent()) {
-            fail("Flow file missing");
-        } else {
-            flowFileWithBC.get().assertAttributeNotExists("prop");
-            flowFileWithBC.get().assertAttributeNotExists("key");
-        }
-        Optional<MockFlowFile> flowFileWithD = flowFiles.stream().filter(item -> item.getContent().contains("\"D\",\"10\"\n")).findFirst();
-        if (!flowFileWithD.isPresent()) {
-            fail("Flow file missing");
-        } else {
-            flowFileWithD.get().assertAttributeEquals("prop", "val");
-            flowFileWithD.get().assertAttributeNotExists("key");
-        }
+        MockFlowFile flowFileWithA = flowFiles.get(0);
+        assertEquals("\"A\",\"10\"\n\"B\",\"10\"\n", flowFileWithA.getContent());
+        flowFileWithA.assertAttributeNotExists("prop");
+        flowFileWithA.assertAttributeNotExists("key");
+
+        MockFlowFile flowFileWithC = flowFiles.get(1);
+        assertEquals("\"C\",\"10\"\n", flowFileWithC.getContent());
+        flowFileWithC.assertAttributeEquals("prop", "val");
+        flowFileWithC.assertAttributeNotExists("key");
+
+        MockFlowFile flowFileWithD = flowFiles.get(2);
+        assertEquals(flowFileWithD.getContent(), "\"D\",\"10\"\n");
+
+        flowFileWithD.assertAttributeEquals("prop", "val");
+        flowFileWithD.assertAttributeEquals("key", "K");
     }
+
+    //TODO multi-topic, multi-message with various attributes
+
+    //TODO tests with various schemas: protobuf, json, avro - for avro: we should check if schema is extracted into a
+    //     property, the rest just should not blow up for now
+
+    //TODO changing avro schema in the same topic, mixing attributes -> will be it grouped properly, and schema extracted properly?
+
+    //TODO check if an avroRecordSetWriter adds the schema properly to the start of the flowfile, so the flowfile is a valid avro file
 }

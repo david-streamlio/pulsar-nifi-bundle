@@ -222,7 +222,9 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
 
     private RecordSchema extractSchemaAndSetAttribute(SchemaInfo readerSchema, FlowFile flowFile, ProcessSession session) {
         String schemaText = new String(readerSchema.getSchema());
+        //TODO this session will be thrown away, this is not necessary?
         session.putAttribute(flowFile, "avro.schema", schemaText);
+        //TODO what if it's PB or jsonschema? what's the result then?
         return new SimpleRecordSchema(schemaText, "avro", SchemaIdentifier.EMPTY);
     }
 
@@ -267,12 +269,14 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
         // Cumulative acks are NOT permitted on Shared subscriptions
         final boolean shared = isSharedSubscription(context);
         try {
-            HashMap<RecordSchemaAttributesKey, ArrayList<Message<GenericRecord>>> messageStore = new HashMap<>();
+            //linked - so order is stable - easier to test, but no performance penalty
+            HashMap<RecordSchemaAttributesKey, ArrayList<Message<GenericRecord>>> messageStore = new LinkedHashMap<>();
             flowFile = session.create();
 
             for (Message<GenericRecord> message : messages) {
                 Map<String, String> attributes = getMappedFlowFileAttributes(context, message);
                 if (message.getReaderSchema().isPresent()) {
+                    //TODO mutating the session (adding schema attribute) is useless here, as we will rollback later?
                     schema = extractSchemaAndSetAttribute(message.getReaderSchema().get().getSchemaInfo(), flowFile, session);
                 } else {
                     schema = this.getSchema(flowFile, readerFactory, message.getData());
@@ -288,6 +292,7 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
             for (Map.Entry<RecordSchemaAttributesKey, ArrayList<Message<GenericRecord>>> entry : messageStore.entrySet()) {
                 flowFile = session.create();
                 flowFile = session.putAllAttributes(flowFile, entry.getKey().attributes);
+                //TODO maybe check getSchemaFormat()? if it's jsonschema or protobuf, what will happen?
                 flowFile = session.putAttribute(flowFile, "avro.schema", entry.getKey().schema.toString());
                 rawOut = session.write(flowFile);
                 if (entry.getValue() == null || entry.getValue().isEmpty()) {
@@ -327,7 +332,7 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
 
                 if (result != WriteResult.EMPTY) {
                     flowFile = session.putAllAttributes(flowFile, result.getAttributes());
-                    flowFile = session.putAttribute(flowFile, MSG_COUNT, result.getRecordCount() + "");
+                    flowFile = session.putAttribute(flowFile, MSG_COUNT, Integer.toString(result.getRecordCount()));
                     session.getProvenanceReporter().receive(flowFile, getPulsarClientService().getPulsarBrokerRootURL() + "/" + consumer.getTopic());
                     session.transfer(flowFile, REL_SUCCESS);
                 } else {
