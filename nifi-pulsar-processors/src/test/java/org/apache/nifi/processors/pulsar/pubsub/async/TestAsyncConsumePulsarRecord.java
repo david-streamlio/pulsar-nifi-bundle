@@ -128,7 +128,9 @@ public class TestAsyncConsumePulsarRecord extends TestConsumePulsarRecord {
 
         List<MockFlowFile> successFlowFiles = runner.getFlowFilesForRelationship(ConsumePulsarRecord.REL_SUCCESS);
         successFlowFiles.get(0).assertContentEquals("\"Z\",\"10\"\n\"F\",\"7\"\n".getBytes());
+        successFlowFiles.get(0).assertAttributeNotExists("avro.schema");
         successFlowFiles.get(1).assertContentEquals("\"A\",\"9\"\n\"G\",\"1\"\n".getBytes());
+        successFlowFiles.get(1).assertAttributeNotExists("avro.schema");
         assertEquals(2, successFlowFiles.size());
     }
 
