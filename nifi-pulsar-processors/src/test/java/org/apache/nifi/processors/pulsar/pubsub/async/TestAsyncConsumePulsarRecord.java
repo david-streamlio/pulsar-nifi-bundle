@@ -15,16 +15,24 @@
  * limitations under the License.
  */
 package org.apache.nifi.processors.pulsar.pubsub.async;
+
 import org.apache.nifi.processors.pulsar.pubsub.ConsumePulsarRecord;
 import org.apache.nifi.processors.pulsar.pubsub.TestConsumePulsarRecord;
 import org.apache.nifi.util.MockFlowFile;
+import org.apache.pulsar.client.api.Message;
 import org.apache.pulsar.client.api.PulsarClientException;
+import org.apache.pulsar.client.api.schema.GenericRecord;
 import org.junit.Test;
 import org.mockito.stubbing.Answer;
 
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import static java.util.Collections.singletonMap;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.Mockito.*;
@@ -94,34 +102,30 @@ public class TestAsyncConsumePulsarRecord extends TestConsumePulsarRecord {
     }
 
     /*
-     * Send two messages with multiple records,
-     * split by topic
+     * Send multiple messages on different topics,
+     * check if it creates two flow files by retaining the order of messages
      */
     @Test
-    public void twoMessagesWithGoodRecordsWithTwoTopicsTest() throws PulsarClientException {
-        StringBuffer input = new StringBuffer(1024);
-        StringBuffer expected = new StringBuffer(1024);
-        AtomicBoolean flip = new AtomicBoolean(true); // State for flipping
+    public void multipleGoodMessagesOnTwoTopicsCreatesMultipleRecordsTest() throws IOException {
 
-        for (int idx = 0; idx < 10; idx++) {
-            input.append("Justin Thyme, " + idx).append("\n");
-            expected.append("\"Justin Thyme\",\"" + idx + "\"").append("\n");
-        }
+        List<Message<GenericRecord>> mockMessages = new ArrayList<>();
+        mockMessages.add(createTestMessage("A,9".getBytes(), null, singletonMap("prop", null), DEFAULT_TOPIC));
+        mockMessages.add(createTestMessage("Z,10".getBytes(), null, singletonMap("prop", null), DEFAULT_TOPIC));
+        mockMessages.add(createTestMessage("G,1".getBytes(), null, singletonMap("prop", "val"), DEFAULT_TOPIC));
+        mockMessages.add(createTestMessage("F,7".getBytes(), "K", singletonMap("prop", "val"), DEFAULT_TOPIC + "2"));
 
-        when(mockMessage.getData()).thenReturn(input.toString().getBytes());
-        when(mockMessage.getTopicName()).thenAnswer((Answer<String>) invocation ->
-                flip.getAndSet(!flip.get()) ? DEFAULT_TOPIC : "bar"
-        );
-        mockClientService.setMockMessages(mockMessage, mockMessage);
+        mockClientService.setMockMessages(mockMessages);
 
         runner.setProperty(ConsumePulsarRecord.ASYNC_ENABLED, Boolean.toString(false));
-        runner.setProperty(ConsumePulsarRecord.TOPICS, DEFAULT_TOPIC + "," + "bar");
+        runner.setProperty(ConsumePulsarRecord.TOPICS, DEFAULT_TOPIC + "," + DEFAULT_TOPIC + "2");
         runner.setProperty(ConsumePulsarRecord.SUBSCRIPTION_NAME, DEFAULT_SUB);
         runner.setProperty(ConsumePulsarRecord.SUBSCRIPTION_TYPE, "Exclusive");
-        runner.setProperty(ConsumePulsarRecord.CONSUMER_BATCH_SIZE, 2 + "");
+        runner.setProperty(ConsumePulsarRecord.CONSUMER_BATCH_SIZE, 4 + "");
         runner.run(1, true);
 
         List<MockFlowFile> successFlowFiles = runner.getFlowFilesForRelationship(ConsumePulsarRecord.REL_SUCCESS);
+        successFlowFiles.get(0).assertContentEquals("\"A\",\"9\"\n\"Z\",\"10\"\n\"G\",\"1\"\n".getBytes());
+        successFlowFiles.get(1).assertContentEquals("\"F\",\"7\"\n".getBytes());
         assertEquals(2, successFlowFiles.size());
     }
 
@@ -200,5 +204,16 @@ public class TestAsyncConsumePulsarRecord extends TestConsumePulsarRecord {
         runner.setProperty(ConsumePulsarRecord.ASYNC_ENABLED, Boolean.toString(true));
 
         super.doMappedAttributesTest();
+    }
+
+    private static Message<GenericRecord> createTestMessage(byte[] data, String key, Map<String, String> properties, String topicName) {
+        Message mockA = mock(Message.class);
+        when(mockA.getData()).thenReturn(data);
+        properties.entrySet().forEach(e ->
+                when(mockA.getProperty(e.getKey())).thenReturn(e.getValue())
+        );
+        when(mockA.getTopicName()).thenReturn(topicName);
+        when(mockA.getKey()).thenReturn(key);
+        return mockA;
     }
 }
