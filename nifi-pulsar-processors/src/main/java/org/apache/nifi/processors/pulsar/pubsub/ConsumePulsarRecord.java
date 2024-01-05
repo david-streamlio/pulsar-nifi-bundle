@@ -353,7 +353,6 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
             });
         } else {
             consumer.acknowledge(msg);
-            ;
         }
     }
 
