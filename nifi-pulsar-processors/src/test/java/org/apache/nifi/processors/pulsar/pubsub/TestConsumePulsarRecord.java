@@ -48,6 +48,7 @@ public class TestConsumePulsarRecord extends AbstractPulsarProcessorTest<byte[]>
     protected static String BAD_MSG = "Malformed message";
     protected static String MOCKED_MSG = "Mocked Message, 1";
     protected static String DEFAULT_TOPIC = "foo";
+    protected static String DEFAULT_TOPIC_2 = "bar";
     protected static String DEFAULT_SUB = "bar";
 
     @Mock
