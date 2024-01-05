@@ -148,11 +148,11 @@ public class TestAsyncConsumePulsarRecord extends TestConsumePulsarRecord {
         }
 
         when(mockMessage.getData()).thenReturn(input.toString().getBytes());
-        when(mockMessage.getTopicName()).thenReturn(DEFAULT_TOPIC, "bar");
+        when(mockMessage.getTopicName()).thenReturn(DEFAULT_TOPIC);
         mockClientService.setMockMessage(mockMessage);
 
         runner.setProperty(ConsumePulsarRecord.ASYNC_ENABLED, Boolean.toString(false));
-        runner.setProperty(ConsumePulsarRecord.TOPICS, DEFAULT_TOPIC + "," + "bar");
+        runner.setProperty(ConsumePulsarRecord.TOPICS, DEFAULT_TOPIC);
         runner.setProperty(ConsumePulsarRecord.SUBSCRIPTION_NAME, DEFAULT_SUB);
         runner.setProperty(ConsumePulsarRecord.SUBSCRIPTION_TYPE, "Exclusive");
         runner.setProperty(ConsumePulsarRecord.CONSUMER_BATCH_SIZE, 1 + "");
