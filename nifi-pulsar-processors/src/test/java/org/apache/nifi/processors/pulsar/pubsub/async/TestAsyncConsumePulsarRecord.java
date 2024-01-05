@@ -162,7 +162,7 @@ public class TestAsyncConsumePulsarRecord extends TestConsumePulsarRecord {
         successFlowFiles.get(0).assertAttributeEquals("avro.schema", schema1);
         successFlowFiles.get(1).assertContentEquals("\"A\",\"9\"\n".getBytes());
         successFlowFiles.get(1).assertAttributeExists("avro.schema");
-        successFlowFiles.get(1).assertAttributeEquals("avro.schema", schema1)
+        successFlowFiles.get(1).assertAttributeEquals("avro.schema", schema1);
         successFlowFiles.get(2).assertContentEquals("\"G\",\"1\"\n".getBytes());
         successFlowFiles.get(2).assertAttributeExists("avro.schema");
         successFlowFiles.get(2).assertAttributeEquals("avro.schema", schema1_updated);
