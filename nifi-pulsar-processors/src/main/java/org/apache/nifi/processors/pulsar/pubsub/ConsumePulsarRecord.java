@@ -280,14 +280,8 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
                     if (msg.getReaderSchema().isPresent() && msg.getReaderSchema().get().getSchemaInfo().getType() == SchemaType.AVRO) {
                         String msgSchema = new String(msg.getReaderSchema().get().getSchemaInfo().getSchema());
                         flowFile = session.putAttribute(flowFile, "avro.schema", msgSchema);
-                        schema = new SimpleRecordSchema(
-                                new String(msg.getReaderSchema().get().getSchemaInfo().getSchema()),
-                                "avro",
-                                SchemaIdentifier.EMPTY
-                        );
-                    } else {
-                        schema = getSchema(flowFile, readerFactory, data);
                     }
+                    schema = getSchema(flowFile, readerFactory, data);
                     rawOut = session.write(flowFile);
                     writer = getRecordWriter(writerFactory, schema, rawOut, flowFile);
 
