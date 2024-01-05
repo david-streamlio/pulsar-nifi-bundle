@@ -112,10 +112,10 @@ public class TestAsyncConsumePulsarRecord extends TestConsumePulsarRecord {
     public void multipleGoodMessagesOnTwoTopicsCreatesMultipleRecordsTest() throws IOException {
 
         List<Message<GenericRecord>> mockMessages = new ArrayList<>();
-        mockMessages.add(createTestMessage("A,9".getBytes(), null, singletonMap("prop", "val"), DEFAULT_TOPIC, ""));
-        mockMessages.add(createTestMessage("Z,10".getBytes(), null, singletonMap("prop", "val"), DEFAULT_TOPIC_2, ""));
-        mockMessages.add(createTestMessage("G,1".getBytes(), null, singletonMap("prop", "val"), DEFAULT_TOPIC, ""));
-        mockMessages.add(createTestMessage("F,7".getBytes(), "K", singletonMap("prop", "val"), DEFAULT_TOPIC_2, ""));
+        mockMessages.add(createTestMessage("A,9".getBytes(), null, singletonMap("prop", "val"), DEFAULT_TOPIC, "", SchemaType.JSON));
+        mockMessages.add(createTestMessage("Z,10".getBytes(), null, singletonMap("prop", "val"), DEFAULT_TOPIC_2, "", SchemaType.JSON));
+        mockMessages.add(createTestMessage("G,1".getBytes(), null, singletonMap("prop", "val"), DEFAULT_TOPIC, "", SchemaType.JSON));
+        mockMessages.add(createTestMessage("F,7".getBytes(), "K", singletonMap("prop", "val"), DEFAULT_TOPIC_2, "", SchemaType.JSON));
 
         mockClientService.setMockMessages(mockMessages);
 
@@ -137,15 +137,15 @@ public class TestAsyncConsumePulsarRecord extends TestConsumePulsarRecord {
      * check if it creates two three files by retaining the order of messages
      */
     @Test
-    public void multipleGoodMessagesOnTwoTopicsDifferentSchemasCreatesMultipleRecordsTest() throws IOException {
+    public void multipleGoodMessagesWithSchemaUpdateOnTwoTopicsTest() throws IOException {
         String schema1 = "{\"type\": \"record\",\"name\": \"ExampleRecord\",\"fields\": [{\"name\": \"field1\", \"type\": \"int\"}]}\r\n";
         String schema1_updated = "{\"type\": \"record\",\"name\": \"ExampleRecord\",\"fields\": [{\"name\": \"field1\", \"type\": \"int\"},{\"name\": \"field2\", \"type\": [\"null\", \"string\"], \"default\": null}]}\r\n";
 
         List<Message<GenericRecord>> mockMessages = new ArrayList<>();
-        mockMessages.add(createTestMessage("A,9".getBytes(), null, singletonMap("prop", "val"), DEFAULT_TOPIC, schema1));
-        mockMessages.add(createTestMessage("Z,10".getBytes(), null, singletonMap("prop", "val"), DEFAULT_TOPIC_2, schema1));
-        mockMessages.add(createTestMessage("G,1".getBytes(), null, singletonMap("prop", "val"), DEFAULT_TOPIC, schema1_updated));
-        mockMessages.add(createTestMessage("F,7".getBytes(), "K", singletonMap("prop", "val"), DEFAULT_TOPIC_2, schema1));
+        mockMessages.add(createTestMessage("A,9".getBytes(), null, singletonMap("prop", "val"), DEFAULT_TOPIC, schema1, SchemaType.AVRO));
+        mockMessages.add(createTestMessage("Z,10".getBytes(), null, singletonMap("prop", "val"), DEFAULT_TOPIC_2, schema1, SchemaType.AVRO));
+        mockMessages.add(createTestMessage("G,1".getBytes(), null, singletonMap("prop", "val"), DEFAULT_TOPIC, schema1_updated, SchemaType.AVRO));
+        mockMessages.add(createTestMessage("F,7".getBytes(), "K", singletonMap("prop", "val"), DEFAULT_TOPIC_2, schema1, SchemaType.AVRO));
 
         mockClientService.setMockMessages(mockMessages);
 
@@ -244,17 +244,18 @@ public class TestAsyncConsumePulsarRecord extends TestConsumePulsarRecord {
                                                             String key,
                                                             Map<String, String> properties,
                                                             String topicName,
-                                                            String schemaString
-                                                            ) {
+                                                            String schemaString,
+                                                            SchemaType schemaType
+    ) {
         Message mockA = mock(Message.class);
         Schema<Object> schema = mock(Schema.class);
         SchemaInfo schemaInfo = mock(SchemaInfo.class);
         when(mockA.getReaderSchema()).thenReturn(Optional.of(schema));
         when(schema.getSchemaInfo()).thenReturn(schemaInfo);
-        when(schemaInfo.getType()).thenReturn(SchemaType.AVRO);
+        when(schemaInfo.getType()).thenReturn(schemaType);
         when(schemaInfo.getSchema()).thenReturn(schemaString.getBytes());
         when(mockA.getData()).thenReturn(data);
-                properties.entrySet().forEach(e ->
+        properties.entrySet().forEach(e ->
                 when(mockA.getProperty(e.getKey())).thenReturn(e.getValue())
         );
         when(mockA.getTopicName()).thenReturn(topicName);
