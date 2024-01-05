@@ -21,15 +21,18 @@ import org.apache.nifi.processors.pulsar.pubsub.TestConsumePulsarRecord;
 import org.apache.nifi.util.MockFlowFile;
 import org.apache.pulsar.client.api.Message;
 import org.apache.pulsar.client.api.PulsarClientException;
+import org.apache.pulsar.client.api.Schema;
 import org.apache.pulsar.client.api.schema.GenericRecord;
+import org.apache.pulsar.client.api.schema.SchemaDefinition;
+import org.apache.pulsar.client.api.schema.SchemaReader;
+import org.apache.pulsar.client.api.schema.SchemaWriter;
+import org.apache.pulsar.common.schema.SchemaInfo;
+import org.apache.pulsar.common.schema.SchemaType;
 import org.junit.Test;
 import org.mockito.stubbing.Answer;
 
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static java.util.Collections.singletonMap;
@@ -109,24 +112,55 @@ public class TestAsyncConsumePulsarRecord extends TestConsumePulsarRecord {
     public void multipleGoodMessagesOnTwoTopicsCreatesMultipleRecordsTest() throws IOException {
 
         List<Message<GenericRecord>> mockMessages = new ArrayList<>();
-        mockMessages.add(createTestMessage("A,9".getBytes(), null, singletonMap("prop", null), DEFAULT_TOPIC));
-        mockMessages.add(createTestMessage("Z,10".getBytes(), null, singletonMap("prop", null), DEFAULT_TOPIC));
-        mockMessages.add(createTestMessage("G,1".getBytes(), null, singletonMap("prop", "val"), DEFAULT_TOPIC));
-        mockMessages.add(createTestMessage("F,7".getBytes(), "K", singletonMap("prop", "val"), DEFAULT_TOPIC + "2"));
+        mockMessages.add(createTestMessage("A,9".getBytes(), null, singletonMap("prop", "val"), DEFAULT_TOPIC, ""));
+        mockMessages.add(createTestMessage("Z,10".getBytes(), null, singletonMap("prop", "val"), DEFAULT_TOPIC_2, ""));
+        mockMessages.add(createTestMessage("G,1".getBytes(), null, singletonMap("prop", "val"), DEFAULT_TOPIC, ""));
+        mockMessages.add(createTestMessage("F,7".getBytes(), "K", singletonMap("prop", "val"), DEFAULT_TOPIC_2, ""));
 
         mockClientService.setMockMessages(mockMessages);
 
         runner.setProperty(ConsumePulsarRecord.ASYNC_ENABLED, Boolean.toString(false));
-        runner.setProperty(ConsumePulsarRecord.TOPICS, DEFAULT_TOPIC + "," + DEFAULT_TOPIC + "2");
+        runner.setProperty(ConsumePulsarRecord.TOPICS, DEFAULT_TOPIC + "," + DEFAULT_TOPIC_2);
         runner.setProperty(ConsumePulsarRecord.SUBSCRIPTION_NAME, DEFAULT_SUB);
         runner.setProperty(ConsumePulsarRecord.SUBSCRIPTION_TYPE, "Exclusive");
         runner.setProperty(ConsumePulsarRecord.CONSUMER_BATCH_SIZE, 4 + "");
         runner.run(1, true);
 
         List<MockFlowFile> successFlowFiles = runner.getFlowFilesForRelationship(ConsumePulsarRecord.REL_SUCCESS);
-        successFlowFiles.get(0).assertContentEquals("\"A\",\"9\"\n\"Z\",\"10\"\n\"G\",\"1\"\n".getBytes());
-        successFlowFiles.get(1).assertContentEquals("\"F\",\"7\"\n".getBytes());
+        successFlowFiles.get(0).assertContentEquals("\"Z\",\"10\"\n\"F\",\"7\"\n".getBytes());
+        successFlowFiles.get(1).assertContentEquals("\"A\",\"9\"\n\"G\",\"1\"\n".getBytes());
         assertEquals(2, successFlowFiles.size());
+    }
+
+    /*
+     * Send multiple messages on different topics while updating schema for one topic,
+     * check if it creates two three files by retaining the order of messages
+     */
+    @Test
+    public void multipleGoodMessagesOnTwoTopicsDifferentSchemasCreatesMultipleRecordsTest() throws IOException {
+        String schema1 = "{\"type\": \"record\",\"name\": \"ExampleRecord\",\"fields\": [{\"name\": \"field1\", \"type\": \"int\"}]}\r\n";
+        String schema1_updated = "{\"type\": \"record\",\"name\": \"ExampleRecord\",\"fields\": [{\"name\": \"field1\", \"type\": \"int\"},{\"name\": \"field2\", \"type\": [\"null\", \"string\"], \"default\": null}]}\r\n";
+
+        List<Message<GenericRecord>> mockMessages = new ArrayList<>();
+        mockMessages.add(createTestMessage("A,9".getBytes(), null, singletonMap("prop", "val"), DEFAULT_TOPIC, schema1));
+        mockMessages.add(createTestMessage("Z,10".getBytes(), null, singletonMap("prop", "val"), DEFAULT_TOPIC_2, schema1));
+        mockMessages.add(createTestMessage("G,1".getBytes(), null, singletonMap("prop", "val"), DEFAULT_TOPIC, schema1_updated));
+        mockMessages.add(createTestMessage("F,7".getBytes(), "K", singletonMap("prop", "val"), DEFAULT_TOPIC_2, schema1));
+
+        mockClientService.setMockMessages(mockMessages);
+
+        runner.setProperty(ConsumePulsarRecord.ASYNC_ENABLED, Boolean.toString(false));
+        runner.setProperty(ConsumePulsarRecord.TOPICS, DEFAULT_TOPIC + "," + DEFAULT_TOPIC_2);
+        runner.setProperty(ConsumePulsarRecord.SUBSCRIPTION_NAME, DEFAULT_SUB);
+        runner.setProperty(ConsumePulsarRecord.SUBSCRIPTION_TYPE, "Exclusive");
+        runner.setProperty(ConsumePulsarRecord.CONSUMER_BATCH_SIZE, 4 + "");
+        runner.run(1, true);
+
+        List<MockFlowFile> successFlowFiles = runner.getFlowFilesForRelationship(ConsumePulsarRecord.REL_SUCCESS);
+        successFlowFiles.get(0).assertContentEquals("\"Z\",\"10\"\n\"F\",\"7\"\n".getBytes());
+        successFlowFiles.get(1).assertContentEquals("\"A\",\"9\"\n".getBytes());
+        successFlowFiles.get(2).assertContentEquals("\"G\",\"1\"\n".getBytes());
+        assertEquals(3, successFlowFiles.size());
     }
 
     /*
@@ -206,10 +240,21 @@ public class TestAsyncConsumePulsarRecord extends TestConsumePulsarRecord {
         super.doMappedAttributesTest();
     }
 
-    private static Message<GenericRecord> createTestMessage(byte[] data, String key, Map<String, String> properties, String topicName) {
+    private static Message<GenericRecord> createTestMessage(byte[] data,
+                                                            String key,
+                                                            Map<String, String> properties,
+                                                            String topicName,
+                                                            String schemaString
+                                                            ) {
         Message mockA = mock(Message.class);
+        Schema<Object> schema = mock(Schema.class);
+        SchemaInfo schemaInfo = mock(SchemaInfo.class);
+        when(mockA.getReaderSchema()).thenReturn(Optional.of(schema));
+        when(schema.getSchemaInfo()).thenReturn(schemaInfo);
+        when(schemaInfo.getType()).thenReturn(SchemaType.AVRO);
+        when(schemaInfo.getSchema()).thenReturn(schemaString.getBytes());
         when(mockA.getData()).thenReturn(data);
-        properties.entrySet().forEach(e ->
+                properties.entrySet().forEach(e ->
                 when(mockA.getProperty(e.getKey())).thenReturn(e.getValue())
         );
         when(mockA.getTopicName()).thenReturn(topicName);

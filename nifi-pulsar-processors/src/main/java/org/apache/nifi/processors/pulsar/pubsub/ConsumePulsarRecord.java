@@ -245,6 +245,11 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
                 // Introduce an attribute to distinguish between current and previously captured attributes,
                 // particularly when the message originates from a different topic.
                 currentAttributes.put("topicName", msg.getTopicName());
+                // add the schema to the attributes in-case the schema is updated on the topic
+                if (msg.getReaderSchema().isPresent() && msg.getReaderSchema().get().getSchemaInfo().getType() == SchemaType.AVRO) {
+                    currentAttributes.put("avro.schema", new String(msg.getReaderSchema().get().getSchemaInfo().getSchema()));
+                }
+
                 // if the current message's mapped attribute values differ from the previous set's,
                 // write out the active record set and clear various references so that we'll start a new one
                 if (lastAttributes != null && !lastAttributes.equals(currentAttributes)) {
@@ -277,10 +282,6 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
                 if (lastMessage == null) {
                     flowFile = session.create();
                     flowFile = session.putAllAttributes(flowFile, currentAttributes);
-                    if (msg.getReaderSchema().isPresent() && msg.getReaderSchema().get().getSchemaInfo().getType() == SchemaType.AVRO) {
-                        String msgSchema = new String(msg.getReaderSchema().get().getSchemaInfo().getSchema());
-                        flowFile = session.putAttribute(flowFile, "avro.schema", msgSchema);
-                    }
                     schema = getSchema(flowFile, readerFactory, data);
                     rawOut = session.write(flowFile);
                     writer = getRecordWriter(writerFactory, schema, rawOut, flowFile);
