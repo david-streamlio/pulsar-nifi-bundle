@@ -15,20 +15,19 @@
  * limitations under the License.
  */
 package org.apache.nifi.processors.pulsar.pubsub.async;
-
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
-
-import java.util.List;
-
 import org.apache.nifi.processors.pulsar.pubsub.ConsumePulsarRecord;
 import org.apache.nifi.processors.pulsar.pubsub.TestConsumePulsarRecord;
 import org.apache.nifi.util.MockFlowFile;
 import org.apache.pulsar.client.api.PulsarClientException;
 import org.junit.Test;
+import org.mockito.stubbing.Answer;
+
+import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
+import static org.mockito.Mockito.*;
 
 public class TestAsyncConsumePulsarRecord extends TestConsumePulsarRecord {
 
@@ -95,6 +94,38 @@ public class TestAsyncConsumePulsarRecord extends TestConsumePulsarRecord {
     }
 
     /*
+     * Send two messages with multiple records,
+     * split by topic
+     */
+    @Test
+    public void twoMessagesWithGoodRecordsWithTwoTopicsTest() throws PulsarClientException {
+        StringBuffer input = new StringBuffer(1024);
+        StringBuffer expected = new StringBuffer(1024);
+        AtomicBoolean flip = new AtomicBoolean(true); // State for flipping
+
+        for (int idx = 0; idx < 10; idx++) {
+            input.append("Justin Thyme, " + idx).append("\n");
+            expected.append("\"Justin Thyme\",\"" + idx + "\"").append("\n");
+        }
+
+        when(mockMessage.getData()).thenReturn(input.toString().getBytes());
+        when(mockMessage.getTopicName()).thenAnswer((Answer<String>) invocation ->
+                flip.getAndSet(!flip.get()) ? DEFAULT_TOPIC : "bar"
+        );
+        mockClientService.setMockMessages(mockMessage, mockMessage);
+
+        runner.setProperty(ConsumePulsarRecord.ASYNC_ENABLED, Boolean.toString(false));
+        runner.setProperty(ConsumePulsarRecord.TOPICS, DEFAULT_TOPIC + "," + "bar");
+        runner.setProperty(ConsumePulsarRecord.SUBSCRIPTION_NAME, DEFAULT_SUB);
+        runner.setProperty(ConsumePulsarRecord.SUBSCRIPTION_TYPE, "Exclusive");
+        runner.setProperty(ConsumePulsarRecord.CONSUMER_BATCH_SIZE, 2 + "");
+        runner.run(1, true);
+
+        List<MockFlowFile> successFlowFiles = runner.getFlowFilesForRelationship(ConsumePulsarRecord.REL_SUCCESS);
+        assertEquals(2, successFlowFiles.size());
+    }
+
+    /*
      * Send a single message with multiple records,
      * some of them good and some malformed
      */
@@ -113,11 +144,11 @@ public class TestAsyncConsumePulsarRecord extends TestConsumePulsarRecord {
         }
 
         when(mockMessage.getData()).thenReturn(input.toString().getBytes());
-        when(mockMessage.getTopicName()).thenReturn(DEFAULT_TOPIC);
+        when(mockMessage.getTopicName()).thenReturn(DEFAULT_TOPIC, "bar");
         mockClientService.setMockMessage(mockMessage);
 
         runner.setProperty(ConsumePulsarRecord.ASYNC_ENABLED, Boolean.toString(false));
-        runner.setProperty(ConsumePulsarRecord.TOPICS, DEFAULT_TOPIC);
+        runner.setProperty(ConsumePulsarRecord.TOPICS, DEFAULT_TOPIC + "," + "bar");
         runner.setProperty(ConsumePulsarRecord.SUBSCRIPTION_NAME, DEFAULT_SUB);
         runner.setProperty(ConsumePulsarRecord.SUBSCRIPTION_TYPE, "Exclusive");
         runner.setProperty(ConsumePulsarRecord.CONSUMER_BATCH_SIZE, 1 + "");

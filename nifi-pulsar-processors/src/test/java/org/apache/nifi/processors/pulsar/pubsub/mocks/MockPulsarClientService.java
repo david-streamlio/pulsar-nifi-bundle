@@ -80,6 +80,9 @@ public class MockPulsarClientService<T> extends AbstractControllerService implem
 
     @Mock
     protected Message<GenericRecord> mockMessage;
+
+    @Mock
+    protected Message<GenericRecord> mockMessage2;
     
     @Mock
     SchemaInfo mockSchema = mock(SchemaInfo.class);
@@ -109,6 +112,7 @@ public class MockPulsarClientService<T> extends AbstractControllerService implem
 
         when(mockConsumerBuilder.topic(any(String[].class))).thenReturn(mockConsumerBuilder);
         when(mockConsumerBuilder.topic(anyString())).thenReturn(mockConsumerBuilder);
+        when(mockConsumerBuilder.topic(any())).thenReturn(mockConsumerBuilder);
         when(mockConsumerBuilder.subscriptionName(anyString())).thenReturn(mockConsumerBuilder);
         when(mockConsumerBuilder.ackTimeout(anyLong(), any(TimeUnit.class))).thenReturn(mockConsumerBuilder);
         when(mockConsumerBuilder.consumerName(anyString())).thenReturn(mockConsumerBuilder);
@@ -138,6 +142,28 @@ public class MockPulsarClientService<T> extends AbstractControllerService implem
         } catch (PulsarClientException e) {
            e.printStackTrace();
         }
+    }
+
+    public void setMockMessages(Message<GenericRecord> mockMessage1, Message<GenericRecord> mockMessage2) {
+        this.mockMessage = mockMessage1;
+        this.mockMessage2 = mockMessage2;
+
+        // Configure the consumer behavior
+        try {
+            when(mockConsumer.receive()).thenReturn(mockMessage).thenReturn(mockMessage2);
+        } catch (PulsarClientException e) {
+            e.printStackTrace();
+        }
+
+        CompletableFuture<Message<GenericRecord>> future = CompletableFuture.supplyAsync(() -> {
+            return mockMessage;
+        });
+
+        CompletableFuture<Message<GenericRecord>> future2 = CompletableFuture.supplyAsync(() -> {
+            return mockMessage2;
+        });
+
+        when(mockConsumer.receiveAsync()).thenReturn(future).thenReturn(future2);
     }
 
     public void setMockMessage(Message<GenericRecord> mockMessage2) {
