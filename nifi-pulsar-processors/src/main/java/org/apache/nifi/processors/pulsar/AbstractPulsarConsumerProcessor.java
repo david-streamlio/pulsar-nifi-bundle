@@ -450,18 +450,15 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
 
         Consumer<GenericRecord> consumer = getConsumers().get(topic);
 
+	// The Pulsar client will automatically reconnect consumers when disconnected
         if (consumer != null) {
-            if (consumer.isConnected()) return consumer;
-            consumer.close();
+            return consumer;
         }
 
-        // Create a new consumer and validate that it is connected before returning it.
         consumer = getConsumerBuilder(context).subscribe();
-        if (consumer != null && consumer.isConnected()) {
-            getConsumers().put(topic, consumer);
-        }
+        getConsumers().put(topic, consumer);
 
-        return (consumer != null && consumer.isConnected()) ? consumer : null;
+        return consumer;
     }
 
 	protected synchronized ConsumerBuilder<GenericRecord> getConsumerBuilder(ProcessContext context) throws PulsarClientException {
