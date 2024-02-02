@@ -70,7 +70,7 @@ public class StandardPulsarClientService extends AbstractControllerService imple
             .description("Number of concurrent lookup-requests allowed on each broker-connection.")
             .required(false)
             .addValidator(StandardValidators.POSITIVE_INTEGER_VALIDATOR)
-            .expressionLanguageSupported(ExpressionLanguageScope.VARIABLE_REGISTRY)
+            .expressionLanguageSupported(ExpressionLanguageScope.ENVIRONMENT)
             .defaultValue("5000")
             .build();
 
@@ -82,7 +82,7 @@ public class StandardPulsarClientService extends AbstractControllerService imple
                     "Increasing this parameter may improve throughput when using many producers over a high latency connection.")
             .required(false)
             .addValidator(StandardValidators.POSITIVE_INTEGER_VALIDATOR)
-            .expressionLanguageSupported(ExpressionLanguageScope.VARIABLE_REGISTRY)
+            .expressionLanguageSupported(ExpressionLanguageScope.ENVIRONMENT)
             .defaultValue("1")
             .build();
 
@@ -103,7 +103,7 @@ public class StandardPulsarClientService extends AbstractControllerService imple
             .description("The number of threads to be used for handling connections to brokers.")
             .required(false)
             .addValidator(StandardValidators.POSITIVE_INTEGER_VALIDATOR)
-            .expressionLanguageSupported(ExpressionLanguageScope.VARIABLE_REGISTRY)
+            .expressionLanguageSupported(ExpressionLanguageScope.ENVIRONMENT)
             .defaultValue("1")
             .build();
 
@@ -113,7 +113,7 @@ public class StandardPulsarClientService extends AbstractControllerService imple
             .description("The keep alive interval in seconds for each client-broker-connection.")
             .required(false)
             .addValidator(StandardValidators.TIME_PERIOD_VALIDATOR)
-            .expressionLanguageSupported(ExpressionLanguageScope.VARIABLE_REGISTRY)
+            .expressionLanguageSupported(ExpressionLanguageScope.ENVIRONMENT)
             .defaultValue("30 sec")
             .build();
 
@@ -123,7 +123,7 @@ public class StandardPulsarClientService extends AbstractControllerService imple
             .description("The number of threads to be used for message listeners")
             .required(false)
             .addValidator(StandardValidators.POSITIVE_INTEGER_VALIDATOR)
-            .expressionLanguageSupported(ExpressionLanguageScope.VARIABLE_REGISTRY)
+            .expressionLanguageSupported(ExpressionLanguageScope.ENVIRONMENT)
             .defaultValue("1")
             .build();
 
@@ -134,7 +134,7 @@ public class StandardPulsarClientService extends AbstractControllerService imple
                        + "it should be greater than the 'Maximum concurrent lookup-requests' property value.")
             .required(false)
             .addValidator(StandardValidators.POSITIVE_INTEGER_VALIDATOR)
-            .expressionLanguageSupported(ExpressionLanguageScope.VARIABLE_REGISTRY)
+            .expressionLanguageSupported(ExpressionLanguageScope.ENVIRONMENT)
             .defaultValue("50000")
             .build();
 
@@ -146,7 +146,7 @@ public class StandardPulsarClientService extends AbstractControllerService imple
                     "chance to connect a different broker.")
             .required(false)
             .addValidator(StandardValidators.POSITIVE_INTEGER_VALIDATOR)
-            .expressionLanguageSupported(ExpressionLanguageScope.VARIABLE_REGISTRY)
+            .expressionLanguageSupported(ExpressionLanguageScope.ENVIRONMENT)
             .defaultValue("50")
             .build();
 
@@ -157,7 +157,7 @@ public class StandardPulsarClientService extends AbstractControllerService imple
                     "interval, after which the operation will be marked as failed.")
             .required(false)
             .addValidator(StandardValidators.TIME_PERIOD_VALIDATOR)
-            .expressionLanguageSupported(ExpressionLanguageScope.VARIABLE_REGISTRY)
+            .expressionLanguageSupported(ExpressionLanguageScope.ENVIRONMENT)
             .defaultValue("30 sec")
             .build();
 
@@ -167,7 +167,7 @@ public class StandardPulsarClientService extends AbstractControllerService imple
             .description("URL for the Pulsar cluster, e.g. pulsar://localhost:6650")
             .required(true)
             .addValidator(new PulsarBrokerUrlValidator())
-            .expressionLanguageSupported(ExpressionLanguageScope.VARIABLE_REGISTRY)
+            .expressionLanguageSupported(ExpressionLanguageScope.ENVIRONMENT)
             .build();
 
     public static final PropertyDescriptor STATS_INTERVAL = new PropertyDescriptor.Builder()
@@ -176,7 +176,7 @@ public class StandardPulsarClientService extends AbstractControllerService imple
             .description("The interval between each stat infomation update. It should be set to at least 1 second.")
             .required(false)
             .addValidator(StandardValidators.TIME_PERIOD_VALIDATOR)
-            .expressionLanguageSupported(ExpressionLanguageScope.VARIABLE_REGISTRY)
+            .expressionLanguageSupported(ExpressionLanguageScope.ENVIRONMENT)
             .defaultValue("60 sec")
             .build();
     
