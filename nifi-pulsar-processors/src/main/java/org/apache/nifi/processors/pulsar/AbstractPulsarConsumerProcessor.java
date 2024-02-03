@@ -250,7 +250,7 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
             .required(false)
             .addValidator(StandardValidators.POSITIVE_INTEGER_VALIDATOR)
             .defaultValue("1000")
-            .expressionLanguageSupported(ExpressionLanguageScope.VARIABLE_REGISTRY)
+            .expressionLanguageSupported(ExpressionLanguageScope.ENVIRONMENT)
             .build();
 
     public static final PropertyDescriptor MAPPED_FLOWFILE_ATTRIBUTES = new PropertyDescriptor.Builder()

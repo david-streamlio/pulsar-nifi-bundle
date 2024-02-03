@@ -34,7 +34,7 @@ public abstract class AbstractPulsarClientAuntenticationService extends Abstract
     public static final PropertyDescriptor TRUST_CERTIFICATE = new PropertyDescriptor.Builder()
             .name("Trusted Certificate Filename")
             .description("The fully-qualified filename of the Trusted certificate.")
-            .defaultValue(null)
+            .defaultValue((String) null)
             .addValidator(createFileExistsAndReadableValidator())
             .sensitive(false)
             .build();
