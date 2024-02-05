@@ -2,11 +2,13 @@
 
 ## How to build
 
-This processor allows you to define the versions of the Apache NiFi and Apache Pulsar libraries that you that you want to use inside the processor, along with the JDK version you want to compile the classes with. 
+To build the NAR files using Maven, just run the following commands. The first one makes sure that you are using Java 
+version 21, which is necessary since NiFi 2.0 uses this version.
 
-To build the NAR files using Maven, just run the following command. 
-
-`mvn clean package -Denforcer.skip`
+```
+export JAVA_HOME=<JDK 21 HOME>
+mvn clean package -Denforcer.skip
+```
 
 This will also generate a Docker image inside your local docker daemon with the tag `streamnative/nifi`
 

@@ -39,7 +39,7 @@ public class PulsarClientTlsAuthenticationService extends AbstractPulsarClientAu
     public static final PropertyDescriptor CLIENT_CERTIFICATE = new PropertyDescriptor.Builder()
             .name("Client Certificate")
             .description("The fully-qualified filename of the client certificate.")
-            .defaultValue(null)
+            .defaultValue((String) null)
             .addValidator(createFileExistsAndReadableValidator())
             .sensitive(false)
             .build();
@@ -48,7 +48,7 @@ public class PulsarClientTlsAuthenticationService extends AbstractPulsarClientAu
     public static final PropertyDescriptor CLIENT_KEY = new PropertyDescriptor.Builder()
             .name("Client Key")
             .description("The fully-qualified filename of the client private key.")
-            .defaultValue(null)
+            .defaultValue((String) null)
             .addValidator(createFileExistsAndReadableValidator())
             .sensitive(false)
             .build();

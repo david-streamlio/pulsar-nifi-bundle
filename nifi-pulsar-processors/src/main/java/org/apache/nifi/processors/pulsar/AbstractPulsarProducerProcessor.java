@@ -139,7 +139,7 @@ public abstract class AbstractPulsarProducerProcessor<T> extends AbstractProcess
             .required(false)
             .addValidator(StandardValidators.DATA_SIZE_VALIDATOR)
             .defaultValue("128 KB")
-            .expressionLanguageSupported(ExpressionLanguageScope.VARIABLE_REGISTRY)
+            .expressionLanguageSupported(ExpressionLanguageScope.ENVIRONMENT)
             .build();
 
     public static final PropertyDescriptor BATCHING_MAX_MESSAGES = new PropertyDescriptor.Builder()
@@ -151,7 +151,7 @@ public abstract class AbstractPulsarProducerProcessor<T> extends AbstractProcess
             .required(false)
             .addValidator(StandardValidators.POSITIVE_INTEGER_VALIDATOR)
             .defaultValue("1000")
-            .expressionLanguageSupported(ExpressionLanguageScope.VARIABLE_REGISTRY)
+            .expressionLanguageSupported(ExpressionLanguageScope.ENVIRONMENT)
             .build();
 
     public static final PropertyDescriptor BATCH_INTERVAL = new PropertyDescriptor.Builder()
@@ -162,7 +162,7 @@ public abstract class AbstractPulsarProducerProcessor<T> extends AbstractProcess
                     + " until the Batching Max Messages threshold has been reached, whichever occurs first.")
             .required(false)
             .addValidator(StandardValidators.TIME_PERIOD_VALIDATOR)
-            .expressionLanguageSupported(ExpressionLanguageScope.VARIABLE_REGISTRY)
+            .expressionLanguageSupported(ExpressionLanguageScope.ENVIRONMENT)
             .defaultValue("10 ms")
             .build();
 
@@ -214,7 +214,7 @@ public abstract class AbstractPulsarProducerProcessor<T> extends AbstractProcess
                     + "acknowledgment from the broker.")
             .required(false)
             .addValidator(StandardValidators.POSITIVE_INTEGER_VALIDATOR)
-            .expressionLanguageSupported(ExpressionLanguageScope.VARIABLE_REGISTRY)
+            .expressionLanguageSupported(ExpressionLanguageScope.ENVIRONMENT)
             .defaultValue("1000")
             .build();
 

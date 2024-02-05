@@ -40,7 +40,7 @@ public class PulsarClientJwtAuthenticationService extends AbstractPulsarClientAu
     public static final PropertyDescriptor JWT_TOKEN = new PropertyDescriptor.Builder()
             .name("The JSON Web Token")
             .description("The raw signed JWT string")
-            .defaultValue(null)
+            .defaultValue((String) null)
             .addValidator(StandardValidators.NON_BLANK_VALIDATOR)
             .required(true)
             .sensitive(true)
