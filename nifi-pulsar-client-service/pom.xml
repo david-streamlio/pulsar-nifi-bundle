@@ -49,12 +49,6 @@
                  </exclusion>
              </exclusions>
         </dependency>
-
-        <dependency>
-            <groupId>io.streamnative.connectors</groupId>
-            <artifactId>nifi-pulsar-client-service-api</artifactId>
-            <version>${project.version}</version>
-        </dependency>
         
         <dependency>
             <groupId>org.apache.nifi</groupId>
@@ -70,7 +64,6 @@
             <scope>provided</scope>
         </dependency>
 
-        
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-mock</artifactId>
