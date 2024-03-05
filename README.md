@@ -6,7 +6,7 @@ To build the NAR files using Maven, just run the following commands. The first o
 version 21, which is necessary since NiFi 2.0 uses this version.
 
 ```
-export JAVA_HOME=<JDK 21 HOME>
+export JAVA_HOME=`/usr/libexec/java_home -v 21`
 mvn clean package -Denforcer.skip
 ```
 
