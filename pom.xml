@@ -98,8 +98,8 @@
         <junit.version>4.13.2</junit.version>
         <mockito-core.version>3.12.4</mockito-core.version>
         <nifi.version>2.0.0-M3</nifi.version>
-        <protobuf3.version>3.20.1</protobuf3.version>
-        <pulsar.version>2.9.3</pulsar.version>
+        <protobuf3.version>3.20.3</protobuf3.version>
+        <pulsar.version>3.1.2</pulsar.version>
         <slf4j-simple.version>2.0.6</slf4j-simple.version>
         <java.version>21</java.version>
 

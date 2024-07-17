@@ -231,7 +231,7 @@ public abstract class AbstractPulsarProducerProcessor<T> extends AbstractProcess
     public static final PropertyDescriptor MESSAGE_KEY = new PropertyDescriptor.Builder()
             .name("MESSAGE_KEY")
             .displayName("Message Key")
-            .description("he Key to use for the Message."
+            .description("The Key to use for the Message."
                     + "If not specified, the flow file attribute 'msg.key' is used as the message key, if it is present.")
             .required(false)
             .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
@@ -296,19 +296,19 @@ public abstract class AbstractPulsarProducerProcessor<T> extends AbstractProcess
         Map<String, Object> config = new HashMap<>();
 
         config.put("autoUpdatePartitions", ctx.getProperty(AUTO_UPDATE_PARTITIONS).asBoolean());
-        config.put("autoUpdatePartitionsInterval", ctx.getProperty(AUTO_UPDATE_PARTITION_INTERVAL)
+        config.put("autoUpdatePartitionsIntervalSeconds", ctx.getProperty(AUTO_UPDATE_PARTITION_INTERVAL)
                 .asTimePeriod(TimeUnit.SECONDS).intValue());
         config.put("blockIfQueueFull", ctx.getProperty(BLOCK_IF_QUEUE_FULL).asBoolean());
         config.put("compressionType", CompressionType.valueOf(ctx.getProperty(COMPRESSION_TYPE).getValue()));
 
         if (ctx.getProperty(BATCHING_ENABLED).asBoolean()) {
-            config.put("enableBatching", Boolean.TRUE);
+            config.put("batchingEnabled", Boolean.TRUE);
             config.put("batchingMaxBytes", ctx.getProperty(BATCHING_MAX_BYTES).asDataSize(DataUnit.B).intValue());
             config.put("batchingMaxMessages", ctx.getProperty(BATCHING_MAX_MESSAGES).evaluateAttributeExpressions().asInteger());
-            config.put("batchingMaxPublishDelay", ctx.getProperty(BATCH_INTERVAL).evaluateAttributeExpressions()
-                    .asTimePeriod(TimeUnit.MILLISECONDS).intValue());
+            config.put("batchingMaxPublishDelayMicros", ctx.getProperty(BATCH_INTERVAL).evaluateAttributeExpressions()
+                    .asTimePeriod(TimeUnit.MICROSECONDS).intValue());
         } else {
-            config.put("enableBatching", Boolean.FALSE);
+            config.put("batchingEnabled", Boolean.FALSE);
         }
 
         return config;
