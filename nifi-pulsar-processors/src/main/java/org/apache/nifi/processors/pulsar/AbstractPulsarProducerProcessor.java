@@ -166,6 +166,28 @@ public abstract class AbstractPulsarProducerProcessor<T> extends AbstractProcess
             .defaultValue("10 ms")
             .build();
 
+    public static final PropertyDescriptor CHUNKING_ENABLED = new PropertyDescriptor.Builder()
+            .name("ENABLE_CHUNKING")
+            .displayName("Enable chunking")
+            .description("If message size is higher than allowed max publish-payload size by broker " +
+                    "then enableChunking helps producer to split message into multiple chunks and " +
+                    "publish them to broker separately and in order.")
+            .required(false)
+            .allowableValues("true", "false")
+            .defaultValue("false")
+            .build();
+
+    public static final PropertyDescriptor CHUNK_MAX_MESSAGE_SIZE = new PropertyDescriptor.Builder()
+            .name("CHUNK_MAX_MESSAGE_SIZE")
+            .displayName("Chunk Max Message Size")
+            .description("Set the maximum size of message chunks (in bytes) permitted when message " +
+                    "chunking is enabled. default: 500 MB.")
+            .required(false)
+            .addValidator(StandardValidators.POSITIVE_INTEGER_VALIDATOR)
+            .defaultValue("536870912")
+            .expressionLanguageSupported(ExpressionLanguageScope.ENVIRONMENT)
+            .build();
+
     public static final PropertyDescriptor BLOCK_IF_QUEUE_FULL = new PropertyDescriptor.Builder()
             .name("BLOCK_IF_QUEUE_FULL")
             .displayName("Block if Message Queue Full")
@@ -253,6 +275,8 @@ public abstract class AbstractPulsarProducerProcessor<T> extends AbstractProcess
         descriptorList.add(BATCHING_MAX_MESSAGES);
         descriptorList.add(BATCH_INTERVAL);
         descriptorList.add(BLOCK_IF_QUEUE_FULL);
+        descriptorList.add(CHUNKING_ENABLED);
+        descriptorList.add(CHUNK_MAX_MESSAGE_SIZE);
         descriptorList.add(COMPRESSION_TYPE);
         descriptorList.add(MESSAGE_ROUTING_MODE);
         descriptorList.add(MESSAGE_DEMARCATOR);
@@ -309,6 +333,10 @@ public abstract class AbstractPulsarProducerProcessor<T> extends AbstractProcess
                     .asTimePeriod(TimeUnit.MICROSECONDS).intValue());
         } else {
             config.put("batchingEnabled", Boolean.FALSE);
+            if (ctx.getProperty(CHUNKING_ENABLED).asBoolean()) {
+                config.put("chunkingEnabled", Boolean.TRUE);
+                config.put("chunkMaxMessageSize", ctx.getProperty(CHUNK_MAX_MESSAGE_SIZE).evaluateAttributeExpressions().asInteger());
+            }
         }
 
         return config;

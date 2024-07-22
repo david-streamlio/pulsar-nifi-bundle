@@ -109,4 +109,19 @@ public class TestPublishPulsar extends AbstractPulsarProcessorTest<byte[]> {
         verify(mockClientService.getMockProducerBuilder(), times(1)).topic("topic-b");
     }
 
+    @Test
+    public void chunkedMessageTest() {
+        when(mockProducer.getTopic()).thenReturn("topic-b");
+        mockClientService.setMockProducer(mockProducer);
+
+        runner.setProperty(PublishPulsar.TOPIC, "test-topic");
+        runner.setProperty(PublishPulsar.CHUNKING_ENABLED, "true");
+        runner.setProperty(PublishPulsar.BATCHING_ENABLED, "false");
+
+        final String content = "some content";
+        runner.enqueue(content);
+        runner.run();
+
+        verify(mockClientService.getMockProducerBuilder(), times(1)).enableChunking(true);
+    }
 }
