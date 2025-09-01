@@ -3,11 +3,11 @@
 ## How to build
 
 To build the NAR files using Maven, just run the following commands. The first one makes sure that you are using Java 
-version 21, which is necessary since NiFi 2.0 uses this version.
+version 21, which is necessary since NiFi 2.x uses this version.
 
 ```
 export JAVA_HOME=`/usr/libexec/java_home -v 21`
-mvn clean package -Denforcer.skip
+mvn clean package
 ```
 
 This will also generate a Docker image inside your local docker daemon with the tag `streamnative/nifi`

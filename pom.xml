@@ -20,12 +20,12 @@
     <parent>
       <groupId>org.apache.nifi</groupId>
       <artifactId>nifi-extension-bundles</artifactId>
-      <version>2.0.0</version>
+      <version>2.1.0</version>
     </parent>
     
     <groupId>io.streamnative.connectors</groupId>
     <artifactId>nifi-pulsar-bundle</artifactId>
-    <version>2.0.0</version>
+    <version>2.1.0</version>
     <packaging>pom</packaging>
 
     <name>NiFi Pulsar Connectors :: NiFi Pulsar Bundle</name>
@@ -88,28 +88,29 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <!-- Dependency versions -->
         <commons-collections4.version>4.4</commons-collections4.version>
-        <commons-compress.version>1.21</commons-compress.version>
-        <commons-lang3.version>3.12.0</commons-lang3.version>
-        <commons.io.version>2.11.0</commons.io.version>
+        <commons-compress.version>1.28.0</commons-compress.version>
+        <commons-lang3.version>3.18.0</commons-lang3.version>
+        <commons.io.version>2.20.0</commons.io.version>
         <conscrypt-openjdk.version>2.5.2</conscrypt-openjdk.version>
         <groovy-eclipse-batch.version>2.5.6-01</groovy-eclipse-batch.version>
         <grpc.version>1.41.0</grpc.version>
-        <jackson-core.version>2.13.4</jackson-core.version>
+        <jackson-core.version>2.19.2</jackson-core.version>
         <junit.version>4.13.2</junit.version>
         <mockito-core.version>3.12.4</mockito-core.version>
-        <nifi.version>2.0.0-M3</nifi.version>
+        <nifi.version>2.1.0</nifi.version>
         <protobuf3.version>3.20.3</protobuf3.version>
-        <pulsar.version>3.1.2</pulsar.version>
-        <slf4j-simple.version>2.0.6</slf4j-simple.version>
+        <pulsar.version>3.3.7</pulsar.version>
+        <slf4j-simple.version>2.0.17</slf4j-simple.version>
         <java.version>21</java.version>
 
         <!-- Maven plugin versions -->
-        <maven-compiler-plugin.version>3.10.1</maven-compiler-plugin.version>
-        <maven-gpg-plugin.version>3.0.1</maven-gpg-plugin.version>
-        <maven-javadoc-plugin.version>3.5.0</maven-javadoc-plugin.version>
-        <maven-source-plugin.version>2.2.1</maven-source-plugin.version>
-        <nifi-nar-maven-plugin.version>1.5.1</nifi-nar-maven-plugin.version>
-        <nexus-staging-maven-plugin.version>1.6.13</nexus-staging-maven-plugin.version>
+        <docker-maven-plugin.version>0.46.0</docker-maven-plugin.version>
+        <maven-compiler-plugin.version>3.14.0</maven-compiler-plugin.version>
+        <maven-gpg-plugin.version>3.2.8</maven-gpg-plugin.version>
+        <maven-javadoc-plugin.version>3.11.3</maven-javadoc-plugin.version>
+        <maven-source-plugin.version>3.3.1</maven-source-plugin.version>
+        <nifi-nar-maven-plugin.version>2.1.0</nifi-nar-maven-plugin.version>
+        <nexus-staging-maven-plugin.version>1.6.14</nexus-staging-maven-plugin.version>
         <maven-versions-plugin.version>2.5</maven-versions-plugin.version>
 
         <maven.deploy.skip>true</maven.deploy.skip>
@@ -131,8 +132,7 @@
                 <artifactId>maven-compiler-plugin</artifactId>
                 <version>${maven-compiler-plugin.version}</version>
                 <configuration>
-                    <source>${java.version}</source>
-                    <target>${java.version}</target>
+                    <release>${java.version}</release>
                     <encoding>UTF-8</encoding>
                     <showDeprecation>true</showDeprecation>
                 </configuration>
@@ -149,6 +149,9 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-source-plugin</artifactId>
                 <version>${maven-source-plugin.version}</version>
+                <configuration>
+                    <release>${java.version}</release>
+                </configuration>
                 <executions>
                     <execution>
                         <id>attach-sources</id>
@@ -164,7 +167,9 @@
                 <artifactId>maven-javadoc-plugin</artifactId>
                 <version>${maven-javadoc-plugin.version}</version>
                 <configuration>
+                    <source>${java.version}</source>
                     <detectJavaApiLink>false</detectJavaApiLink>
+                    <encoding>UTF-8</encoding>
                 </configuration>
                 <executions>
                     <execution>
