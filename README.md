@@ -22,15 +22,15 @@ the Docker image.
 A Dockerfile has been included in the project that can be used to test the Processor locally, and can be started with the following command:
 
 ```
-docker run --name nifi -d -p 8443:8443 
--e SINGLE_USER_CREDENTIALS_USERNAME=admin 
--e SINGLE_USER_CREDENTIALS_PASSWORD=ctsBtRBKHRAx69EqUghvvgEvjnaLjFEB 
+docker run --name nifi -d -p 8443:8443 \
+-e SINGLE_USER_CREDENTIALS_USERNAME=admin \
+-e SINGLE_USER_CREDENTIALS_PASSWORD=ctsBtRBKHRAx69EqUghvvgEvjnaLjFEB \
 streamnative/nifi
 ```
 
 See the [documentation](https://hub.docker.com/r/apache/nifi) on the base image for more configuration options
 
-Visit https://localhost:8443/nifi/login and enter the username and password you provided in the docker command.
+Visit https://localhost:8443/nifi/#/login and enter the username and password you provided in the docker command.
 
 ## How to debug
 
