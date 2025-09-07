@@ -106,7 +106,7 @@
         <!-- Maven plugin versions -->
         <docker-maven-plugin.version>0.46.0</docker-maven-plugin.version>
         <maven-compiler-plugin.version>3.14.0</maven-compiler-plugin.version>
-        <maven-gpg-plugin.version>3.2.8</maven-gpg-plugin.version>
+        <maven-gpg-plugin.version>3.0.1</maven-gpg-plugin.version>
         <maven-javadoc-plugin.version>3.11.3</maven-javadoc-plugin.version>
         <maven-source-plugin.version>3.3.1</maven-source-plugin.version>
         <nifi-nar-maven-plugin.version>2.1.0</nifi-nar-maven-plugin.version>
