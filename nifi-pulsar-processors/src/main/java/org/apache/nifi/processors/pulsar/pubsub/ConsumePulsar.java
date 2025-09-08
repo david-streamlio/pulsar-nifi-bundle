@@ -50,7 +50,9 @@ import org.apache.commons.io.IOUtils;
 @CapabilityDescription("Consumes messages from Apache Pulsar. The complementary NiFi processor for sending messages is PublishPulsar.")
 @InputRequirement(InputRequirement.Requirement.INPUT_FORBIDDEN)
 @WritesAttributes({
-    @WritesAttribute(attribute = "message.count", description = "The number of messages received from Pulsar")
+    @WritesAttribute(attribute = "message.count", description = "The number of messages received from Pulsar"),
+    @WritesAttribute(attribute = "pulsar.message.id", description = "The unique identifier of the Pulsar message"),
+    @WritesAttribute(attribute = "pulsar.property.*", description = "All properties from the Pulsar message, prefixed with 'pulsar.property.'")
 })
 public class ConsumePulsar extends AbstractPulsarConsumerProcessor<byte[]> {
 

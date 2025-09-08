@@ -69,7 +69,9 @@ import org.apache.pulsar.common.schema.SchemaType;
         + "FlowFile. No two Pulsar messages will be placed into the same FlowFile if they have different schemas.")
 @Tags({"Pulsar", "Get", "Record", "csv", "avro", "json", "Ingest", "Ingress", "Topic", "PubSub", "Consume"})
 @WritesAttributes({
-        @WritesAttribute(attribute = "record.count", description = "The number of records received")
+        @WritesAttribute(attribute = "record.count", description = "The number of records received"),
+        @WritesAttribute(attribute = "pulsar.message.id", description = "The unique identifier of the Pulsar message"),
+        @WritesAttribute(attribute = "pulsar.property.*", description = "All properties from the Pulsar message, prefixed with 'pulsar.property.'")
 })
 @InputRequirement(InputRequirement.Requirement.INPUT_FORBIDDEN)
 @SeeAlso({PublishPulsar.class, ConsumePulsar.class, PublishPulsarRecord.class})
