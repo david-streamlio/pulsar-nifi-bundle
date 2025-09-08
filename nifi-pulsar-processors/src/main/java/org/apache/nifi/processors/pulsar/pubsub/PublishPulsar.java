@@ -29,6 +29,7 @@ import org.apache.nifi.annotation.behavior.WritesAttribute;
 import org.apache.nifi.annotation.documentation.CapabilityDescription;
 import org.apache.nifi.annotation.documentation.SeeAlso;
 import org.apache.nifi.annotation.documentation.Tags;
+import org.apache.nifi.annotation.lifecycle.OnUnscheduled;
 import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSession;
@@ -49,6 +50,9 @@ import org.apache.nifi.processors.pulsar.utils.PublisherLease;
 @SupportsBatching
 public class PublishPulsar extends AbstractPulsarProducerProcessor<byte[]> {
 
+    // Current lease to reuse for consecutive FlowFiles with the same topic
+    private volatile PublisherLease currentLease = null;
+
     @Override
     public void onTrigger(ProcessContext context, ProcessSession session) throws ProcessException {
 
@@ -68,7 +72,7 @@ public class PublishPulsar extends AbstractPulsarProducerProcessor<byte[]> {
             final String topicName = context.getProperty(TOPIC).evaluateAttributeExpressions(flowFile).getValue();
             final boolean asyncFlag = (context.getProperty(ASYNC_ENABLED).isSet() && context.getProperty(ASYNC_ENABLED).asBoolean());
 
-            PublisherLease lease = getPublisherPool().obtainPublisher(topicName);
+            PublisherLease lease = obtainPublisherLease(topicName);
 
             if (lease == null) {
                 getLogger().error("Unable to publish to topic {}", new Object[] {topicName});
@@ -91,6 +95,57 @@ public class PublishPulsar extends AbstractPulsarProducerProcessor<byte[]> {
                     session.transfer(flowFile, REL_FAILURE);
                 }
             }
+        }
+    }
+
+    /**
+     * Obtain a PublisherLease, reusing the current lease if it's for the same topic,
+     * otherwise closing the existing lease and obtaining a new one.
+     * 
+     * @param topicName the topic name for the desired lease
+     * @return a PublisherLease for the specified topic, or null if unable to obtain one
+     */
+    private synchronized PublisherLease obtainPublisherLease(final String topicName) {
+        // Check if we can reuse the existing lease
+        if (currentLease != null) {
+            final String currentTopicName = currentLease.getTopicName();
+            if (currentTopicName != null && topicName != null && topicName.equals(currentTopicName)) {
+                getLogger().debug("Reusing existing publisher lease for topic: {}", topicName);
+                return currentLease;
+            }
+        }
+        
+        // Close the existing lease if it's for a different topic or if topic names are null
+        if (currentLease != null) {
+            final String currentTopicName = currentLease.getTopicName();
+            getLogger().debug("Closing publisher lease for topic: {} to create new lease for topic: {}", 
+                             currentTopicName != null ? currentTopicName : "null", topicName);
+            currentLease.close();
+            currentLease = null;
+        }
+        
+        // Obtain a new lease for the requested topic
+        currentLease = getPublisherPool().obtainPublisher(topicName);
+        if (currentLease != null) {
+            getLogger().debug("Created new publisher lease for topic: {}", topicName);
+        } else {
+            getLogger().error("Failed to create publisher lease for topic: {}", topicName);
+        }
+        
+        return currentLease;
+    }
+
+    /**
+     * Clean up resources when the processor is unscheduled
+     */
+    @OnUnscheduled
+    public synchronized void onUnscheduled() {
+        if (currentLease != null) {
+            final String currentTopicName = currentLease.getTopicName();
+            getLogger().debug("Closing publisher lease during processor unscheduling for topic: {}", 
+                             currentTopicName != null ? currentTopicName : "null");
+            currentLease.close();
+            currentLease = null;
         }
     }
 }

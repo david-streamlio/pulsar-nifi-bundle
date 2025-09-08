@@ -238,4 +238,12 @@ public class PublisherLease implements Closeable {
             logger.error("Unable to close producer", pcEx);
         }
     }
+
+    /**
+     * Get the topic name for this producer lease
+     * @return the topic name that this producer is publishing to
+     */
+    public String getTopicName() {
+        return producer != null ? producer.getTopic() : null;
+    }
 }
