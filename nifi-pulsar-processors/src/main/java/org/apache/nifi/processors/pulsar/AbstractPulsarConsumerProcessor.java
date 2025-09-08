@@ -587,9 +587,23 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
 
     protected Map<String, String> getMappedFlowFileAttributes(ProcessContext context, final Message<GenericRecord> msg) {
         String mappings = context.getProperty(MAPPED_FLOWFILE_ATTRIBUTES).getValue();
-
-        return PropertyMappingUtils.getMappedValues(mappings,
+        
+        Map<String, String> mappedAttributes = PropertyMappingUtils.getMappedValues(mappings,
         		(p) -> PULSAR_MESSAGE_KEY.equals(p) ? msg.getKey() : msg.getProperty(p));
+        
+        // Always add Pulsar Message ID with proper annotation
+        if (msg.getMessageId() != null) {
+            mappedAttributes.put("pulsar.message.id", msg.getMessageId().toString());
+        }
+        
+        // Always add all Pulsar message properties with proper annotation  
+        if (msg.getProperties() != null && !msg.getProperties().isEmpty()) {
+            for (Map.Entry<String, String> entry : msg.getProperties().entrySet()) {
+                mappedAttributes.put("pulsar.property." + entry.getKey(), entry.getValue());
+            }
+        }
+        
+        return mappedAttributes;
     }
     
     protected boolean isSharedSubscription(ProcessContext context) {
