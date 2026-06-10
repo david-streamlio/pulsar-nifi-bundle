@@ -1,0 +1,3 @@
+# Default owner for everything in the repo. Inbound PRs (including from forks)
+# require review from a code owner before merge once branch protection is enabled.
+* @david-streamlio

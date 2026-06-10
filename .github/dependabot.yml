@@ -1,0 +1,19 @@
+version: 2
+updates:
+  # Keep Maven dependencies (Pulsar, NiFi, Jackson, etc.) patched.
+  - package-ecosystem: maven
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    labels:
+      - dependencies
+
+  # Keep the GitHub Actions used in the workflows above up to date and pinned.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    labels:
+      - dependencies
+      - ci
