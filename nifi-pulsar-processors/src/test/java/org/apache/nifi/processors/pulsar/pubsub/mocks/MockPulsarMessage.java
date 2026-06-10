@@ -211,6 +211,11 @@ public class MockPulsarMessage<T> implements Message<T> {
         return Optional.empty();
     }
 
+    @Override
+    public Optional<byte[]> getSchemaId() {
+        return Optional.empty();
+    }
+
     // Additional methods that might be needed for schema handling
     @Override
     public Optional<Schema<?>> getReaderSchema() {
