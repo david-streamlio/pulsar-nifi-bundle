@@ -8,6 +8,16 @@ updates:
     open-pull-requests-limit: 10
     labels:
       - dependencies
+    ignore:
+      # The NiFi parent POM is intentionally pinned to 2.1.0. Bumping it to a
+      # newer NiFi (e.g. 2.9.0) drags in a parent that bans JUnit 4 and requires
+      # a full JUnit 4->5 test migration (see PR #107). The build already targets
+      # NiFi via the nifi.version property, so the parent bump is deferred. Allow
+      # patch updates (2.1.x); block minor/major until we migrate to JUnit 5.
+      - dependency-name: "org.apache.nifi:nifi-extension-bundles"
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
 
   # Keep the GitHub Actions used in the workflows above up to date and pinned.
   - package-ecosystem: github-actions
