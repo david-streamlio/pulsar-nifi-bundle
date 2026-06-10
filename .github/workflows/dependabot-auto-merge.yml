@@ -1,0 +1,32 @@
+name: Dependabot auto-merge
+
+# Auto-approves and enables auto-merge for Dependabot PRs that contain no major
+# version bumps. GitHub still waits for the required "Build & Test (Java 21)"
+# check to pass before merging, so nothing merges on a red build. Bundles that
+# include a major bump are left for manual review.
+
+on: pull_request
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-merge:
+    runs-on: ubuntu-latest
+    if: ${{ github.actor == 'dependabot[bot]' }}
+    steps:
+      - name: Fetch Dependabot metadata
+        id: metadata
+        uses: dependabot/fetch-metadata@v2
+
+      - name: Approve and enable auto-merge for non-major updates
+        # For a grouped PR, update-type is the highest semver change across the
+        # group, so a group containing any major bump is held here.
+        if: ${{ steps.metadata.outputs.update-type != 'version-update:semver-major' }}
+        run: |
+          gh pr review --approve "$PR_URL"
+          gh pr merge --auto --squash "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
