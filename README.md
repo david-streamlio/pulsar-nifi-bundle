@@ -4,7 +4,12 @@
 
 | Bundle version | NiFi | Pulsar client | Java |
 |---|---|---|---|
+| `2.9.0` | 2.9.0 | 4.2.2 | 21 |
 | `2.1.0` | 2.1.0 | 3.3.7 | 21 |
+
+> **Pulsar major bump in `2.9.0`:** this release line moves the Pulsar client
+> from `3.x` to `4.x` (3.3.7 → 4.2.2). Consumers who must stay on the Pulsar 3.x
+> client should pin to the `2.1.0` release line.
 
 The bundle version tracks the NiFi platform version it is built for; each release
 line targets one Pulsar client major. See [VERSIONING.md](VERSIONING.md) for the
