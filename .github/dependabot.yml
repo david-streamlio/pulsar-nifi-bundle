@@ -1,6 +1,9 @@
 version: 2
 updates:
-  # Keep Maven dependencies (Pulsar, NiFi, Jackson, etc.) patched.
+  # All Maven dependency + plugin updates collapse into a SINGLE grouped PR
+  # (instead of one PR per dependency). Patch/minor bundles auto-merge once CI
+  # is green; a bundle that contains any major bump is held for manual review
+  # (see .github/workflows/dependabot-auto-merge.yml).
   - package-ecosystem: maven
     directory: "/"
     schedule:
@@ -8,6 +11,10 @@ updates:
     open-pull-requests-limit: 10
     labels:
       - dependencies
+    groups:
+      maven-all:
+        patterns:
+          - "*"
     ignore:
       # The NiFi parent POM is intentionally pinned to 2.1.0. Bumping it to a
       # newer NiFi (e.g. 2.9.0) drags in a parent that bans JUnit 4 and requires
@@ -19,7 +26,7 @@ updates:
           - version-update:semver-major
           - version-update:semver-minor
 
-  # Keep the GitHub Actions used in the workflows above up to date and pinned.
+  # All GitHub Actions updates collapse into a SINGLE grouped PR.
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
@@ -27,3 +34,7 @@ updates:
     labels:
       - dependencies
       - ci
+    groups:
+      github-actions-all:
+        patterns:
+          - "*"
