@@ -109,7 +109,7 @@
         <maven-gpg-plugin.version>3.2.8</maven-gpg-plugin.version>
         <maven-javadoc-plugin.version>3.11.3</maven-javadoc-plugin.version>
         <maven-source-plugin.version>3.3.1</maven-source-plugin.version>
-        <nifi-nar-maven-plugin.version>2.1.0</nifi-nar-maven-plugin.version>
+        <nifi-nar-maven-plugin.version>2.3.0</nifi-nar-maven-plugin.version>
         <nexus-staging-maven-plugin.version>1.7.0</nexus-staging-maven-plugin.version>
         <maven-versions-plugin.version>2.5</maven-versions-plugin.version>
 
