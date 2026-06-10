@@ -24,14 +24,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up JDK 21
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '21'
           cache: maven
+
+      # The git tag is authoritative for a release: stamp the pom version from it
+      # (e.g. tag v2.1.0.1 -> Maven version 2.1.0.1) so artifacts and image are
+      # labeled to match the tag. On manual dispatch (no tag) the pom is left as-is.
+      - name: Stamp version from tag
+        if: github.ref_type == 'tag'
+        run: mvn -B -ntp versions:set -DnewVersion="${GITHUB_REF_NAME#v}" -DgenerateBackupPoms=false -DprocessAllModules=true
 
       # Build the NAR artifacts. GPG signing and the docker-image module are skipped
       # here; enable the opt-in jobs below if you want signed Central deploys / images.
@@ -39,7 +46,7 @@ jobs:
         run: mvn -B -ntp clean package -Dgpg.skip=true -pl '!docker-image'
 
       - name: Create GitHub Release and attach NARs
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           generate_release_notes: true
           fail_on_unmatched_files: true
@@ -47,28 +54,61 @@ jobs:
             nifi-pulsar-nar/target/*.nar
             nifi-pulsar-client-service-nar/target/*.nar
 
-  # ---------------------------------------------------------------------------
-  # OPT-IN: push the streamnative/nifi Docker image to a registry.
-  # Uncomment and configure the DOCKER_USERNAME / DOCKER_PASSWORD repo secrets
-  # (Settings → Secrets and variables → Actions). Never expose these to fork PRs.
-  # ---------------------------------------------------------------------------
-  # docker:
-  #   name: Build & push Docker image
-  #   runs-on: ubuntu-latest
-  #   needs: release
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #     - uses: actions/setup-java@v4
-  #       with: { distribution: temurin, java-version: '21', cache: maven }
-  #     - name: Log in to Docker Hub
-  #       uses: docker/login-action@v3
-  #       with:
-  #         username: ${{ secrets.DOCKER_USERNAME }}
-  #         password: ${{ secrets.DOCKER_PASSWORD }}
-  #     - name: Build image (fabric8 plugin runs in the package phase)
-  #       run: mvn -B -ntp clean package -Dgpg.skip=true
-  #     - name: Push image
-  #       run: docker push streamnative/nifi
+  # Build the streamnative/nifi image and push it to GitHub Container Registry
+  # (ghcr.io). Uses the built-in GITHUB_TOKEN — no extra secrets required. The
+  # image is tagged with the release version (stamped from the git tag) and `latest`.
+  docker:
+    name: Build & push Docker image (GHCR)
+    runs-on: ubuntu-latest
+    needs: release
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      # Stamp the pom version from the tag so the image tag matches the release.
+      - name: Stamp version from tag
+        if: github.ref_type == 'tag'
+        run: mvn -B -ntp versions:set -DnewVersion="${GITHUB_REF_NAME#v}" -DgenerateBackupPoms=false -DprocessAllModules=true
+
+      # Full build including the docker-image module: the fabric8 plugin produces
+      # the local image `streamnative/nifi:latest` during the package phase.
+      - name: Build image
+        run: mvn -B -ntp clean package -Dgpg.skip=true
+
+      - name: Resolve image coordinates
+        id: img
+        run: |
+          owner="${GITHUB_REPOSITORY_OWNER,,}"   # GHCR namespaces must be lowercase
+          version="$(mvn -q -N help:evaluate -Dexpression=project.version -DforceStdout)"
+          echo "image=ghcr.io/${owner}/nifi" >> "$GITHUB_OUTPUT"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Tag and push
+        env:
+          IMAGE: ${{ steps.img.outputs.image }}
+          VERSION: ${{ steps.img.outputs.version }}
+        run: |
+          docker tag streamnative/nifi:latest "${IMAGE}:${VERSION}"
+          docker tag streamnative/nifi:latest "${IMAGE}:latest"
+          docker push "${IMAGE}:${VERSION}"
+          docker push "${IMAGE}:latest"
 
   # ---------------------------------------------------------------------------
   # OPT-IN: deploy signed artifacts to Sonatype OSSRH / Maven Central.
@@ -80,8 +120,8 @@ jobs:
   #   runs-on: ubuntu-latest
   #   needs: release
   #   steps:
-  #     - uses: actions/checkout@v4
-  #     - uses: actions/setup-java@v4
+  #     - uses: actions/checkout@v6
+  #     - uses: actions/setup-java@v5
   #       with:
   #         distribution: temurin
   #         java-version: '21'
