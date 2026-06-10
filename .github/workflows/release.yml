@@ -33,6 +33,13 @@ jobs:
           java-version: '21'
           cache: maven
 
+      # The git tag is authoritative for a release: stamp the pom version from it
+      # (e.g. tag v2.1.0.1 -> Maven version 2.1.0.1) so artifacts and image are
+      # labeled to match the tag. On manual dispatch (no tag) the pom is left as-is.
+      - name: Stamp version from tag
+        if: github.ref_type == 'tag'
+        run: mvn -B -ntp versions:set -DnewVersion="${GITHUB_REF_NAME#v}" -DgenerateBackupPoms=false -DprocessAllModules=true
+
       # Build the NAR artifacts. GPG signing and the docker-image module are skipped
       # here; enable the opt-in jobs below if you want signed Central deploys / images.
       - name: Build NAR artifacts
@@ -49,8 +56,7 @@ jobs:
 
   # Build the streamnative/nifi image and push it to GitHub Container Registry
   # (ghcr.io). Uses the built-in GITHUB_TOKEN — no extra secrets required. The
-  # image is tagged with the release version (from the pom, our single source of
-  # truth) and `latest`.
+  # image is tagged with the release version (stamped from the git tag) and `latest`.
   docker:
     name: Build & push Docker image (GHCR)
     runs-on: ubuntu-latest
@@ -68,6 +74,11 @@ jobs:
           distribution: temurin
           java-version: '21'
           cache: maven
+
+      # Stamp the pom version from the tag so the image tag matches the release.
+      - name: Stamp version from tag
+        if: github.ref_type == 'tag'
+        run: mvn -B -ntp versions:set -DnewVersion="${GITHUB_REF_NAME#v}" -DgenerateBackupPoms=false -DprocessAllModules=true
 
       # Full build including the docker-image module: the fabric8 plugin produces
       # the local image `streamnative/nifi:latest` during the package phase.

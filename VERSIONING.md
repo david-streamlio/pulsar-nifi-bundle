@@ -34,8 +34,17 @@ line** rather than multiple Pulsar majors simultaneously.
 | `2.1.0.1` | Connector fix/dep bump, still NiFi 2.1.0 |
 | `2.2.0` | First release built for NiFi 2.2.0 |
 
-The Maven `<version>` in `pom.xml` is the single source of truth for the
-release number. There is no separate `version` file.
+### Where the version lives
+
+The **git tag is authoritative** for a release. The pom `<version>` on `main`
+stays at the NiFi base version (e.g. `2.1.0`); you do **not** hand-edit it or
+commit a bump before tagging. When you push a tag `vX.Y.Z[.R]`, the release
+workflow stamps the pom from the tag (`mvn versions:set -DnewVersion=X.Y.Z[.R]`)
+before building, so the NARs and the Docker image are labeled to match the tag.
+There is no separate `version` file.
+
+This keeps the release flow to a single action — push a tag — with no
+version-bump commit and no chance of the artifacts disagreeing with the tag.
 
 ## Pulsar client major
 
@@ -60,8 +69,10 @@ Mirrors apache/nifi's `support/nifi-N.x` model:
 ## Release tags
 
 Releases are cut by pushing a tag `v<version>` (e.g. `v2.1.0`, `v2.1.0.1`), which
-triggers `.github/workflows/release.yml` to build the NARs and publish a GitHub
-Release. The tag's numeric part must equal the pom `<version>`.
+triggers `.github/workflows/release.yml` to stamp the pom version from the tag,
+build the NARs, publish a GitHub Release, and push the Docker image to GHCR
+(`ghcr.io/<owner>/nifi:<version>` and `:latest`). The tag is the single source of
+truth — nothing needs to be committed beforehand.
 
 ## Compatibility matrix
 
