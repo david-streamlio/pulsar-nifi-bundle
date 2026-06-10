@@ -1,0 +1,51 @@
+name: CI
+
+# Build and run unit tests on every push to main and on every pull request
+# (including PRs from forks). Fork PRs run with the default read-only GITHUB_TOKEN
+# and have no access to repository secrets, so this workflow is safe for untrusted
+# contributors. Do NOT switch this to `pull_request_target` — that would expose
+# secrets and a write-capable token to fork code.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Least-privilege token: read-only is all CI needs.
+permissions:
+  contents: read
+
+# Cancel superseded runs on the same ref to save CI minutes.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build & Test (Java 21)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      # Skip GPG signing (no keys in CI) and the docker-image module (Docker build
+      # is exercised by the release workflow, not on every PR). Tests still run via
+      # the `package` phase.
+      - name: Build and test
+        run: mvn -B -ntp clean package -Dgpg.skip=true -pl '!docker-image'
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-reports
+          path: '**/target/surefire-reports/*.xml'
+          if-no-files-found: ignore
+          retention-days: 7
