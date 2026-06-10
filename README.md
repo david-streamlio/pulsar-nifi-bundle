@@ -1,5 +1,15 @@
 # Apache NiFi - Processor for Apache Pulsar
 
+## Compatibility
+
+| Bundle version | NiFi | Pulsar client | Java |
+|---|---|---|---|
+| `2.1.0` | 2.1.0 | 3.3.7 | 21 |
+
+The bundle version tracks the NiFi platform version it is built for; each release
+line targets one Pulsar client major. See [VERSIONING.md](VERSIONING.md) for the
+full scheme, branching model, and release process.
+
 ## How to build
 
 To build the NAR files using Maven, just run the following commands. The first one makes sure that you are using Java 
