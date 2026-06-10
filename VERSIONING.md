@@ -78,7 +78,12 @@ truth — nothing needs to be committed beforehand.
 
 | Bundle version | NiFi | Pulsar client | Java |
 |---|---|---|---|
+| `2.9.0` | 2.9.0 | 4.2.2 | 21 |
 | `2.1.0` | 2.1.0 | 3.3.7 | 21 |
+
+> **Pulsar major bump in `2.9.0`:** this release line moves the Pulsar client
+> from `3.x` to `4.x` (3.3.7 → 4.2.2). Consumers who must stay on the Pulsar 3.x
+> client should pin to the `2.1.0` release line.
 
 > **Note on history:** releases before `2.1.0` used an independent connector
 > semver (last tag `v1.5.0`). Starting with `2.1.0` the version is re-anchored to
