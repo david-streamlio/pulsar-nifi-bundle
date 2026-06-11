@@ -16,6 +16,7 @@
  */
 package org.apache.nifi.processors.pulsar.pubsub.mocks;
 
+import static org.mockito.Mockito.RETURNS_SELF;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -65,11 +66,15 @@ public class MockPulsarClientService<T> extends AbstractControllerService implem
     @Mock
     PulsarAdmin mockAdmin = mock(PulsarAdmin.class);
 
+    // RETURNS_SELF makes every fluent builder method return the builder by
+    // default, so the mock survives Pulsar client API additions (e.g. the
+    // chunked-message methods in Pulsar 4.x) without enumerating each one.
+    // Explicit terminal stubs below (subscribe(), create()) still override.
     @Mock
-    ProducerBuilder<T> mockProducerBuilder = mock(ProducerBuilder.class);
+    ProducerBuilder<T> mockProducerBuilder = mock(ProducerBuilder.class, RETURNS_SELF);
 
     @Mock
-    ConsumerBuilder<GenericRecord> mockConsumerBuilder = mock(ConsumerBuilder.class);
+    ConsumerBuilder<GenericRecord> mockConsumerBuilder = mock(ConsumerBuilder.class, RETURNS_SELF);
 
     @Mock
     Producer<T> mockProducer = mock(Producer.class);

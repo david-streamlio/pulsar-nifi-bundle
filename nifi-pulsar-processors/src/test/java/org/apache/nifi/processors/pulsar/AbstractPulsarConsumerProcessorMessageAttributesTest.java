@@ -19,7 +19,7 @@ package org.apache.nifi.processors.pulsar;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSession;
 import org.apache.nifi.processor.exception.ProcessException;
-import org.apache.nifi.pulsar.PulsarClientService;
+import org.apache.nifi.processors.pulsar.pubsub.mocks.MockPulsarClientService;
 import org.apache.nifi.reporting.InitializationException;
 import org.apache.nifi.util.TestRunner;
 import org.apache.nifi.util.TestRunners;
@@ -45,8 +45,10 @@ public class AbstractPulsarConsumerProcessorMessageAttributesTest {
     @Mock
     private MessageId mockMessageId;
 
-    @Mock
-    private PulsarClientService mockPulsarClientService;
+    // Use the concrete MockPulsarClientService (a real AbstractControllerService)
+    // rather than a bare Mockito interface mock, because TestRunner.addControllerService
+    // requires an actual ControllerService implementation.
+    private MockPulsarClientService<byte[]> mockPulsarClientService;
 
     private TestConsumerProcessor processor;
     private TestRunner testRunner;
@@ -56,7 +58,8 @@ public class AbstractPulsarConsumerProcessorMessageAttributesTest {
         MockitoAnnotations.openMocks(this);
         processor = new TestConsumerProcessor();
         testRunner = TestRunners.newTestRunner(processor);
-        
+        mockPulsarClientService = new MockPulsarClientService<>();
+
         // Set up minimal required properties
         testRunner.addControllerService("pulsar-client", mockPulsarClientService);
         testRunner.enableControllerService(mockPulsarClientService);

@@ -53,15 +53,24 @@ public class PublishPulsarLeaseReuseTest extends AbstractPulsarProcessorTest<byt
     @Before
     public void setUp() throws InitializationException, Exception {
         MockitoAnnotations.openMocks(this);
-        
-        processor = new PublishPulsar();
+
+        // Override createPublisherPool so the mock PublisherPool is used even after the
+        // processor's @OnScheduled init() runs (which is invoked by runner.run() and would
+        // otherwise replace any reflection-injected pool with a real one).
+        processor = new PublishPulsar() {
+            @Override
+            protected PublisherPool createPublisherPool(final org.apache.nifi.processor.ProcessContext context) {
+                return mockPublisherPool;
+            }
+        };
         runner = TestRunners.newTestRunner(processor);
         addPulsarClientService();
-        
+
         runner.setProperty(AbstractPulsarProducerProcessor.TOPIC, "test-topic");
         runner.setProperty(AbstractPulsarProducerProcessor.ASYNC_ENABLED, "false");
-        
-        // Use reflection to inject the mock PublisherPool
+
+        // Use reflection to inject the mock PublisherPool for tests that invoke
+        // obtainPublisherLease() directly (without going through runner.run()/@OnScheduled).
         injectMockPublisherPool();
     }
     
@@ -283,10 +292,11 @@ public class PublishPulsarLeaseReuseTest extends AbstractPulsarProcessorTest<byt
         runner.enqueue("content1".getBytes());
         runner.enqueue("content2".getBytes());
         runner.enqueue("content3".getBytes());
-        
-        // Run the processor
-        runner.run(1);
-        
+
+        // Run a single trigger without stopping the processor, so the @OnUnscheduled
+        // lease cleanup does not run; this test verifies lease reuse during processing only.
+        runner.run(1, false);
+
         // Verify the lease was obtained only once and reused
         verify(mockPublisherPool, times(1)).obtainPublisher("test-topic");
         verify(mockLease1, times(3)).publish(any(), any(), any(), any(), any(), anyBoolean());
@@ -311,14 +321,15 @@ public class PublishPulsarLeaseReuseTest extends AbstractPulsarProcessorTest<byt
         runner.enqueue("content1".getBytes(), java.util.Collections.singletonMap("topic.name", "topic1"));
         runner.enqueue("content2".getBytes(), java.util.Collections.singletonMap("topic.name", "topic2"));
         runner.enqueue("content3".getBytes(), java.util.Collections.singletonMap("topic.name", "topic1"));
-        
-        // Run the processor
-        runner.run(1);
-        
+
+        // Run a single trigger without stopping the processor, so the @OnUnscheduled
+        // lease cleanup does not run; this test verifies lease switching during processing only.
+        runner.run(1, false);
+
         // Verify leases were obtained for both topics
         verify(mockPublisherPool, times(2)).obtainPublisher("topic1"); // Called twice due to topic switch
         verify(mockPublisherPool, times(1)).obtainPublisher("topic2");
-        
+
         // Verify lease closure when switching topics
         verify(mockLease1, times(1)).close(); // Closed when switching to topic2
         verify(mockLease2, times(1)).close(); // Closed when switching back to topic1

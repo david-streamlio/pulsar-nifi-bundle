@@ -231,11 +231,18 @@ public class PublisherLease implements Closeable {
 
     @Override
     public void close() {
+        // Always attempt to close the producer, even if flushing fails, to avoid leaking
+        // the underlying producer/connection resources when flush() throws.
         try {
             producer.flush();
-            producer.close();
         } catch (final PulsarClientException pcEx) {
             logger.error("Unable to close producer", pcEx);
+        } finally {
+            try {
+                producer.close();
+            } catch (final PulsarClientException pcEx) {
+                logger.error("Unable to close producer", pcEx);
+            }
         }
     }
 
