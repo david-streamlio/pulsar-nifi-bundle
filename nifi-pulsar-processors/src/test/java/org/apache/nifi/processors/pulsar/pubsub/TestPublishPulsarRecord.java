@@ -18,7 +18,7 @@ package org.apache.nifi.processors.pulsar.pubsub;
 
 import static org.apache.nifi.processors.pulsar.pubsub.PublishPulsarRecord.RECORD_READER;
 import static org.apache.nifi.processors.pulsar.pubsub.PublishPulsarRecord.RECORD_WRITER;
-import static org.mockito.Matchers.anyString;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
