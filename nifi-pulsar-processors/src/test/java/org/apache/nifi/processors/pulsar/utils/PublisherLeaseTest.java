@@ -348,7 +348,12 @@ public class PublisherLeaseTest {
         // Verify result
         assertNotNull("Result should not be null", result);
         assertFalse("Result should not be cancelled", result.isCancelled());
-        
+
+        // send() executes the producer interactions asynchronously via
+        // CompletableFuture.supplyAsync(...); block until the future completes before
+        // verifying, otherwise the verification races ahead of the async task.
+        result.join();
+
         verify(producer, times(1)).newMessage();
         verify(typedMessageBuilder, times(1)).properties(messageProperties);
         verify(typedMessageBuilder, times(1)).value("test-content".getBytes());
@@ -369,6 +374,12 @@ public class PublisherLeaseTest {
 
         // Verify result and interactions
         assertNotNull("Result should not be null", result);
+
+        // send() executes the producer interactions asynchronously via
+        // CompletableFuture.supplyAsync(...); block until the future completes before
+        // verifying, otherwise the verification races ahead of the async task.
+        result.join();
+
         verify(producer, times(1)).newMessage();
         verify(typedMessageBuilder, times(1)).properties(messageProperties);
         verify(typedMessageBuilder, times(1)).value("test-content".getBytes());

@@ -155,10 +155,14 @@ public class ConsumePulsarRecordMessageAttributesTest extends AbstractPulsarProc
         messageProperties.put("batch-id", "batch-001");
         messageProperties.put("processing-time", "2023-01-01T15:30:00Z");
         
-        String jsonData = "[{\"id\":1,\"name\":\"Alice\"},{\"id\":2,\"name\":\"Bob\"},{\"id\":3,\"name\":\"Charlie\"}]";
+        // MockRecordParser parses the message content line-by-line (one record per line),
+        // splitting each line on commas to populate the configured schema fields
+        // (id, name). To exercise multiple records in a single message, the content must
+        // contain three lines matching that schema.
+        String recordData = "1,Alice\n2,Bob\n3,Charlie";
         Message<GenericRecord> mockMessage = new MockPulsarMessage<>(
-            "test-topic", 
-            jsonData.getBytes(),
+            "test-topic",
+            recordData.getBytes(),
             testMessageId,
             messageProperties,
             "user-batch-key"

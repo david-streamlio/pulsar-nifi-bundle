@@ -149,7 +149,9 @@ public class MockRecordWriter extends AbstractControllerService implements Recor
 
             @Override
             public WriteResult finishRecordSet() throws IOException {
-                return (recordCount > 0) ? WriteResult.of(1, Collections.emptyMap()) : WriteResult.EMPTY;
+                // Report the actual number of records written so that the consumer's
+                // record.count attribute reflects every record, not a hardcoded 1.
+                return (recordCount > 0) ? WriteResult.of(recordCount, Collections.emptyMap()) : WriteResult.EMPTY;
             }
         };
     }

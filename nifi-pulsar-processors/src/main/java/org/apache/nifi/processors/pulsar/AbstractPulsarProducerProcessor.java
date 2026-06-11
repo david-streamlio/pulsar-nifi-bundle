@@ -327,7 +327,7 @@ public abstract class AbstractPulsarProducerProcessor<T> extends AbstractProcess
 
         if (ctx.getProperty(BATCHING_ENABLED).asBoolean()) {
             config.put("batchingEnabled", Boolean.TRUE);
-            config.put("batchingMaxBytes", ctx.getProperty(BATCHING_MAX_BYTES).asDataSize(DataUnit.B).intValue());
+            config.put("batchingMaxBytes", ctx.getProperty(BATCHING_MAX_BYTES).evaluateAttributeExpressions().asDataSize(DataUnit.B).intValue());
             config.put("batchingMaxMessages", ctx.getProperty(BATCHING_MAX_MESSAGES).evaluateAttributeExpressions().asInteger());
             config.put("batchingMaxPublishDelayMicros", ctx.getProperty(BATCH_INTERVAL).evaluateAttributeExpressions()
                     .asTimePeriod(TimeUnit.MICROSECONDS).intValue());

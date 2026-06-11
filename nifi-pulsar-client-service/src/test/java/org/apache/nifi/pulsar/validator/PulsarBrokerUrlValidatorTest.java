@@ -65,7 +65,7 @@ public class PulsarBrokerUrlValidatorTest {
 	public final void invalidHostPort() {
 		result = validator.validate("PulsarBrokerUrl", "pulsar://foobar", ctx);
 		assertFalse(result.isValid());
-		assertEquals("Must be in hostname:port form (no scheme such as http://", result.getExplanation());
+		assertEquals("Must be in hostname:port form (no scheme such as http://)", result.getExplanation());
 	}
 	
 	@Test
