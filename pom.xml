@@ -94,12 +94,12 @@
         <conscrypt-openjdk.version>2.5.2</conscrypt-openjdk.version>
         <groovy-eclipse-batch.version>3.0.8-01</groovy-eclipse-batch.version>
         <grpc.version>1.41.0</grpc.version>
-        <jackson-core.version>2.22.0</jackson-core.version>
+        <jackson-core.version>2.22.1</jackson-core.version>
         <junit.version>4.13.2</junit.version>
         <mockito-core.version>5.23.0</mockito-core.version>
         <nifi.version>2.9.0</nifi.version>
         <protobuf3.version>4.35.1</protobuf3.version>
-        <pulsar.version>4.2.2</pulsar.version>
+        <pulsar.version>4.2.3</pulsar.version>
         <slf4j-simple.version>2.0.18</slf4j-simple.version>
         <java.version>21</java.version>
 
