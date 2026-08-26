@@ -91,14 +91,14 @@
         <commons-compress.version>1.28.0</commons-compress.version>
         <commons-lang3.version>3.20.0</commons-lang3.version>
         <commons.io.version>2.22.0</commons.io.version>
-        <conscrypt-openjdk.version>2.6.2</conscrypt-openjdk.version>
+        <conscrypt-openjdk.version>2.6.3</conscrypt-openjdk.version>
         <groovy-eclipse-batch.version>3.0.8-01</groovy-eclipse-batch.version>
         <grpc.version>1.41.0</grpc.version>
-        <jackson-core.version>2.22.1</jackson-core.version>
+        <jackson-core.version>2.22.2</jackson-core.version>
         <junit.version>4.13.2</junit.version>
         <mockito-core.version>5.23.0</mockito-core.version>
         <nifi.version>2.10.0</nifi.version>
-        <protobuf3.version>4.35.1</protobuf3.version>
+        <protobuf3.version>4.36.0</protobuf3.version>
         <pulsar.version>4.2.4</pulsar.version>
         <slf4j-simple.version>2.0.18</slf4j-simple.version>
         <java.version>21</java.version>
@@ -109,7 +109,7 @@
         <maven-gpg-plugin.version>3.2.8</maven-gpg-plugin.version>
         <maven-javadoc-plugin.version>3.12.0</maven-javadoc-plugin.version>
         <maven-source-plugin.version>3.4.0</maven-source-plugin.version>
-        <nifi-nar-maven-plugin.version>2.3.0</nifi-nar-maven-plugin.version>
+        <nifi-nar-maven-plugin.version>2.4.0</nifi-nar-maven-plugin.version>
         <nexus-staging-maven-plugin.version>1.7.0</nexus-staging-maven-plugin.version>
         <maven-versions-plugin.version>2.5</maven-versions-plugin.version>
 
