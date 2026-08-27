@@ -22,6 +22,7 @@ import static org.mockito.Mockito.when;
 
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
@@ -202,6 +203,26 @@ public class MockPulsarClientService<T> extends AbstractControllerService implem
         } catch (PulsarClientException e) {
             throw new RuntimeException(e);
         }
+    }
+
+    /**
+     * Queues the given messages for the consumer: {@code receive()}, {@code receive(0, SECONDS)} and
+     * {@code receiveAsync()} return them in order and then {@code null} once the queue is drained, which is
+     * how a real consumer behaves when its receiver queue is empty. Unlike {@link #setMockMessages(List)}
+     * the last message is not repeated forever, so tests can assert on exact batch sizes.
+     */
+    public void setMockMessageQueue(List<Message<GenericRecord>> messages) {
+        this.mockMessages = messages.toArray(new Message[]{});
+        final Queue<Message<GenericRecord>> queue = new ConcurrentLinkedQueue<>(messages);
+
+        try {
+            doAnswer(invocation -> queue.poll()).when(mockConsumer).receive();
+            doAnswer(invocation -> queue.poll()).when(mockConsumer).receive(0, TimeUnit.SECONDS);
+        } catch (PulsarClientException e) {
+            throw new RuntimeException(e);
+        }
+
+        doAnswer(invocation -> CompletableFuture.completedFuture(queue.poll())).when(mockConsumer).receiveAsync();
     }
 
     public Producer<T> getMockProducer() {

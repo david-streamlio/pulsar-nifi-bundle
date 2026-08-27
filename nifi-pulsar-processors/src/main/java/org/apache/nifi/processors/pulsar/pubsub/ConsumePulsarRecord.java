@@ -48,6 +48,7 @@ import org.apache.nifi.processor.Relationship;
 import org.apache.nifi.processor.exception.ProcessException;
 import org.apache.nifi.processor.util.StandardValidators;
 import org.apache.nifi.processors.pulsar.AbstractPulsarConsumerProcessor;
+import org.apache.nifi.processors.pulsar.utils.MessageBatchAttributes;
 import org.apache.nifi.schema.access.SchemaNotFoundException;
 import org.apache.nifi.serialization.*;
 import org.apache.nifi.serialization.record.Record;
@@ -70,8 +71,14 @@ import org.apache.pulsar.common.schema.SchemaType;
 @Tags({"Pulsar", "Get", "Record", "csv", "avro", "json", "Ingest", "Ingress", "Topic", "PubSub", "Consume"})
 @WritesAttributes({
         @WritesAttribute(attribute = "record.count", description = "The number of records received"),
-        @WritesAttribute(attribute = "pulsar.message.id", description = "The unique identifier of the Pulsar message"),
-        @WritesAttribute(attribute = "pulsar.property.*", description = "All properties from the Pulsar message, prefixed with 'pulsar.property.'")
+        @WritesAttribute(attribute = MessageBatchAttributes.MESSAGE_ID_ATTRIBUTE,
+            description = "The unique identifier of the Pulsar message. Only set when the FlowFile was built from exactly one message"),
+        @WritesAttribute(attribute = MessageBatchAttributes.FIRST_MESSAGE_ID_ATTRIBUTE,
+            description = "The identifier of the first Pulsar message written to the FlowFile"),
+        @WritesAttribute(attribute = MessageBatchAttributes.LAST_MESSAGE_ID_ATTRIBUTE,
+            description = "The identifier of the last Pulsar message written to the FlowFile"),
+        @WritesAttribute(attribute = "pulsar.property.*", description = "The properties of the Pulsar message(s), prefixed with 'pulsar.property.'. "
+            + "When the FlowFile contains several messages, only the properties whose value is identical in every message are set")
 })
 @InputRequirement(InputRequirement.Requirement.INPUT_FORBIDDEN)
 @SeeAlso({PublishPulsar.class, ConsumePulsar.class, PublishPulsarRecord.class})
@@ -237,6 +244,7 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
         Map<String, String> lastAttributes = null;
         Message<GenericRecord> lastMessage = null;
         Map<String, String> currentAttributes = null;
+        MessageBatchAttributes batchAttributes = null;
 
         // Cumulative acks are NOT permitted on Shared subscriptions
         final boolean shared = isSharedSubscription(context);
@@ -261,6 +269,7 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
 
                     if (result != WriteResult.EMPTY) {
                         flowFile = session.putAllAttributes(flowFile, result.getAttributes());
+                        flowFile = session.putAllAttributes(flowFile, batchAttributes.toAttributes());
                         flowFile = session.putAttribute(flowFile, MSG_COUNT, result.getRecordCount() + "");
                         session.getProvenanceReporter().receive(flowFile, getPulsarClientService().getPulsarBrokerRootURL() + "/" + consumer.getTopic());
                         session.transfer(flowFile, REL_SUCCESS);
@@ -284,6 +293,7 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
                 if (lastMessage == null) {
                     flowFile = session.create();
                     flowFile = session.putAllAttributes(flowFile, currentAttributes);
+                    batchAttributes = new MessageBatchAttributes();
                     schema = getSchema(flowFile, readerFactory, data);
                     rawOut = session.write(flowFile);
                     writer = getRecordWriter(writerFactory, schema, rawOut, flowFile);
@@ -301,6 +311,7 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
 
                 lastAttributes = currentAttributes;
                 lastMessage = msg;
+                batchAttributes.add(msg);
 
                 if (shared) {
                     acknowledge(consumer, msg, async);
@@ -327,6 +338,7 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
 
             if (result != WriteResult.EMPTY) {
                 flowFile = session.putAllAttributes(flowFile, result.getAttributes());
+                flowFile = session.putAllAttributes(flowFile, batchAttributes.toAttributes());
                 flowFile = session.putAttribute(flowFile, MSG_COUNT, result.getRecordCount() + "");
                 session.getProvenanceReporter().receive(flowFile, getPulsarClientService().getPulsarBrokerRootURL() + "/" + consumer.getTopic());
                 session.transfer(flowFile, REL_SUCCESS);

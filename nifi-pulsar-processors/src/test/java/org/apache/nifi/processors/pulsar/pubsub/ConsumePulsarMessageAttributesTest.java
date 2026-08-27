@@ -242,36 +242,26 @@ public class ConsumePulsarMessageAttributesTest extends AbstractPulsarProcessorT
         // Run the processor
         runner.run(1);
 
-        // The two messages carry different "sequence" property values, so they map to
-        // different FlowFile attribute sets. The consumer only concatenates consecutive
-        // messages that share identical mapped attributes into a single FlowFile;
-        // messages with differing attributes are emitted as separate FlowFiles.
-        runner.assertAllFlowFilesTransferred(ConsumePulsar.REL_SUCCESS, 2);
+        // The two messages have different ids and a different "sequence" property, but neither is a
+        // mapped attribute: per-message metadata must never split a batch. Both messages therefore land
+        // in ONE FlowFile (Consumer Message Batch Size = 2) whose metadata attributes describe the batch.
+        runner.assertAllFlowFilesTransferred(ConsumePulsar.REL_SUCCESS, 1);
         List<MockFlowFile> flowFiles = runner.getFlowFilesForRelationship(ConsumePulsar.REL_SUCCESS);
+        MockFlowFile flowFile = flowFiles.get(0);
 
-        MockFlowFile firstFlowFile = flowFiles.get(0);
-        MockFlowFile secondFlowFile = flowFiles.get(1);
+        flowFile.assertContentEquals("Message 1\nMessage 2");
+        assertEquals("Message count should be 2", "2", flowFile.getAttribute("message.count"));
 
-        // First FlowFile corresponds to the first message
-        assertEquals("First FlowFile message ID should match first message", messageId1,
-                     firstFlowFile.getAttribute("pulsar.message.id"));
-        assertEquals("First FlowFile batch property should be present", "1",
-                     firstFlowFile.getAttribute("pulsar.property.batch"));
-        assertEquals("First FlowFile sequence property should match first message", "first",
-                     firstFlowFile.getAttribute("pulsar.property.sequence"));
-        firstFlowFile.assertContentEquals("Message 1");
-        assertEquals("First FlowFile message count should be 1", "1",
-                     firstFlowFile.getAttribute("message.count"));
+        // No single message id describes a two-message FlowFile: only the first/last ids are published
+        flowFile.assertAttributeNotExists("pulsar.message.id");
+        assertEquals("First message id should be from the first message", messageId1,
+                     flowFile.getAttribute("pulsar.message.id.first"));
+        assertEquals("Last message id should be from the last message", messageId2,
+                     flowFile.getAttribute("pulsar.message.id.last"));
 
-        // Second FlowFile corresponds to the second message
-        assertEquals("Second FlowFile message ID should match second message", messageId2,
-                     secondFlowFile.getAttribute("pulsar.message.id"));
-        assertEquals("Second FlowFile batch property should be present", "1",
-                     secondFlowFile.getAttribute("pulsar.property.batch"));
-        assertEquals("Second FlowFile sequence property should match second message", "second",
-                     secondFlowFile.getAttribute("pulsar.property.sequence"));
-        secondFlowFile.assertContentEquals("Message 2");
-        assertEquals("Second FlowFile message count should be 1", "1",
-                     secondFlowFile.getAttribute("message.count"));
+        // Properties shared by every message in the batch are kept, the differing one is dropped
+        assertEquals("Common batch property should be present", "1",
+                     flowFile.getAttribute("pulsar.property.batch"));
+        flowFile.assertAttributeNotExists("pulsar.property.sequence");
     }
 }

@@ -281,7 +281,9 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
             .displayName("Consumer Message Batch Size")
             .description("Set the maximum number of messages consumed at a time, and published to a single FlowFile. "
                     + "default: 1000. If set to a value greater than 1, messages within the FlowFile will be seperated "
-                    + "by the Message Demarcator.")
+                    + "by the Message Demarcator. Consecutive messages are written to the same FlowFile as long as their "
+                    + "Mapped FlowFile Attributes are identical; a change in those attributes starts a new FlowFile before "
+                    + "the batch size is reached.")
             .required(false)
             .addValidator(StandardValidators.POSITIVE_INTEGER_VALIDATOR)
             .defaultValue("1000")
@@ -294,7 +296,12 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
             .description("A comma-delimited list of FlowFile attributes to set based on message metadata (currently key and properties)."
                     + " Syntax for an individual mapping is <attribute name>[=<source property name or key>]."
                     + " To map the message key to an attribute, use the reserved name __KEY__ (ex. my-attribute=__KEY__ )."
-                    + " If the optional source name is omitted, it is assumed to be the same as the attribute.")
+                    + " If the optional source name is omitted, it is assumed to be the same as the attribute."
+                    + " These attributes also determine which messages may share a FlowFile: consecutive messages with"
+                    + " identical mapped values are batched together (up to the Consumer Message Batch Size), while a change"
+                    + " in any mapped value starts a new FlowFile. Message metadata that is not mapped here (message id,"
+                    + " message properties) is added to the FlowFile as 'pulsar.message.id*' / 'pulsar.property.*' attributes"
+                    + " but never splits a batch.")
             .required(false)
             .addValidator(Validator.VALID)
             .defaultValue("")
@@ -586,25 +593,27 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
         this.consumers = consumers;
     }
 
+    /**
+     * Returns the attributes that decide whether a message may share a FlowFile with the previous one:
+     * the user-configured "Mapped FlowFile Attributes" only. Consecutive messages whose mapped values are
+     * identical are written to the same FlowFile (up to the Consumer Message Batch Size); a change in any
+     * mapped value closes the current FlowFile and starts a new one.
+     * <p>
+     * Per-message metadata such as the message id or the message properties is deliberately NOT part of
+     * this map: it changes with every message, so including it here would close the FlowFile after each
+     * message and defeat batching. That metadata is added to the FlowFile through
+     * {@link org.apache.nifi.processors.pulsar.utils.MessageBatchAttributes}, with semantics that stay
+     * coherent when a FlowFile contains several messages.
+     *
+     * @param context - The Processor context
+     * @param msg - The message being consumed
+     * @return the mapped attribute values of the message (never null, possibly empty)
+     */
     protected Map<String, String> getMappedFlowFileAttributes(ProcessContext context, final Message<GenericRecord> msg) {
         String mappings = context.getProperty(MAPPED_FLOWFILE_ATTRIBUTES).getValue();
-        
-        Map<String, String> mappedAttributes = PropertyMappingUtils.getMappedValues(mappings,
+
+        return PropertyMappingUtils.getMappedValues(mappings,
         		(p) -> PULSAR_MESSAGE_KEY.equals(p) ? msg.getKey() : msg.getProperty(p));
-        
-        // Always add Pulsar Message ID with proper annotation
-        if (msg.getMessageId() != null) {
-            mappedAttributes.put("pulsar.message.id", msg.getMessageId().toString());
-        }
-        
-        // Always add all Pulsar message properties with proper annotation  
-        if (msg.getProperties() != null && !msg.getProperties().isEmpty()) {
-            for (Map.Entry<String, String> entry : msg.getProperties().entrySet()) {
-                mappedAttributes.put("pulsar.property." + entry.getKey(), entry.getValue());
-            }
-        }
-        
-        return mappedAttributes;
     }
     
     protected boolean isSharedSubscription(ProcessContext context) {
