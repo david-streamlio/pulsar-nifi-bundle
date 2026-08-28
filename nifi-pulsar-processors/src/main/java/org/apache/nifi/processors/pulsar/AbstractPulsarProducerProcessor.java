@@ -313,6 +313,12 @@ public abstract class AbstractPulsarProducerProcessor<T> extends AbstractProcess
     @OnScheduled
     public void init(ProcessContext context) {
         setPulsarClientService(context.getProperty(PULSAR_CLIENT_SERVICE).asControllerService(PulsarClientService.class));
+
+        // Close anything left from a previous scheduling before replacing it. Assigning over the field
+        // strands the old pool's producers on the broker with nothing left holding a reference that could
+        // close them - @OnStopped only ever sees the newest pool.
+        closePublisherPool();
+
         setPublisherPool(createPublisherPool(context));
     }
 
