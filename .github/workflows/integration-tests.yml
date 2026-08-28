@@ -1,0 +1,66 @@
+name: Integration Tests
+
+# Runs the Testcontainers-backed integration tests (*IT.java) against a real Pulsar broker
+# on every pull request and every push to main.
+#
+# These are deliberately a separate workflow from CI: they need a Docker daemon and take
+# appreciably longer than the unit tests, so keeping them apart preserves the fast
+# "Build & Test (Java 21)" signal while still gating merges on real-broker behaviour.
+#
+# Like CI this uses `pull_request` (never `pull_request_target`), so fork PRs run with a
+# read-only token and no access to repository secrets.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: it-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  integration-test:
+    # This name is referenced by branch protection as a required check - keep it stable.
+    name: Integration Tests (Java 21)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      # ubuntu-latest ships a running Docker daemon; fail loudly and early if that changes,
+      # rather than surfacing as a confusing Testcontainers "could not find a valid Docker
+      # environment" error midway through the build.
+      - name: Verify Docker is available
+        run: |
+          docker version
+          echo "Server minimum API version: $(docker version --format '{{.Server.MinAPIVersion}}')"
+
+      # Pre-pulling makes the first container start predictable and keeps the pull time out
+      # of the per-test startup timeout.
+      - name: Pre-pull the Pulsar image
+        run: docker pull "$(mvn -B -ntp help:evaluate -Dexpression=pulsar.image -q -DforceStdout)"
+
+      # `verify` is what runs Failsafe; `package` (used by the CI workflow) stops short of it.
+      - name: Run integration tests
+        run: mvn -B -ntp verify -Dgpg.skip=true -pl nifi-pulsar-processors -am
+
+      - name: Upload failsafe reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: failsafe-reports
+          path: '**/target/failsafe-reports/*.xml'
+          if-no-files-found: ignore
+          retention-days: 7
