@@ -251,6 +251,10 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
         Map<String, String> currentAttributes = null;
         MessageBatchAttributes batchAttributes = null;
 
+        // Messages this processor has taken responsibility for - written into the record set, or routed to
+        // parse_failure. They are acknowledged only once the session carrying them has committed.
+        final List<Message<GenericRecord>> pendingAcks = new ArrayList<>();
+
         // Cumulative acks are NOT permitted on Shared subscriptions
         final boolean shared = isSharedSubscription(context);
 
@@ -281,15 +285,20 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
                         session.getProvenanceReporter().receive(flowFile, getPulsarClientService().getPulsarBrokerRootURL() + "/" + consumer.getTopic());
                         session.transfer(flowFile, REL_SUCCESS);
                     } else {
+                        // The record set could not be written, so those messages must NOT be acknowledged.
+                        // Rolling back and then acknowledging - as this used to - discards the FlowFile and
+                        // tells the broker the messages were handled, losing them for good.
+                        pendingAcks.clear();
                         session.rollback();
                     }
 
-                    handleFailures(session, parseFailures, demarcator);
+                    if (handleFailures(session, parseFailures, demarcator)) {
+                        // routed to parse_failure, so they have been dealt with and may be acknowledged
+                        pendingAcks.addAll(parseFailures);
+                    }
                     parseFailures.clear();
 
-                    if (!shared) {
-                        acknowledgeCumulative(consumer, lastMessage, async);
-                    }
+                    acknowledgeOnCommit(session, consumer, pendingAcks, shared, async);
 
                     lastAttributes = null;
                     lastMessage = null;
@@ -326,10 +335,6 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
                 lastMessage = msg;
                 batchAttributes.add(msg);
 
-                if (shared) {
-                    acknowledge(consumer, msg, async);
-                }
-
                 // write each of the records in the current message to the active record set. These will each
                 // have the same mapped flowfile attribute values, which means that it's ok that they are all placed
                 // in the same output flowfile.
@@ -340,7 +345,10 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
                     for (Record record = r.nextRecord(); record != null; record = r.nextRecord()) {
                         writer.write(record);
                     }
+                    // records are in the record set; acknowledging waits for the session to commit
+                    pendingAcks.add(msg);
                 } catch (MalformedRecordException | IOException | SchemaNotFoundException e) {
+                    // queued for parse_failure instead; acknowledged only once that FlowFile is routed
                     parseFailures.add(msg);
                 }
             }
@@ -360,18 +368,63 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
                 session.getProvenanceReporter().receive(flowFile, getPulsarClientService().getPulsarBrokerRootURL() + "/" + consumer.getTopic());
                 session.transfer(flowFile, REL_SUCCESS);
             } else if (writer != null) {
-                // We were able to parse the records, but unable to write them to the FlowFile
+                // An open record set that produced no records: the messages carried nothing to emit. There
+                // is no FlowFile worth keeping, but the messages have still been consumed and must be
+                // acknowledged, or the broker redelivers them forever. A message whose records genuinely
+                // could not be written throws instead and is routed to parse_failure above.
                 session.rollback();
             }
         } catch (IOException e) {
             getLogger().error("Unable to consume from Pulsar topic ", e);
         }
 
-        handleFailures(session, parseFailures, demarcator);
-
-        if (!shared) {
-            acknowledgeCumulative(consumer, messages.get(messages.size() - 1), async);
+        if (handleFailures(session, parseFailures, demarcator)) {
+            pendingAcks.addAll(parseFailures);
         }
+        parseFailures.clear();
+
+        acknowledgeOnCommit(session, consumer, pendingAcks, shared, async);
+    }
+
+    /**
+     * Acknowledges the given messages once the session carrying their content has committed, then clears
+     * the list.
+     * <p>
+     * Acknowledging before the commit - or after a rollback, as the previous code did - removes the
+     * messages from Pulsar without them ever reaching a FlowFile. Deferring keeps the processor
+     * at-least-once: a failure after the write means redelivery, which is duplication rather than loss.
+     *
+     * @param session the session carrying the messages' content
+     * @param consumer the consumer the messages came from
+     * @param pending the messages to acknowledge; emptied before returning
+     * @param shared whether the subscription is Shared, where cumulative acknowledgement is not permitted
+     * @param async whether to use the asynchronous client calls
+     */
+    private void acknowledgeOnCommit(final ProcessSession session, final Consumer<GenericRecord> consumer,
+                                     final List<Message<GenericRecord>> pending, final boolean shared,
+                                     final boolean async) {
+        if (pending.isEmpty()) {
+            return;
+        }
+
+        final List<Message<GenericRecord>> toAcknowledge = new ArrayList<>(pending);
+        pending.clear();
+
+        session.commitAsync(() -> {
+            try {
+                if (shared) {
+                    for (final Message<GenericRecord> message : toAcknowledge) {
+                        acknowledge(consumer, message, async);
+                    }
+                } else {
+                    acknowledgeCumulative(consumer, toAcknowledge.get(toAcknowledge.size() - 1), async);
+                }
+            } catch (final PulsarClientException ackEx) {
+                // The content is safely in NiFi; the messages will simply be redelivered.
+                getLogger().error("Unable to acknowledge {} consumed message(s); they will be redelivered",
+                        new Object[] {toAcknowledge.size()}, ackEx);
+            }
+        });
     }
 
     /**
@@ -429,11 +482,11 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
         }
     }
 
-    private void handleFailures(ProcessSession session,
-                                BlockingQueue<Message<GenericRecord>> parseFailures, byte[] demarcator) {
+    private boolean handleFailures(ProcessSession session,
+                                   BlockingQueue<Message<GenericRecord>> parseFailures, byte[] demarcator) {
 
         if (CollectionUtils.isEmpty(parseFailures)) {
-            return;
+            return false;
         }
 
         FlowFile flowFile = session.create();
@@ -457,6 +510,8 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
         } else {
             session.remove(flowFile);
         }
+
+        return written;
     }
 
     /**
