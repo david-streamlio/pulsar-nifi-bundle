@@ -61,6 +61,10 @@ public class PublisherLease implements Closeable {
     /** The schema the producer was created with, used to discover what schema the topic carries. */
     private final Schema<byte[]> topicSchema;
 
+    /** The topic's Avro schema, parsed once and re-parsed only if the definition itself changes. */
+    private String cachedSchemaDefinition;
+    private org.apache.avro.Schema cachedAvroSchema;
+
     public PublisherLease(Producer producer, ComponentLog logger) {
         this(producer, logger, null);
     }
@@ -87,10 +91,22 @@ public class PublisherLease implements Closeable {
             final SchemaInfo info = topicSchema.getSchemaInfo();
 
             if (info == null || info.getType() != SchemaType.AVRO) {
+                cachedSchemaDefinition = null;
+                cachedAvroSchema = null;
                 return null;
             }
 
-            return new org.apache.avro.Schema.Parser().parse(new String(info.getSchema(), StandardCharsets.UTF_8));
+            final String definition = new String(info.getSchema(), StandardCharsets.UTF_8);
+
+            // Leases are pooled and serve many FlowFiles, so parsing this on every publish rebuilds the
+            // same Avro type tree over and over. Keyed on the definition rather than cached outright, so a
+            // schema that does change is still picked up rather than frozen at whatever was seen first.
+            if (!definition.equals(cachedSchemaDefinition)) {
+                cachedAvroSchema = new org.apache.avro.Schema.Parser().parse(definition);
+                cachedSchemaDefinition = definition;
+            }
+
+            return cachedAvroSchema;
         } catch (final RuntimeException e) {
             // getSchemaInfo() throws when the schema was never bound to a topic
             logger.debug("Unable to determine the topic's schema; falling back to the configured writer", e);
@@ -154,6 +170,12 @@ public class PublisherLease implements Closeable {
             logger.debug("The topic carries no Avro schema; encoding with the configured record writer instead");
         }
 
+        // Built once for the whole record set rather than per record: both are reusable across writes on
+        // the same schema, and the buffer below is already reset each iteration.
+        final GenericDatumWriter<org.apache.avro.generic.GenericRecord> datumWriter =
+                avroSchema == null ? null : new GenericDatumWriter<>(avroSchema);
+        BinaryEncoder encoder = null;
+
         final ByteArrayOutputStream baos = new ByteArrayOutputStream(1024);
 
         Record record;
@@ -167,7 +189,9 @@ public class PublisherLease implements Closeable {
                 final String messageKey;
 
                 if (avroSchema != null) {
-                    messageContent = encodeWithTopicSchema(record, avroSchema);
+                    encoder = EncoderFactory.get().binaryEncoder(baos, encoder);
+                    encodeWithTopicSchema(record, avroSchema, datumWriter, encoder);
+                    messageContent = baos.toByteArray();
                 } else {
                     try (final RecordSetWriter writer = writerFactory.createWriter(logger, schema, baos, flowFile)) {
                         writer.write(record);
@@ -235,8 +259,9 @@ public class PublisherLease implements Closeable {
      * @return the encoded message content
      * @throws IOException if the record cannot be converted or encoded
      */
-    private byte[] encodeWithTopicSchema(final Record record, final org.apache.avro.Schema avroSchema)
-            throws IOException {
+    private void encodeWithTopicSchema(final Record record, final org.apache.avro.Schema avroSchema,
+                                       final GenericDatumWriter<org.apache.avro.generic.GenericRecord> datumWriter,
+                                       final BinaryEncoder encoder) throws IOException {
 
         final org.apache.avro.generic.GenericRecord avroRecord;
 
@@ -246,12 +271,8 @@ public class PublisherLease implements Closeable {
             throw new IOException("Unable to convert the record to the topic's schema " + avroSchema.getFullName(), e);
         }
 
-        final ByteArrayOutputStream encoded = new ByteArrayOutputStream();
-        final BinaryEncoder encoder = EncoderFactory.get().binaryEncoder(encoded, null);
-        new GenericDatumWriter<org.apache.avro.generic.GenericRecord>(avroSchema).write(avroRecord, encoder);
+        datumWriter.write(avroRecord, encoder);
         encoder.flush();
-
-        return encoded.toByteArray();
     }
 
     public long complete() {
