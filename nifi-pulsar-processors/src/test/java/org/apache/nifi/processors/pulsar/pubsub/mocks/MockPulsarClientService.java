@@ -99,6 +99,8 @@ public class MockPulsarClientService<T> extends AbstractControllerService implem
 
     public MockPulsarClientService() {
         when(mockClient.newProducer()).thenReturn((ProducerBuilder<byte[]>) mockProducerBuilder);
+        // producers are created with AUTO_PRODUCE_BYTES so the broker validates against the topic schema
+        when(mockClient.newProducer(any(Schema.class))).thenReturn((ProducerBuilder<byte[]>) mockProducerBuilder);
         when(mockClient.newConsumer(Schema.AUTO_CONSUME())).thenReturn((ConsumerBuilder<GenericRecord>) mockConsumerBuilder);
         when(mockClient.newConsumer(any(Schema.class))).thenReturn((ConsumerBuilder<GenericRecord>) mockConsumerBuilder);
 

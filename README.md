@@ -75,6 +75,40 @@ FlowFile:
 > partition a message routes to, and it makes the topic compactable by that key. If you relied on
 > the previous unkeyed behaviour, clear the `msg.key` attribute before the publish processor.
 
+## Publishing to topics that have a schema
+
+`PublishPulsar` and `PublishPulsarRecord` create their producers with
+`Schema.AUTO_PRODUCE_BYTES()`, so the broker validates every payload against the schema the
+topic currently carries.
+
+| Topic | Behaviour |
+|---|---|
+| no schema | any content is accepted, exactly as before |
+| has a schema, content matches | published normally |
+| has a schema, content does not match | **routed to `failure`** with the broker's error |
+
+> **Breaking change.** Until now the processors published with `Schema.BYTES`, which the broker
+> does not validate. Content that did not match the topic's schema was accepted anyway: the
+> message landed on the topic looking valid, the registered schema was left untouched, and the
+> problem only appeared later, on the consumer side. A schema-aware consumer would fail to decode
+> that message — and, because it could not get past it, stop consuming the topic entirely:
+>
+> ```
+> read 1: id=sensor-1 reading=42
+> read 2 FAILED: AvroRuntimeException: Malformed data. Length is negative: -62
+> ```
+>
+> **Flows that publish content not matching their topic's schema will start routing those
+> FlowFiles to `failure`.** They were previously reported as successful while producing messages
+> no consumer could read, so this surfaces an existing problem rather than creating one — but it
+> is a visible change in behaviour, and it needs a `failure` connection to be handled.
+>
+> Only topics that carry a schema are affected. If your topics have no schema — the default, and
+> what every flow using these processors has relied on so far — nothing changes.
+>
+> Note that this validates the payload; it does not yet *encode* it. Producing records in the
+> topic's Avro or JSON schema from a NiFi record set is tracked separately.
+
 ## How to build
 
 To build the NAR files using Maven, just run the following commands. The first one makes sure that you are using Java 
