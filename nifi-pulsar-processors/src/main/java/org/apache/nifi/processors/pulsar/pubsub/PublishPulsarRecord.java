@@ -132,6 +132,9 @@ public class PublishPulsarRecord extends AbstractPulsarProducerProcessor<byte[]>
                         .evaluateAttributeExpressions(flowFile).getValue();
 
                 try {
+                    // leases are pooled and reused across FlowFiles, so count only the sends made for this FlowFile
+                    final long sentBefore = lease.complete();
+
                     session.read(flowFile, in -> {
                         try {
                             final RecordReader reader = readerFactory.createRecordReader(flowFile, in, getLogger());
@@ -146,7 +149,7 @@ public class PublishPulsarRecord extends AbstractPulsarProducerProcessor<byte[]>
                         }
                     });
 
-                    long messagesSent = lease.complete();
+                    long messagesSent = lease.complete() - sentBefore;
                     session.putAttribute(flowFile, MSG_COUNT, Long.toString(messagesSent));
                     session.putAttribute(flowFile, TOPIC_NAME, topicName);
                     session.getProvenanceReporter().send(flowFile,
@@ -158,6 +161,9 @@ public class PublishPulsarRecord extends AbstractPulsarProducerProcessor<byte[]>
                 } catch (final Exception ex) {
                     getLogger().error("Unable to process session due to ", ex);
                     session.transfer(flowFile, REL_FAILURE);
+                } finally {
+                    // return the producer to the pool (or close it, if the pool has already been closed)
+                    lease.close();
                 }
             }
         }
