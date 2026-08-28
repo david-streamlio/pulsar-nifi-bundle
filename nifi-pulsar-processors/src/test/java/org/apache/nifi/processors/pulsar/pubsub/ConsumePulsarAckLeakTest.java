@@ -48,6 +48,15 @@ public class ConsumePulsarAckLeakTest extends AbstractPulsarProcessorTest<Generi
     private static final String TOPIC = "persistent://public/default/events";
     private static final int TRIGGERS = 40;
 
+    /**
+     * The drain collects acknowledgement Futures that have already completed, so the ones still in flight
+     * when the last trigger returns are legitimately still queued. The ack pool is
+     * {@code newFixedThreadPool(MAX_ASYNC_REQUESTS + 1)} and MAX_ASYNC_REQUESTS defaults to 2, so at most
+     * this many acknowledgements can be in flight at once. What matters is that the number is bounded by
+     * the pool rather than growing with the number of triggers - see {@link #retainedAcksDoNotGrowWithTriggerCount()}.
+     */
+    private static final int MAX_IN_FLIGHT_ACKS = 3;
+
     /** Exposes the ack completion service, which is protected on AbstractPulsarConsumerProcessor. */
     public static class AckProbeConsumePulsar extends ConsumePulsar {
         /** Drains and counts the acknowledgement Futures the processor left behind. */
@@ -94,7 +103,8 @@ public class ConsumePulsarAckLeakTest extends AbstractPulsarProcessorTest<Generi
 
         final int retained = processor.countRetainedAcks();
         assertTrue("Acknowledgement Futures are being retained: " + retained + " left after " + TRIGGERS
-                + " triggers (see issue #53)", retained <= 2);
+                + " triggers, more than the " + MAX_IN_FLIGHT_ACKS + " that can be in flight (see issue #53)",
+                retained <= MAX_IN_FLIGHT_ACKS);
     }
 
     /** Exclusive subscriptions acknowledge cumulatively, once per batch. */
@@ -107,7 +117,27 @@ public class ConsumePulsarAckLeakTest extends AbstractPulsarProcessorTest<Generi
 
         final int retained = processor.countRetainedAcks();
         assertTrue("Acknowledgement Futures are being retained: " + retained + " left after " + TRIGGERS
-                + " triggers (see issue #53)", retained <= 2);
+                + " triggers, more than the " + MAX_IN_FLIGHT_ACKS + " that can be in flight (see issue #53)",
+                retained <= MAX_IN_FLIGHT_ACKS);
+    }
+
+    /**
+     * The property that actually separates "a few acks still in flight" from "a leak": the retained count
+     * must be bounded by the ack pool, not proportional to how long the processor has been running. With
+     * the bug this grew one Future per acknowledgement, so quadrupling the triggers quadrupled the count.
+     */
+    @Test
+    public void retainedAcksDoNotGrowWithTriggerCount() throws Exception {
+        runner.setProperty(AbstractPulsarConsumerProcessor.SUBSCRIPTION_TYPE, "Shared");
+        final int manyTriggers = TRIGGERS * 4;
+        mockClientService.setMockMessageQueue(messages(manyTriggers));
+
+        runner.run(manyTriggers, false);
+
+        final int retained = processor.countRetainedAcks();
+        assertTrue("Retained acknowledgements scale with the trigger count: " + retained + " left after "
+                + manyTriggers + " triggers. A bounded queue should stay at or below " + MAX_IN_FLIGHT_ACKS
+                + " regardless of how many triggers ran (see issue #53)", retained <= MAX_IN_FLIGHT_ACKS);
     }
 
     /**
