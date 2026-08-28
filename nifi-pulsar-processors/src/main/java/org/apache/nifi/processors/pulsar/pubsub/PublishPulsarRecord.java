@@ -25,6 +25,7 @@ import org.apache.nifi.annotation.behavior.WritesAttribute;
 import org.apache.nifi.annotation.documentation.CapabilityDescription;
 import org.apache.nifi.annotation.documentation.SeeAlso;
 import org.apache.nifi.annotation.documentation.Tags;
+import org.apache.nifi.components.AllowableValue;
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.processor.ProcessContext;
@@ -55,6 +56,26 @@ import static org.apache.nifi.expression.ExpressionLanguageScope.FLOWFILE_ATTRIB
 @TriggerWhenEmpty
 @SupportsBatching
 public class PublishPulsarRecord extends AbstractPulsarProducerProcessor<byte[]> {
+
+    static final AllowableValue SCHEMA_FROM_RECORD_WRITER = new AllowableValue("Record Writer", "Record Writer",
+            "Serialize each record with the configured Record Writer. The bytes are whatever that writer "
+            + "emits, which is only accepted by a topic that has no schema of its own.");
+
+    static final AllowableValue SCHEMA_FROM_TOPIC = new AllowableValue("Topic Schema", "Topic Schema",
+            "Encode each record with the schema the topic currently carries, so a schema-aware consumer can "
+            + "decode it. Falls back to the Record Writer when the topic has no Avro schema.");
+
+    public static final PropertyDescriptor MESSAGE_SCHEMA_STRATEGY = new PropertyDescriptor.Builder()
+            .name("MESSAGE_SCHEMA_STRATEGY")
+            .displayName("Message Schema Strategy")
+            .description("How records are serialized into Pulsar messages. Publishing to a topic that "
+                    + "carries a schema requires 'Topic Schema': the broker validates every message against "
+                    + "the topic's schema, so output from the Record Writer is rejected unless it happens to "
+                    + "match. Topics without a schema accept either.")
+            .required(false)
+            .allowableValues(SCHEMA_FROM_RECORD_WRITER, SCHEMA_FROM_TOPIC)
+            .defaultValue(SCHEMA_FROM_RECORD_WRITER.getValue())
+            .build();
 
     public static final PropertyDescriptor RECORD_READER = new PropertyDescriptor.Builder()
             .name("RECORD_READER")
@@ -87,6 +108,7 @@ public class PublishPulsarRecord extends AbstractPulsarProducerProcessor<byte[]>
         final List<PropertyDescriptor> properties = new ArrayList<>();
         properties.add(RECORD_READER);
         properties.add(RECORD_WRITER);
+        properties.add(MESSAGE_SCHEMA_STRATEGY);
         properties.add(MESSAGE_KEY_FIELD);
         properties.addAll(AbstractPulsarProducerProcessor.PROPERTIES);
         PROPERTIES = Collections.unmodifiableList(properties);
@@ -131,6 +153,9 @@ public class PublishPulsarRecord extends AbstractPulsarProducerProcessor<byte[]>
                 final String messageKeyField = context.getProperty(MESSAGE_KEY_FIELD)
                         .evaluateAttributeExpressions(flowFile).getValue();
 
+                final boolean useTopicSchema = SCHEMA_FROM_TOPIC.getValue()
+                        .equals(context.getProperty(MESSAGE_SCHEMA_STRATEGY).getValue());
+
                 try {
                     // leases are pooled and reused across FlowFiles, so count only the sends made for this FlowFile
                     final long sentBefore = lease.complete();
@@ -142,7 +167,7 @@ public class PublishPulsarRecord extends AbstractPulsarProducerProcessor<byte[]>
 
                             final RecordSchema schema = writerFactory.getSchema(flowFile.getAttributes(), recordSet.getSchema());
                             lease.publish(flowFile, recordSet, writerFactory, schema, messageKeyField,
-                                    getMappedMessageProperties(context, flowFile), asyncFlag);
+                                    getMappedMessageProperties(context, flowFile), asyncFlag, useTopicSchema);
 
                         } catch (final SchemaNotFoundException | MalformedRecordException e) {
                             throw new ProcessException(e);

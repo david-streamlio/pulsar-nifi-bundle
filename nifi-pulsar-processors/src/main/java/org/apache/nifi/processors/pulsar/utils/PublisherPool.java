@@ -107,12 +107,16 @@ public class PublisherPool implements Closeable {
         // landed on the topic looking valid, the registered schema was untouched, and every schema-aware
         // consumer then failed to decode it - and stayed stuck on it. On a topic with no schema this
         // behaves exactly as before and any bytes are accepted.
-        final Producer producer = pulsarClient.newProducer(Schema.AUTO_PRODUCE_BYTES())
+        // Kept so the lease can ask what schema the topic actually carries: once the producer exists this
+        // schema has been bound to the topic and reports its SchemaInfo.
+        final Schema<byte[]> topicSchema = Schema.AUTO_PRODUCE_BYTES();
+
+        final Producer producer = pulsarClient.newProducer(topicSchema)
                 .topic(topicName)
                 .loadConf(properties)
                 .create();
 
-        final PooledPublisherLease lease = new PooledPublisherLease(producer, topicName);
+        final PooledPublisherLease lease = new PooledPublisherLease(producer, topicName, topicSchema);
         openLeases.add(lease);
 
         if (isClosed()) {
@@ -164,8 +168,9 @@ public class PublisherPool implements Closeable {
         private final String topicName;
         private final AtomicBoolean producerClosed = new AtomicBoolean(false);
 
-        private PooledPublisherLease(final Producer producer, final String topicName) {
-            super(producer, logger);
+        private PooledPublisherLease(final Producer producer, final String topicName,
+                                     final Schema<byte[]> topicSchema) {
+            super(producer, logger, topicSchema);
             this.topicName = topicName;
         }
 
