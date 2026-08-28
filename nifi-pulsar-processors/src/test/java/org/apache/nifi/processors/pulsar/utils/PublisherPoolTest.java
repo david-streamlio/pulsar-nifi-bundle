@@ -18,6 +18,9 @@ package org.apache.nifi.processors.pulsar.utils;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotSame;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
@@ -26,6 +29,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.RETURNS_SELF;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -40,9 +44,11 @@ import org.apache.nifi.logging.ComponentLog;
 import org.apache.pulsar.client.api.Producer;
 import org.apache.pulsar.client.api.ProducerBuilder;
 import org.apache.pulsar.client.api.PulsarClient;
+import org.apache.pulsar.client.api.Schema;
 import org.apache.pulsar.client.api.PulsarClientException;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.ArgumentCaptor;
 
 /**
  * Regression tests for the producer leak: the pool must hand out idle producers again, and closing the pool
@@ -61,7 +67,9 @@ public class PublisherPoolTest {
     public void setUp() throws PulsarClientException {
         client = mock(PulsarClient.class);
         builder = mock(ProducerBuilder.class, RETURNS_SELF);
-        when(client.newProducer()).thenReturn(builder);
+        // the pool creates producers with AUTO_PRODUCE_BYTES so the broker validates payloads against the
+        // topic's schema, so it is newProducer(Schema) that has to be stubbed
+        when(client.newProducer(any(Schema.class))).thenReturn(builder);
         // doAnswer(...).when(...) so that (re)stubbing never invokes a previous answer
         doAnswer(invocation -> {
             requestedTopics.add(invocation.getArgument(0));
@@ -75,6 +83,27 @@ public class PublisherPoolTest {
         }).when(builder).create();
 
         pool = new PublisherPool(mock(ComponentLog.class), Collections.emptyMap(), client);
+    }
+
+    /**
+     * Producers must be created with AUTO_PRODUCE_BYTES so the broker validates each payload against the
+     * schema the topic currently carries. With the default BYTES schema a topic with, say, an AVRO schema
+     * accepted arbitrary content: the message landed looking valid and every schema-aware consumer then
+     * failed to decode it. This pins the schema choice, which is otherwise invisible from the outside.
+     */
+    @Test
+    public void producersValidateAgainstTheTopicSchema() {
+        pool.obtainPublisher("persistent://public/default/schema-check");
+
+        final ArgumentCaptor<Schema> schema = ArgumentCaptor.forClass(Schema.class);
+        verify(client).newProducer(schema.capture());
+
+        // getSchemaInfo() throws until the schema is bound to a topic, so identify it by what it is
+        assertNotSame("producers must not write opaque bytes past the topic's schema",
+                Schema.BYTES, schema.getValue());
+        assertTrue("expected an AUTO_PRODUCE_BYTES schema so the broker validates the payload, but got "
+                        + schema.getValue().getClass().getName(),
+                schema.getValue().getClass().getSimpleName().contains("AutoProduceBytes"));
     }
 
     @Test

@@ -21,6 +21,7 @@ import org.apache.nifi.logging.ComponentLog;
 import org.apache.pulsar.client.api.Producer;
 import org.apache.pulsar.client.api.PulsarClient;
 import org.apache.pulsar.client.api.PulsarClientException;
+import org.apache.pulsar.client.api.Schema;
 
 import java.io.Closeable;
 import java.util.ArrayList;
@@ -100,7 +101,13 @@ public class PublisherPool implements Closeable {
     private PooledPublisherLease createLease(String topicName) throws PulsarClientException {
         final Map<String, Object> properties = new HashMap<>(pulsarProducerProperties);
 
-        final Producer producer = pulsarClient.newProducer()
+        // AUTO_PRODUCE_BYTES makes the broker validate the payload against whatever schema the topic
+        // currently carries, instead of writing it as opaque bytes. Producing with the default BYTES schema
+        // meant a topic with, say, an AVRO schema accepted arbitrary content without complaint: the message
+        // landed on the topic looking valid, the registered schema was untouched, and every schema-aware
+        // consumer then failed to decode it - and stayed stuck on it. On a topic with no schema this
+        // behaves exactly as before and any bytes are accepted.
+        final Producer producer = pulsarClient.newProducer(Schema.AUTO_PRODUCE_BYTES())
                 .topic(topicName)
                 .loadConf(properties)
                 .create();
