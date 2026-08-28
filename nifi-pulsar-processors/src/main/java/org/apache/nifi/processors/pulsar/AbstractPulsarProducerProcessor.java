@@ -47,6 +47,9 @@ import org.apache.pulsar.client.api.TypedMessageBuilder;
 public abstract class AbstractPulsarProducerProcessor<T> extends AbstractProcessor {
 
     public static final String MSG_COUNT = "msg.count";
+
+    /** FlowFile attribute consulted for the message key when the Message Key property is not set. */
+    public static final String MSG_KEY = "msg.key";
     public static final String TOPIC_NAME = "topic.name";
 
     static final AllowableValue COMPRESSION_TYPE_NONE = new AllowableValue("NONE", "None", "No compression");
@@ -386,10 +389,21 @@ public abstract class AbstractPulsarProducerProcessor<T> extends AbstractProcess
     }
 
     protected String getMessageKey(ProcessContext context, final FlowFile flowFile) {
-        String key = context.getProperty(MESSAGE_KEY).evaluateAttributeExpressions(flowFile).getValue();
+        final String key = context.getProperty(MESSAGE_KEY).evaluateAttributeExpressions(flowFile).getValue();
 
         if (!StringUtils.isBlank(key)) {
             return key;
+        }
+
+        // The Message Key property has always documented this fallback, but nothing implemented it: the
+        // method returned null and the message went out unkeyed, which silently changes partition routing
+        // and makes the topic uncompactable by key.
+        if (flowFile != null) {
+            final String attributeKey = flowFile.getAttribute(MSG_KEY);
+
+            if (!StringUtils.isBlank(attributeKey)) {
+                return attributeKey;
+            }
         }
 
         return null;
