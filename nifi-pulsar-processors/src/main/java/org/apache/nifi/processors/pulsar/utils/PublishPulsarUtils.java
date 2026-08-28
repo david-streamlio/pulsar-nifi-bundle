@@ -21,33 +21,30 @@ import org.apache.nifi.processor.DataUnit;
 import org.apache.nifi.processor.ProcessSession;
 import org.apache.nifi.processor.util.FlowFileFilters;
 
-import java.util.ArrayList;
 import java.util.List;
 
 public class PublishPulsarUtils {
 
+    /** Upper bound on the content pulled into a single trigger. */
+    private static final int MAX_BATCH_BYTES = 1;
+
+    /** Upper bound on the number of FlowFiles pulled into a single trigger. */
+    private static final int MAX_BATCH_FLOWFILES = 500;
+
+    /**
+     * Claims a bounded batch of FlowFiles for one trigger: at most {@value #MAX_BATCH_FLOWFILES} FlowFiles
+     * or 1 MB of content, whichever comes first.
+     * <p>
+     * The size-based filter was already here, but a follow-up loop then drained the rest of the queue in
+     * 10,000-FlowFile batches until it was empty, which made the bound meaningless. A large backlog was
+     * pulled into a single session: unbounded heap for the batch, and one failure rolling back the entire
+     * backlog rather than a bounded slice of it. NiFi calls onTrigger again immediately, so honouring the
+     * bound costs no throughput.
+     *
+     * @param session the current process session
+     * @return the FlowFiles claimed for this trigger, empty when the queue is empty
+     */
     public static List<FlowFile> pollFlowFiles(final ProcessSession session) {
-        final List<FlowFile> initialFlowFiles = session.get(FlowFileFilters.newSizeBasedFilter(1, DataUnit.MB, 500));
-
-        if (initialFlowFiles.isEmpty()) {
-            return initialFlowFiles;
-        } else {
-            return pollAllFlowFiles(session, initialFlowFiles);
-        }
-
-    }
-
-    private static List<FlowFile> pollAllFlowFiles(ProcessSession session, List<FlowFile> initialFlowFiles) {
-        final List<FlowFile> polled = new ArrayList<>(initialFlowFiles);
-        while (true) {
-            final List<FlowFile> flowFiles = session.get(10_000);
-            if (flowFiles.isEmpty()) {
-                break;
-            }
-
-            polled.addAll(flowFiles);
-        }
-
-        return polled;
+        return session.get(FlowFileFilters.newSizeBasedFilter(MAX_BATCH_BYTES, DataUnit.MB, MAX_BATCH_FLOWFILES));
     }
 }
