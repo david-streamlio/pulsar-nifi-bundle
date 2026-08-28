@@ -437,26 +437,55 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
         }
 
         FlowFile flowFile = session.create();
-        OutputStream rawOut = session.write(flowFile);
+        final OutputStream rawOut = session.write(flowFile);
+        boolean written = false;
 
         try {
-            Iterator<Message<GenericRecord>> failureIterator = parseFailures.iterator();
-
-            for (int idx = 0; failureIterator.hasNext(); idx++) {
-                Message<GenericRecord> msg = failureIterator.next();
-
-                if (msg != null && msg.getData() != null) {
-                    if (idx > 0) {
-                        rawOut.write(demarcator);
-                    }
-
-                    rawOut.write(msg.getData());
-                }
-            }
+            writeParseFailures(rawOut, parseFailures, demarcator);
+            written = true;
+        } catch (final IOException e) {
+            getLogger().error("Unable to write the messages that could not be parsed", e);
+        } finally {
+            // The stream has to be closed before the FlowFile can be transferred or removed. Leaving it
+            // open - as the error path used to - leaves a FlowFile dangling in the session that is neither
+            // routed nor discarded, so the parse failures are lost and the session cannot be committed.
             IOUtils.closeQuietly(rawOut);
+        }
+
+        if (written) {
             session.transfer(flowFile, REL_PARSE_FAILURE);
-        } catch (IOException e) {
-            getLogger().error("Unable to route failures", e);
+        } else {
+            session.remove(flowFile);
+        }
+    }
+
+    /**
+     * Writes the unparseable messages into the parse-failure FlowFile, separated by the demarcator.
+     * <p>
+     * Extracted so the failure path above can be exercised: an IOException here must leave the session
+     * clean rather than stranding a FlowFile with an open stream.
+     *
+     * @param out the FlowFile's output stream
+     * @param parseFailures the messages that could not be parsed
+     * @param demarcator bytes written between messages
+     * @throws IOException if the content cannot be written
+     */
+    protected void writeParseFailures(final OutputStream out,
+                                      final BlockingQueue<Message<GenericRecord>> parseFailures,
+                                      final byte[] demarcator) throws IOException {
+
+        final Iterator<Message<GenericRecord>> failureIterator = parseFailures.iterator();
+
+        for (int idx = 0; failureIterator.hasNext(); idx++) {
+            final Message<GenericRecord> msg = failureIterator.next();
+
+            if (msg != null && msg.getData() != null) {
+                if (idx > 0) {
+                    out.write(demarcator);
+                }
+
+                out.write(msg.getData());
+            }
         }
     }
 
