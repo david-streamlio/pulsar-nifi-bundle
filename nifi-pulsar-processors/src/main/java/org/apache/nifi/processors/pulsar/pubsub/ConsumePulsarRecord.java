@@ -255,6 +255,12 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
         // committed yet: they are acknowledged once those are, and not at all if they are rolled back
         final List<Message<GenericRecord>> uncommitted = new ArrayList<>();
 
+        // Records that actually reached the record set. The writer's own count is not a reliable stand-in:
+        // it counts a record as written before the bytes reach the stream, so a failing content repository
+        // still reports a full count for a FlowFile that holds nothing. Counted per record rather than per
+        // message, because a message with some good records and one bad one still has content worth routing.
+        int writtenRecords = 0;
+
         // Cumulative acks are NOT permitted on Shared subscriptions
         final boolean shared = isSharedSubscription(context);
 
@@ -278,7 +284,7 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
                     writer = null;
                     rawOut = null;
 
-                    if (result != WriteResult.EMPTY) {
+                    if (writtenRecords > 0 && result.getRecordCount() > 0) {
                         flowFile = session.putAllAttributes(flowFile, result.getAttributes());
                         flowFile = session.putAllAttributes(flowFile, batchAttributes.toAttributes());
                         flowFile = session.putAttribute(flowFile, MSG_COUNT, result.getRecordCount() + "");
@@ -290,10 +296,10 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
                         session.remove(flowFile);
                     }
 
-                    handleFailures(session, parseFailures, demarcator);
-                    parseFailures.clear();
+                    dropUnroutedFailures(session, parseFailures, demarcator, uncommitted);
                     commitAndAcknowledge(session, consumer, uncommitted, shared, async);
 
+                    writtenRecords = 0;
                     lastAttributes = null;
                     lastMessage = null;
                 }
@@ -342,6 +348,7 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
                     RecordReader r = readerFactory.createRecordReader(flowFile, in, getLogger());
                     for (Record record = r.nextRecord(); record != null; record = r.nextRecord()) {
                         writer.write(record);
+                        writtenRecords++;
                     }
                 } catch (MalformedRecordException | IOException | SchemaNotFoundException e) {
                     parseFailures.add(msg);
@@ -353,10 +360,15 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
             // record set was already finished when the mapped attributes changed. There is nothing to
             // finish in that case - the parse failures are routed below.
             WriteResult result = writer == null ? WriteResult.EMPTY : writer.finishRecordSet();
+
             IOUtils.closeQuietly(writer);
             IOUtils.closeQuietly(rawOut);
 
-            if (result != WriteResult.EMPTY) {
+            // The record count is what decides this, not identity with WriteResult.EMPTY: a writer that
+            // finished with no records returns a result that is not that singleton, and transferring it
+            // routes an empty FlowFile to success. That went unnoticed while a write error rolled the whole
+            // session back and took the empty FlowFile with it.
+            if (writtenRecords > 0 && result.getRecordCount() > 0) {
                 flowFile = session.putAllAttributes(flowFile, result.getAttributes());
                 flowFile = session.putAllAttributes(flowFile, batchAttributes.toAttributes());
                 flowFile = session.putAttribute(flowFile, MSG_COUNT, result.getRecordCount() + "");
@@ -367,7 +379,7 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
                 session.remove(flowFile);
             }
 
-            handleFailures(session, parseFailures, demarcator);
+            dropUnroutedFailures(session, parseFailures, demarcator, uncommitted);
         } catch (IOException e) {
             // nothing has been acknowledged, so the broker redelivers the whole batch
             getLogger().error("Unable to write the received messages to a FlowFile; they will be redelivered", e);
@@ -411,17 +423,44 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
     }
 
     /**
-     * Routes the messages that could not be parsed to {@link #REL_PARSE_FAILURE}.
+     * Routes the parse failures and, when their FlowFile could not be written, removes exactly those
+     * messages from the set awaiting acknowledgement so the broker redelivers them - and only them.
      *
-     * @throws IOException if their content cannot be written. The FlowFile is discarded first, so nothing
-     *                     is left dangling in the session; the caller rolls the session back without
-     *                     acknowledging the messages, and the broker redelivers them.
+     * @param session the current session
+     * @param parseFailures the messages that could not be parsed; emptied before returning
+     * @param demarcator bytes written between messages
+     * @param uncommitted the messages awaiting acknowledgement, adjusted in place
      */
-    private void handleFailures(ProcessSession session,
-                                BlockingQueue<Message<GenericRecord>> parseFailures, byte[] demarcator) throws IOException {
+    private void dropUnroutedFailures(final ProcessSession session,
+                                      final BlockingQueue<Message<GenericRecord>> parseFailures,
+                                      final byte[] demarcator,
+                                      final List<Message<GenericRecord>> uncommitted) {
+
+        final List<Message<GenericRecord>> failures = new ArrayList<>(parseFailures);
+
+        if (!handleFailures(session, parseFailures, demarcator)) {
+            uncommitted.removeAll(failures);
+        }
+
+        parseFailures.clear();
+    }
+
+    /**
+     * Routes the messages that could not be parsed to {@link #REL_PARSE_FAILURE}.
+     * <p>
+     * Reports whether it succeeded rather than throwing, so that a parse-failure FlowFile which cannot be
+     * written costs only the redelivery of the messages it held. Rolling the whole batch back instead - as
+     * this used to - also redelivers the records that were written and routed perfectly well, which is more
+     * duplication than the failure warrants.
+     *
+     * @return true if the messages were routed, false if their content could not be written, in which case
+     *         the FlowFile is discarded and the messages must be left unacknowledged
+     */
+    private boolean handleFailures(ProcessSession session,
+                                   BlockingQueue<Message<GenericRecord>> parseFailures, byte[] demarcator) {
 
         if (CollectionUtils.isEmpty(parseFailures)) {
-            return;
+            return true;
         }
 
         FlowFile flowFile = session.create();
@@ -435,11 +474,13 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
             // discarded, so the session cannot be committed.
             IOUtils.closeQuietly(rawOut);
             session.remove(flowFile);
-            throw e;
+            getLogger().error("Unable to write the messages that could not be parsed; they will be redelivered", e);
+            return false;
         }
 
         IOUtils.closeQuietly(rawOut);
         session.transfer(flowFile, REL_PARSE_FAILURE);
+        return true;
     }
 
     /**
