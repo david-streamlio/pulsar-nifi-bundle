@@ -49,13 +49,22 @@ public class ConsumePulsarAckLeakTest extends AbstractPulsarProcessorTest<Generi
     private static final int TRIGGERS = 40;
 
     /**
-     * The drain collects acknowledgement Futures that have already completed, so the ones still in flight
-     * when the last trigger returns are legitimately still queued. The ack pool is
-     * {@code newFixedThreadPool(MAX_ASYNC_REQUESTS + 1)} and MAX_ASYNC_REQUESTS defaults to 2, so at most
-     * this many acknowledgements can be in flight at once. What matters is that the number is bounded by
-     * the pool rather than growing with the number of triggers - see {@link #retainedAcksDoNotGrowWithTriggerCount()}.
+     * How many retained acknowledgements still count as "in flight" rather than leaked.
+     * <p>
+     * The drain collects Futures that have already completed, so acknowledgements outstanding when the
+     * last trigger returns are legitimately still queued. That number is NOT the ack pool's thread count:
+     * the pool is a fixed thread pool with an unbounded work queue, so an arbitrary number of acks can be
+     * submitted and not yet run. It depends on scheduling, and it goes up under load - which is exactly
+     * how an earlier version of this test, asserting a hard 3, failed in CI with 8.
+     * <p>
+     * What is actually invariant is that the count does not scale with how long the processor ran: the
+     * leak produced exactly one Future per acknowledgement, so it tracked the trigger count 1:1. This
+     * allowance is a quarter of the triggers, which leaves a 4x margin below the leak while tolerating
+     * scheduling noise. {@link #retainedAcksDoNotGrowWithTriggerCount()} tests the invariant directly.
      */
-    private static final int MAX_IN_FLIGHT_ACKS = 3;
+    private static int inFlightAllowance(final int triggers) {
+        return Math.max(4, triggers / 4);
+    }
 
     /** Exposes the ack completion service, which is protected on AbstractPulsarConsumerProcessor. */
     public static class AckProbeConsumePulsar extends ConsumePulsar {
@@ -103,8 +112,9 @@ public class ConsumePulsarAckLeakTest extends AbstractPulsarProcessorTest<Generi
 
         final int retained = processor.countRetainedAcks();
         assertTrue("Acknowledgement Futures are being retained: " + retained + " left after " + TRIGGERS
-                + " triggers, more than the " + MAX_IN_FLIGHT_ACKS + " that can be in flight (see issue #53)",
-                retained <= MAX_IN_FLIGHT_ACKS);
+                + " triggers. The leak produced one per acknowledgement; anything near the trigger count "
+                + "is that leak, not acks in flight (see issue #53)",
+                retained <= inFlightAllowance(TRIGGERS));
     }
 
     /** Exclusive subscriptions acknowledge cumulatively, once per batch. */
@@ -117,27 +127,54 @@ public class ConsumePulsarAckLeakTest extends AbstractPulsarProcessorTest<Generi
 
         final int retained = processor.countRetainedAcks();
         assertTrue("Acknowledgement Futures are being retained: " + retained + " left after " + TRIGGERS
-                + " triggers, more than the " + MAX_IN_FLIGHT_ACKS + " that can be in flight (see issue #53)",
-                retained <= MAX_IN_FLIGHT_ACKS);
+                + " triggers. The leak produced one per acknowledgement; anything near the trigger count "
+                + "is that leak, not acks in flight (see issue #53)",
+                retained <= inFlightAllowance(TRIGGERS));
     }
 
     /**
      * The property that actually separates "a few acks still in flight" from "a leak": the retained count
-     * must be bounded by the ack pool, not proportional to how long the processor has been running. With
-     * the bug this grew one Future per acknowledgement, so quadrupling the triggers quadrupled the count.
+     * must not scale with how long the processor has been running.
+     * <p>
+     * Measured at two scales in one test rather than against a fixed number, because the in-flight count
+     * depends on scheduling and rises under load. With the bug the queue grew one Future per
+     * acknowledgement, so quadrupling the triggers quadrupled the count - 40 and 160. Bounded, the two
+     * measurements stay in the same range no matter how far apart the trigger counts are.
      */
     @Test
     public void retainedAcksDoNotGrowWithTriggerCount() throws Exception {
-        runner.setProperty(AbstractPulsarConsumerProcessor.SUBSCRIPTION_TYPE, "Shared");
+        final int fewTriggers = TRIGGERS;
         final int manyTriggers = TRIGGERS * 4;
-        mockClientService.setMockMessageQueue(messages(manyTriggers));
 
-        runner.run(manyTriggers, false);
+        final int afterFew = retainedAfter(fewTriggers);
+        final int afterMany = retainedAfter(manyTriggers);
 
-        final int retained = processor.countRetainedAcks();
-        assertTrue("Retained acknowledgements scale with the trigger count: " + retained + " left after "
-                + manyTriggers + " triggers. A bounded queue should stay at or below " + MAX_IN_FLIGHT_ACKS
-                + " regardless of how many triggers ran (see issue #53)", retained <= MAX_IN_FLIGHT_ACKS);
+        assertTrue("Retained acknowledgements track the trigger count: " + afterMany + " left after "
+                + manyTriggers + " triggers, which is the one-Future-per-acknowledgement leak rather than "
+                + "acks in flight (see issue #53)", afterMany <= inFlightAllowance(manyTriggers));
+
+        // 4x the triggers must not mean anything like 4x the retained futures
+        assertTrue("Retained acknowledgements scaled with the trigger count: " + afterFew + " after "
+                + fewTriggers + " triggers but " + afterMany + " after " + manyTriggers
+                + " (see issue #53)", afterMany < afterFew + (manyTriggers - fewTriggers) / 4);
+    }
+
+    /** Runs a fresh processor for the given number of triggers and returns what it left queued. */
+    private int retainedAfter(final int triggers) throws Exception {
+        processor = new AckProbeConsumePulsar();
+        runner = TestRunners.newTestRunner(processor);
+        addPulsarClientService();
+        runner.setProperty(AbstractPulsarConsumerProcessor.TOPICS, TOPIC);
+        runner.setProperty(AbstractPulsarConsumerProcessor.SUBSCRIPTION_NAME, "nifi-subscription");
+        runner.setProperty(AbstractPulsarConsumerProcessor.ASYNC_ENABLED, "true");
+        runner.setProperty(AbstractPulsarConsumerProcessor.CONSUMER_BATCH_SIZE, "1");
+        runner.setProperty(AbstractPulsarConsumerProcessor.MESSAGE_DEMARCATOR, "\n");
+        runner.setProperty(AbstractPulsarConsumerProcessor.SUBSCRIPTION_TYPE, "Shared");
+        mockClientService.setMockMessageQueue(messages(triggers));
+
+        runner.run(triggers, false);
+
+        return processor.countRetainedAcks();
     }
 
     /**

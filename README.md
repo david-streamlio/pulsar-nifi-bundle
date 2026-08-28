@@ -55,6 +55,26 @@ through *Mapped FlowFile Attributes*.
 > that comes from a message property has to be mapped through *Mapped FlowFile Attributes*
 > instead.
 
+## Publisher message metadata
+
+`PublishPulsar` and `PublishPulsarRecord` set the message key and message properties from the
+FlowFile:
+
+| Message field | Comes from |
+|---|---|
+| key | the *Message Key* property; if that is not set, the FlowFile attribute `msg.key` |
+| properties | the attributes named by *Mapped Message Properties* (`<property>[=<attribute>]`) |
+
+`PublishPulsarRecord` takes the key from the record field named by *Message Key Field* instead.
+
+> **Behaviour change since `2.9.0`:** the *Message Key* property has always documented the
+> `msg.key` fallback, but it was never implemented — `getMessageKey()` read the property and
+> returned nothing when it was blank. Flows that set a `msg.key` attribute without setting the
+> property therefore published **unkeyed** messages. That fallback now works as documented, so
+> those flows will start producing keyed messages. On a partitioned topic this changes which
+> partition a message routes to, and it makes the topic compactable by that key. If you relied on
+> the previous unkeyed behaviour, clear the `msg.key` attribute before the publish processor.
+
 ## How to build
 
 To build the NAR files using Maven, just run the following commands. The first one makes sure that you are using Java 
