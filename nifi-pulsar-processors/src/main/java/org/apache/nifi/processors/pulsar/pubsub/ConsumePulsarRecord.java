@@ -491,6 +491,8 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
 
         } catch (InterruptedException | ExecutionException e) {
             getLogger().error("Trouble consuming messages ", e);
+        } finally {
+            drainAcknowledgments();
         }
     }
 

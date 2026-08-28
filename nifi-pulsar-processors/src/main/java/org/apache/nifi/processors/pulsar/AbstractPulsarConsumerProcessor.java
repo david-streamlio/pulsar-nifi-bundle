@@ -17,9 +17,12 @@
 package org.apache.nifi.processors.pulsar;
 
 import java.util.*;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -564,6 +567,44 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
 
     protected synchronized void setAckPool(ExecutorService pool) {
        this.ackPool = pool;
+    }
+
+    /**
+     * Consumes every acknowledgement task that has already completed.
+     * <p>
+     * Acknowledgements in asynchronous mode are submitted to an {@link ExecutorCompletionService}, which
+     * retains the {@link Future} of every completed task in an unbounded internal queue until it is taken.
+     * Nothing used to take them, so the queue grew by one Future per acknowledgement - one per message on
+     * Shared/Key_Shared subscriptions, one per batch otherwise - for as long as the processor ran, and the
+     * memory was only released when the processor was stopped and the pools rebuilt.
+     * <p>
+     * Draining after each trigger bounds the queue by the acknowledgements still in flight, and gives us the
+     * result of each one: a failed acknowledgement used to be captured in a Future that nobody ever read, so
+     * a broker rejecting acks failed completely silently.
+     */
+    protected void drainAcknowledgments() {
+        final ExecutorCompletionService<Object> service = getAckService();
+
+        if (service == null) {
+            return;
+        }
+
+        Future<Object> ack = service.poll();
+
+        while (ack != null) {
+            try {
+                ack.get();
+            } catch (final InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+            } catch (final ExecutionException e) {
+                getLogger().warn("Failed to acknowledge a Pulsar message", e.getCause());
+            } catch (final CancellationException e) {
+                getLogger().warn("Acknowledgement of a Pulsar message was cancelled", e);
+            }
+
+            ack = service.poll();
+        }
     }
 
     protected synchronized ExecutorCompletionService<Object> getAckService() {

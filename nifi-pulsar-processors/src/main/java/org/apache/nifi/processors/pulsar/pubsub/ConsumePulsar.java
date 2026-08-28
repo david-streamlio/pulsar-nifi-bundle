@@ -190,19 +190,24 @@ public class ConsumePulsar extends AbstractPulsarConsumerProcessor<byte[]> {
                     session.getProvenanceReporter().receive(flowFile, getPulsarClientService().getPulsarBrokerRootURL() + "/" + consumer.getTopic());
                     session.transfer(flowFile, REL_SUCCESS);
                     session.commitAsync();
-                }
-                // Cumulatively acknowledge consuming the message for non-shared subs
-                if (!shared) {
-	                getAckService().submit(new Callable<Object>() {
-	                    @Override
-	                    public Object call() throws Exception {
-	                       return consumer.acknowledgeCumulativeAsync(messages.get(messages.size() - 1)).get();
-	                    }
-	                });
+
+                    // Cumulatively acknowledge consuming the message for non-shared subs. This has to stay
+                    // inside the isNotEmpty() guard: on an idle topic the list is empty and there is no last
+                    // message to acknowledge.
+                    if (!shared) {
+	                    getAckService().submit(new Callable<Object>() {
+	                        @Override
+	                        public Object call() throws Exception {
+	                           return consumer.acknowledgeCumulativeAsync(messages.get(messages.size() - 1)).get();
+	                        }
+	                    });
+                    }
                 }
             }
         } catch (InterruptedException | ExecutionException e) {
             getLogger().error("Trouble consuming messages ", e);
+        } finally {
+            drainAcknowledgments();
         }
     }
 
