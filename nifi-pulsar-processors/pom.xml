@@ -127,6 +127,29 @@
             <scope>test</scope>
         </dependency>
         
+        <!-- The real client service implementation, so the integration tests can drive the
+             processors against a live broker instead of a mocked controller service. -->
+        <dependency>
+            <groupId>io.streamnative.connectors</groupId>
+            <artifactId>nifi-pulsar-client-service</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- Integration tests: a real Pulsar broker in Docker. Version comes from the
+             testcontainers BOM imported by the parent pom. -->
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>pulsar</artifactId>
+            <scope>test</scope>
+        </dependency>
+
         <dependency>
             <groupId>junit</groupId>
             <artifactId>junit</artifactId>
@@ -148,5 +171,37 @@
 		</dependency>
         
     </dependencies>
+
+    <build>
+        <plugins>
+            <!-- Integration tests (*IT.java) start a real Pulsar broker via Testcontainers, so they
+                 need a working Docker daemon and take appreciably longer than the unit tests.
+                 Surefire does not pick up the *IT suffix, so `mvn test` and `mvn package` stay fast
+                 and Docker-free; these run from `mvn verify`, and can be skipped with -DskipITs. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-failsafe-plugin</artifactId>
+                <version>${maven-failsafe-plugin.version}</version>
+                <configuration>
+                    <includes>
+                        <include>**/*IT.java</include>
+                    </includes>
+                    <systemPropertyVariables>
+                        <!-- see docker.api.version in the parent pom -->
+                        <api.version>${docker.api.version}</api.version>
+                        <pulsar.image>${pulsar.image}</pulsar.image>
+                    </systemPropertyVariables>
+                </configuration>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>integration-test</goal>
+                            <goal>verify</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
 
 </project>

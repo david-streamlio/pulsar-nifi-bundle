@@ -87,6 +87,31 @@ See the [documentation](https://hub.docker.com/r/apache/nifi) on the base image 
 
 Visit https://localhost:8443/nifi/#/login and enter the username and password you provided in the docker command.
 
+## Integration tests
+
+Alongside the unit tests (which run against a mocked Pulsar client) there are integration tests
+that drive the processors against a **real Pulsar broker**, started in Docker by
+[Testcontainers](https://java.testcontainers.org/). They cover behaviour the mocks cannot reach:
+real message ids, real acknowledgement semantics, subscription types and partitioned topics.
+
+They are named `*IT.java`, so Surefire ignores them - `mvn test` and `mvn package` stay fast and
+need no Docker. They run from `mvn verify`:
+
+```
+mvn verify                 # unit tests + integration tests (needs Docker)
+mvn verify -DskipITs       # unit tests only
+mvn test                   # unit tests only, no Docker required
+```
+
+The broker image is pinned by the `pulsar.image` property in the root pom and kept in step with
+`pulsar.version`.
+
+> **Docker 29 and newer:** docker-java (bundled with Testcontainers) negotiates API version 1.32 by
+> default, which Docker 29+ rejects with *"client version 1.32 is too old. Minimum supported API
+> version is 1.44"*. The build therefore passes `-Dapi.version=${docker.api.version}` (1.44) to the
+> integration tests. 1.44 requires Docker 25 or newer; on an older daemon override it, e.g.
+> `mvn verify -Ddocker.api.version=1.41`.
+
 ## How to debug
 
 The JVM Debugger can be enabled by setting the environment variable NIFI_JVM_DEBUGGER to any value when running the docker image, e.g.
