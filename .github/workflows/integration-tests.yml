@@ -49,8 +49,25 @@ jobs:
 
       # Pre-pulling makes the first container start predictable and keeps the pull time out
       # of the per-test startup timeout.
+      # Pulling ahead of time keeps the image download out of the per-test startup timeout. It is an
+      # optimisation, not a requirement - Testcontainers pulls the image itself if this does not - so a
+      # failure here must not fail the build.
+      #
+      # -q -DforceStdout does not guarantee that only the property value reaches stdout: a Maven warning
+      # (a cached dependency-resolution failure, say) lands there too and gets fed to `docker pull`, which
+      # then fails with "invalid reference format". Take the last line and check it looks like an image.
       - name: Pre-pull the Pulsar image
-        run: docker pull "$(mvn -B -ntp help:evaluate -Dexpression=pulsar.image -q -DforceStdout)"
+        continue-on-error: true
+        run: |
+          IMAGE="$(mvn -B -ntp help:evaluate -Dexpression=pulsar.image -q -DforceStdout 2>/dev/null | tail -n 1 | tr -d '[:space:]')"
+          echo "Resolved Pulsar image: '$IMAGE'"
+
+          if [ -z "$IMAGE" ] || printf '%s' "$IMAGE" | grep -qv '^[a-z0-9._/-]\+:[A-Za-z0-9._-]\+$'; then
+            echo "Could not resolve a usable image reference; leaving the pull to Testcontainers."
+            exit 0
+          fi
+
+          docker pull "$IMAGE"
 
       # `verify` is what runs Failsafe; `package` (used by the CI workflow) stops short of it.
       - name: Run integration tests
