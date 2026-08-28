@@ -17,6 +17,10 @@
 package org.apache.nifi.processors.pulsar.utils;
 
 import org.apache.commons.compress.utils.IOUtils;
+import org.apache.nifi.avro.AvroTypeUtil;
+import org.apache.avro.generic.GenericDatumWriter;
+import org.apache.avro.io.BinaryEncoder;
+import org.apache.avro.io.EncoderFactory;
 import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.logging.ComponentLog;
 import org.apache.nifi.schema.access.SchemaNotFoundException;
@@ -30,6 +34,9 @@ import org.apache.nifi.stream.io.StreamUtils;
 import org.apache.nifi.stream.io.util.StreamDemarcator;
 import org.apache.pulsar.client.api.MessageId;
 import org.apache.pulsar.client.api.Producer;
+import org.apache.pulsar.common.schema.SchemaType;
+import org.apache.pulsar.common.schema.SchemaInfo;
+import org.apache.pulsar.client.api.Schema;
 import org.apache.pulsar.client.api.PulsarClientException;
 import org.apache.pulsar.client.api.TypedMessageBuilder;
 
@@ -51,9 +58,44 @@ public class PublisherLease implements Closeable {
 
     private final AtomicLong messagesSent = new AtomicLong(0L);
 
+    /** The schema the producer was created with, used to discover what schema the topic carries. */
+    private final Schema<byte[]> topicSchema;
+
     public PublisherLease(Producer producer, ComponentLog logger) {
+        this(producer, logger, null);
+    }
+
+    public PublisherLease(Producer producer, ComponentLog logger, Schema<byte[]> topicSchema) {
         this.producer = producer;
         this.logger = logger;
+        this.topicSchema = topicSchema;
+    }
+
+    /**
+     * The Avro schema the topic currently carries, or null when it has none, when the producer was not
+     * created with a schema-discovering one, or when the schema is not Avro.
+     * <p>
+     * Producers are created with {@code Schema.AUTO_PRODUCE_BYTES()}, which binds to the topic when the
+     * producer is created and then reports the topic's registered SchemaInfo.
+     */
+    org.apache.avro.Schema getTopicAvroSchema() {
+        if (topicSchema == null) {
+            return null;
+        }
+
+        try {
+            final SchemaInfo info = topicSchema.getSchemaInfo();
+
+            if (info == null || info.getType() != SchemaType.AVRO) {
+                return null;
+            }
+
+            return new org.apache.avro.Schema.Parser().parse(new String(info.getSchema(), StandardCharsets.UTF_8));
+        } catch (final RuntimeException e) {
+            // getSchemaInfo() throws when the schema was never bound to a topic
+            logger.debug("Unable to determine the topic's schema; falling back to the configured writer", e);
+            return null;
+        }
     }
 
     public void publish(final FlowFile flowFile, final InputStream flowFileContent, final String messageKey,
@@ -94,6 +136,23 @@ public class PublisherLease implements Closeable {
     public void publish(final FlowFile flowFile, final RecordSet recordSet, final RecordSetWriterFactory writerFactory,
                         final RecordSchema schema, final String messageKeyField, Map<String, String> messageProperties,
                         boolean async) throws IOException {
+        publish(flowFile, recordSet, writerFactory, schema, messageKeyField, messageProperties, async, false);
+    }
+
+    /**
+     * @param useTopicSchema encode each record with the schema the topic carries rather than with the
+     *                       configured record writer. Falls back to the writer when the topic has no Avro
+     *                       schema, so a topic without one behaves exactly as before.
+     */
+    public void publish(final FlowFile flowFile, final RecordSet recordSet, final RecordSetWriterFactory writerFactory,
+                        final RecordSchema schema, final String messageKeyField, Map<String, String> messageProperties,
+                        boolean async, boolean useTopicSchema) throws IOException {
+
+        final org.apache.avro.Schema avroSchema = useTopicSchema ? getTopicAvroSchema() : null;
+
+        if (useTopicSchema && avroSchema == null) {
+            logger.debug("The topic carries no Avro schema; encoding with the configured record writer instead");
+        }
 
         final ByteArrayOutputStream baos = new ByteArrayOutputStream(1024);
 
@@ -107,14 +166,16 @@ public class PublisherLease implements Closeable {
                 final byte[] messageContent;
                 final String messageKey;
 
-                // final Map<String, String> additionalAttributes;
-                try (final RecordSetWriter writer = writerFactory.createWriter(logger, schema, baos, flowFile)) {
-                    final WriteResult writeResult = writer.write(record);
-                    // additionalAttributes = writeResult.getAttributes();
-                    writer.flush();
-                }
+                if (avroSchema != null) {
+                    messageContent = encodeWithTopicSchema(record, avroSchema);
+                } else {
+                    try (final RecordSetWriter writer = writerFactory.createWriter(logger, schema, baos, flowFile)) {
+                        writer.write(record);
+                        writer.flush();
+                    }
 
-                messageContent = baos.toByteArray();
+                    messageContent = baos.toByteArray();
+                }
                 messageKey = getMessageKey(flowFile, writerFactory, record.getValue(messageKeyField));
 
                 futureList.add(async ?
@@ -160,6 +221,37 @@ public class PublisherLease implements Closeable {
         } finally {
             futures.clear();
         }
+    }
+
+    /**
+     * Encodes a NiFi record as Avro binary using the topic's own schema.
+     * <p>
+     * This is the encoding Pulsar's AVRO schema uses, so the broker accepts it and a schema-aware consumer
+     * decodes it. Writing the record with the configured record writer instead produced whatever that
+     * writer emits - JSON, CSV - which the broker now rejects and which a consumer could never decode.
+     *
+     * @param record the record to encode
+     * @param avroSchema the schema the topic carries
+     * @return the encoded message content
+     * @throws IOException if the record cannot be converted or encoded
+     */
+    private byte[] encodeWithTopicSchema(final Record record, final org.apache.avro.Schema avroSchema)
+            throws IOException {
+
+        final org.apache.avro.generic.GenericRecord avroRecord;
+
+        try {
+            avroRecord = AvroTypeUtil.createAvroRecord(record, avroSchema);
+        } catch (final Exception e) {
+            throw new IOException("Unable to convert the record to the topic's schema " + avroSchema.getFullName(), e);
+        }
+
+        final ByteArrayOutputStream encoded = new ByteArrayOutputStream();
+        final BinaryEncoder encoder = EncoderFactory.get().binaryEncoder(encoded, null);
+        new GenericDatumWriter<org.apache.avro.generic.GenericRecord>(avroSchema).write(avroRecord, encoder);
+        encoder.flush();
+
+        return encoded.toByteArray();
     }
 
     public long complete() {

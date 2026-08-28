@@ -44,6 +44,13 @@
             <version>${nifi.version}</version>
         </dependency>
         
+        <!-- Converts NiFi records into Avro records so they can be encoded with the topic's own schema. -->
+        <dependency>
+            <groupId>org.apache.nifi</groupId>
+            <artifactId>nifi-avro-record-utils</artifactId>
+            <version>${nifi.version}</version>
+        </dependency>
+
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-record-serialization-service-api</artifactId>

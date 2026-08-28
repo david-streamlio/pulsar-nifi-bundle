@@ -106,8 +106,21 @@ topic currently carries.
 > Only topics that carry a schema are affected. If your topics have no schema — the default, and
 > what every flow using these processors has relied on so far — nothing changes.
 >
-> Note that this validates the payload; it does not yet *encode* it. Producing records in the
-> topic's Avro or JSON schema from a NiFi record set is tracked separately.
+### Publishing records to a schema-bearing topic
+
+`PublishPulsarRecord` has a **Message Schema Strategy** property controlling how records become messages:
+
+| Strategy | Behaviour |
+|---|---|
+| `Record Writer` (default) | serialize with the configured Record Writer, as before |
+| `Topic Schema` | convert each record to the topic's Avro schema and encode it the way Pulsar does |
+
+Use `Topic Schema` when the topic carries an AVRO schema: the Record Writer's output — JSON, CSV,
+Avro-with-header — is not what the broker accepts, so it is rejected. On a topic with no Avro
+schema this strategy falls back to the Record Writer, so turning it on is safe either way.
+
+JSON-schema topics are not yet encoded; only AVRO. Those still need `Record Writer` output that
+happens to match.
 
 ## How to build
 
