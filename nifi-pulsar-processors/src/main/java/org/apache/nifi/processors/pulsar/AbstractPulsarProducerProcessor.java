@@ -23,6 +23,7 @@ import java.util.concurrent.TimeUnit;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.nifi.annotation.lifecycle.OnScheduled;
+import org.apache.nifi.annotation.lifecycle.OnStopped;
 import org.apache.nifi.annotation.lifecycle.OnUnscheduled;
 import org.apache.nifi.components.AllowableValue;
 import org.apache.nifi.components.PropertyDescriptor;
@@ -309,7 +310,32 @@ public abstract class AbstractPulsarProducerProcessor<T> extends AbstractProcess
     @OnScheduled
     public void init(ProcessContext context) {
         setPulsarClientService(context.getProperty(PULSAR_CLIENT_SERVICE).asControllerService(PulsarClientService.class));
+
+        // Close anything left from a previous scheduling before replacing it. Overwriting the field
+        // outright strands the old pool's producers on the broker with nothing left holding a reference
+        // to close them.
+        closePublisherPool(context);
+
         setPublisherPool(createPublisherPool(context));
+    }
+
+    /**
+     * Closes the publisher pool, and with it every producer it is holding.
+     * <p>
+     * Without this the pool built in {@link #init(ProcessContext)} was simply abandoned on stop, so
+     * stopping and restarting the processor left the previous run's producers connected to the broker.
+     * The consumer side has always done the equivalent through its LRU cache.
+     *
+     * @param context the processor context
+     */
+    @OnStopped
+    public void closePublisherPool(final ProcessContext context) {
+        final PublisherPool pool = getPublisherPool();
+
+        if (pool != null) {
+            pool.close();
+            setPublisherPool(null);
+        }
     }
 
     protected PublisherPool createPublisherPool(final ProcessContext context) {

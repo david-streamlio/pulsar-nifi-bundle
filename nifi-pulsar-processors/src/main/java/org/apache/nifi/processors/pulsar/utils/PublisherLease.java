@@ -162,6 +162,13 @@ public class PublisherLease implements Closeable {
         }
     }
 
+    /**
+     * Clears the message count so a pooled lease does not carry one FlowFile's total into the next.
+     */
+    void reset() {
+        this.messagesSent.set(0L);
+    }
+
     public long complete() {
         return this.messagesSent.get();
     }

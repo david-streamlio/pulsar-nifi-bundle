@@ -158,6 +158,12 @@ public class PublishPulsarRecord extends AbstractPulsarProducerProcessor<byte[]>
                 } catch (final Exception ex) {
                     getLogger().error("Unable to process session due to ", ex);
                     session.transfer(flowFile, REL_FAILURE);
+                } finally {
+                    // Return the lease so its producer is reused by the next FlowFile instead of being
+                    // abandoned. Without this a busy flow opens one producer - and one broker connection -
+                    // per FlowFile and never releases any of them. complete() is read above, before this
+                    // resets the lease's message count.
+                    lease.close();
                 }
             }
         }

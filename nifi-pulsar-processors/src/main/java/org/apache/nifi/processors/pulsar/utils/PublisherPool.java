@@ -26,6 +26,7 @@ import java.io.Closeable;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingQueue;
 
 public class PublisherPool implements Closeable {
@@ -35,7 +36,11 @@ public class PublisherPool implements Closeable {
 
     private final PulsarClient pulsarClient;
 
-    private final BlockingQueue<PublisherLease> publisherQueue;
+    /**
+     * Idle leases, keyed by topic. A lease wraps a producer bound to one topic, so a single shared queue
+     * could hand a caller a producer for the wrong topic - which is why the queue has to be per topic.
+     */
+    private final Map<String, BlockingQueue<PublisherLease>> publisherQueues;
 
     private volatile boolean closed = false;
 
@@ -43,7 +48,7 @@ public class PublisherPool implements Closeable {
         this.logger = logger;
         this.pulsarProducerProperties = pulsarProducerProperties;
         this.pulsarClient = pulsarClient;
-        this.publisherQueue = new LinkedBlockingQueue<>();
+        this.publisherQueues = new ConcurrentHashMap<>();
     }
 
     public PublisherLease obtainPublisher(String topicName) {
@@ -51,22 +56,31 @@ public class PublisherPool implements Closeable {
             throw new IllegalStateException("Connection Pool is closed");
         }
 
-        PublisherLease lease = null;
-
-        try {
-            lease = createLease(topicName);
-        } catch (PulsarClientException pcEx) {
-           logger.error("Unable to create producer", pcEx);
-        }
-
-        return lease;
-    }
-
-    private PublisherLease createLease(String topicName) throws PulsarClientException {
         if (StringUtils.isBlank(topicName)) {
             return null;
         }
-        
+
+        final PublisherLease pooled = queueFor(topicName).poll();
+
+        if (pooled != null) {
+            // the counter is cumulative per lease, so clear it before the next FlowFile uses it
+            pooled.reset();
+            return pooled;
+        }
+
+        try {
+            return createLease(topicName);
+        } catch (PulsarClientException pcEx) {
+            logger.error("Unable to create producer", pcEx);
+            return null;
+        }
+    }
+
+    private BlockingQueue<PublisherLease> queueFor(final String topicName) {
+        return publisherQueues.computeIfAbsent(topicName, t -> new LinkedBlockingQueue<>());
+    }
+
+    private PublisherLease createLease(final String topicName) throws PulsarClientException {
         final Map<String, Object> properties = new HashMap<>(pulsarProducerProperties);
         Producer producer = pulsarClient.newProducer()
                 .topic(topicName)
@@ -78,15 +92,23 @@ public class PublisherPool implements Closeable {
 
             @Override
             public void close() {
-                if (isClosed()) {
-                    if (closed) {
-                        return;
-                    }
+                if (closed) {
+                    return;
+                }
 
+                if (isClosed()) {
+                    // the pool is gone, so this really is the end of the producer's life
                     closed = true;
                     super.close();
                 } else {
-                    publisherQueue.remove(this);
+                    // hand it back for the next FlowFile on this topic rather than dropping it. This used
+                    // to be publisherQueue.remove(this) on a queue nothing ever added to, so the producer
+                    // was never returned and never closed - it simply leaked.
+                    reset();
+                    if (!queueFor(topicName).offer(this)) {
+                        closed = true;
+                        super.close();
+                    }
                 }
             }
         };
@@ -102,9 +124,14 @@ public class PublisherPool implements Closeable {
     public synchronized void close() {
         closed = true;
 
-        PublisherLease lease;
-        while ((lease = publisherQueue.poll()) != null) {
-            lease.close();
+        for (final BlockingQueue<PublisherLease> queue : publisherQueues.values()) {
+            PublisherLease lease;
+            while ((lease = queue.poll()) != null) {
+                // the pool is closed now, so this closes the underlying producer
+                lease.close();
+            }
         }
+
+        publisherQueues.clear();
     }
 }
