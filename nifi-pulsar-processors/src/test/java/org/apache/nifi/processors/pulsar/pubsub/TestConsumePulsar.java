@@ -127,6 +127,7 @@ public class TestConsumePulsar extends AbstractPulsarProcessorTest<byte[]> {
         verify(mockClientService.getMockConsumerBuilder(), times(1)).autoUpdatePartitionsInterval(120, TimeUnit.SECONDS);
     }
 
+    @Test
     public void chunkedMessageConfigTest() {
         when(mockMessage.getData()).thenReturn("Mocked Message".getBytes());
         mockClientService.setMockMessage(mockMessage);
