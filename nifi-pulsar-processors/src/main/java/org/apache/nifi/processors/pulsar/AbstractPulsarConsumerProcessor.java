@@ -176,6 +176,19 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
             .defaultValue("2")
             .build();
 
+    public static final PropertyDescriptor CONSUMER_CACHE_SIZE = new PropertyDescriptor.Builder()
+            .name("CONSUMER_CACHE_SIZE")
+            .displayName("Consumer Cache Size")
+            .description("The maximum number of Pulsar consumers this processor keeps open at once. When the "
+                    + "cache is full the least recently used consumer is closed to make room, which unsubscribes "
+                    + "it until it is needed again. Set this at or above the number of topics a Topics Pattern "
+                    + "subscription is expected to match, otherwise consumers will be closed and reopened as the "
+                    + "processor cycles through them.")
+            .required(false)
+            .addValidator(StandardValidators.POSITIVE_INTEGER_VALIDATOR)
+            .defaultValue("20")
+            .build();
+
     public static final PropertyDescriptor ACK_TIMEOUT = new PropertyDescriptor.Builder()
             .name("ACK_TIMEOUT")
             .displayName("Acknowledgment Timeout")
@@ -331,6 +344,7 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
         descriptorList.add(TOPICS_PATTERN);
         descriptorList.add(SUBSCRIPTION_NAME);
         descriptorList.add(SUBSCRIPTION_INITIAL_POSITION);
+        descriptorList.add(CONSUMER_CACHE_SIZE);
         descriptorList.add(CONSUMER_NAME);
         descriptorList.add(ASYNC_ENABLED);
         descriptorList.add(MAX_ASYNC_REQUESTS);
@@ -398,6 +412,12 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
 
     @OnScheduled
     public void init(ProcessContext context) {
+        // Record the size only. Replacing the cache here would abandon the consumers the previous one
+        // holds without closing them, and the broker then refuses the replacement consumer on an
+        // Exclusive subscription with "Exclusive consumer is already connected". The cache is built
+        // lazily below and disposed in cleanUp().
+        this.consumerCacheSize = context.getProperty(CONSUMER_CACHE_SIZE).asInteger();
+
         if (context.getProperty(ASYNC_ENABLED).isSet() && context.getProperty(ASYNC_ENABLED).asBoolean()) {
             setConsumerPool(Executors.newFixedThreadPool(context.getProperty(MAX_ASYNC_REQUESTS).asInteger()));
             setConsumerService(new ExecutorCompletionService<>(getConsumerPool()));
@@ -434,7 +454,10 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
     @OnStopped
     public void cleanUp(final ProcessContext context) {
         shutDown(context);
+        // clear() closes each cached consumer
         getConsumers().clear();
+        // drop the cache itself so a restart rebuilds it at the currently configured size
+        setConsumers(null);
     }
 
     /**
@@ -623,9 +646,14 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
        this.pulsarClientService = pulsarClientService;
     }
 
+    /** Used when the processor has not been scheduled, i.e. outside a running flow. */
+    static final int DEFAULT_CONSUMER_CACHE_SIZE = 20;
+
+    private volatile int consumerCacheSize = DEFAULT_CONSUMER_CACHE_SIZE;
+
     protected synchronized PulsarConsumerLRUCache<String, Consumer<GenericRecord>> getConsumers() {
         if (consumers == null) {
-           consumers = new PulsarConsumerLRUCache<String, Consumer<GenericRecord>>(20);
+           consumers = new PulsarConsumerLRUCache<String, Consumer<GenericRecord>>(consumerCacheSize);
         }
         return consumers;
     }
