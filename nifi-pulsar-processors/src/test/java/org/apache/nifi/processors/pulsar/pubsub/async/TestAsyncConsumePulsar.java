@@ -61,9 +61,11 @@ public class TestAsyncConsumePulsar extends TestConsumePulsar {
         runner.run();
         runner.assertAllFlowFilesTransferred(ConsumePulsar.REL_SUCCESS);
 
-        // Make sure no Flowfiles were generated
+        // Make sure no Flowfiles were generated. This asserted 1 while its own comment - and the
+        // synchronous test next to it - said 0: the async path transferred the FlowFile without checking
+        // whether anything had been written to it.
         List<MockFlowFile> flowFiles = runner.getFlowFilesForRelationship(ConsumePulsar.REL_SUCCESS);
-        assertEquals(1, flowFiles.size());
+        assertEquals(0, flowFiles.size());
     }
 
     @Test

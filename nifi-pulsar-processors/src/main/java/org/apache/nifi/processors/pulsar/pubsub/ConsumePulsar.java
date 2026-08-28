@@ -119,10 +119,17 @@ public class ConsumePulsar extends AbstractPulsarConsumerProcessor<byte[]> {
                             // mapped attributes changed, write the current flowfile and start a new one
                             IOUtils.closeQuietly(out);
 
-                            flowFile = session.putAllAttributes(flowFile, batchAttributes.toAttributes());
-                            flowFile = session.putAttribute(flowFile, MSG_COUNT, msgCount.toString());
-                            session.getProvenanceReporter().receive(flowFile, getPulsarClientService().getPulsarBrokerRootURL() + "/" + consumer.getTopic());
-                            session.transfer(flowFile, REL_SUCCESS);
+                            if (msgCount.get() < 1) {
+                                // every message in this batch had an empty payload, so there is nothing to
+                                // route; the synchronous path has always discarded these
+                                session.remove(flowFile);
+                            } else {
+                                flowFile = session.putAllAttributes(flowFile, batchAttributes.toAttributes());
+                                flowFile = session.putAttribute(flowFile, MSG_COUNT, msgCount.toString());
+                                session.getProvenanceReporter().receive(flowFile, getPulsarClientService().getPulsarBrokerRootURL() + "/" + consumer.getTopic());
+                                session.transfer(flowFile, REL_SUCCESS);
+                            }
+
                             session.commitAsync();
 
                             if (!shared) {
@@ -165,17 +172,19 @@ public class ConsumePulsar extends AbstractPulsarConsumerProcessor<byte[]> {
                         }
                         
                         try {
-                        	//only write demarcators between messages
-                        	if (msgCount.get() > 0) {
-                        		out.write(demarcatorBytes);
-                        	}
-                        	
-                        	 byte[] data = msg.getData();
-                             
-                             if (data != null && data.length > 0) {
-                               out.write(data);
-                               msgCount.getAndIncrement();
-                             }
+                            byte[] data = msg.getData();
+
+                            if (data != null && data.length > 0) {
+                                // only write demarcators between messages that carry content: writing one
+                                // before checking the payload put a stray separator in the FlowFile for
+                                // every empty message, which reads downstream as a blank record
+                                if (msgCount.get() > 0) {
+                                    out.write(demarcatorBytes);
+                                }
+
+                                out.write(data);
+                                msgCount.getAndIncrement();
+                            }
                              
                         } catch (final IOException ioEx) {
                             session.rollback();
@@ -185,10 +194,15 @@ public class ConsumePulsar extends AbstractPulsarConsumerProcessor<byte[]> {
 
                     IOUtils.closeQuietly(out);
 
-                    flowFile = session.putAllAttributes(flowFile, batchAttributes.toAttributes());
-                    flowFile = session.putAttribute(flowFile, MSG_COUNT, msgCount.toString());
-                    session.getProvenanceReporter().receive(flowFile, getPulsarClientService().getPulsarBrokerRootURL() + "/" + consumer.getTopic());
-                    session.transfer(flowFile, REL_SUCCESS);
+                    if (msgCount.get() < 1) {
+                        session.remove(flowFile);
+                    } else {
+                        flowFile = session.putAllAttributes(flowFile, batchAttributes.toAttributes());
+                        flowFile = session.putAttribute(flowFile, MSG_COUNT, msgCount.toString());
+                        session.getProvenanceReporter().receive(flowFile, getPulsarClientService().getPulsarBrokerRootURL() + "/" + consumer.getTopic());
+                        session.transfer(flowFile, REL_SUCCESS);
+                    }
+
                     session.commitAsync();
 
                     // Cumulatively acknowledge consuming the message for non-shared subs. This has to stay
@@ -279,16 +293,16 @@ public class ConsumePulsar extends AbstractPulsarConsumerProcessor<byte[]> {
                     	consumer.acknowledge(msg);
                     }
                     
-                    // only write demarcators between messages
-                    if (msgCount.get() > 0) {
-                    	out.write(demarcatorBytes);
-                    }
-                    
                     byte[] data = msg.getData();
-                    
+
                     if (data != null && data.length > 0) {
-                      out.write(data);
-                      msgCount.getAndIncrement();
+                        // only write demarcators between messages that carry content
+                        if (msgCount.get() > 0) {
+                            out.write(demarcatorBytes);
+                        }
+
+                        out.write(data);
+                        msgCount.getAndIncrement();
                     }
                     
                 } catch (final IOException ioEx) {
