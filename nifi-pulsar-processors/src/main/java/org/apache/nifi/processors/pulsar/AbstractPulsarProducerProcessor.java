@@ -23,6 +23,7 @@ import java.util.concurrent.TimeUnit;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.nifi.annotation.lifecycle.OnScheduled;
+import org.apache.nifi.annotation.lifecycle.OnStopped;
 import org.apache.nifi.annotation.lifecycle.OnUnscheduled;
 import org.apache.nifi.components.AllowableValue;
 import org.apache.nifi.components.PropertyDescriptor;
@@ -310,6 +311,21 @@ public abstract class AbstractPulsarProducerProcessor<T> extends AbstractProcess
     public void init(ProcessContext context) {
         setPulsarClientService(context.getProperty(PULSAR_CLIENT_SERVICE).asControllerService(PulsarClientService.class));
         setPublisherPool(createPublisherPool(context));
+    }
+
+    /**
+     * Closes the publisher pool - and with it every Pulsar producer this processor opened - when the processor
+     * is stopped. Without this the pool built in {@link #init(ProcessContext)} was simply abandoned on stop, so
+     * its producers and their broker connections leaked on every stop/start cycle.
+     */
+    @OnStopped
+    public void closePublisherPool() {
+        final PublisherPool pool = getPublisherPool();
+
+        if (pool != null) {
+            pool.close();
+            setPublisherPool(null);
+        }
     }
 
     protected PublisherPool createPublisherPool(final ProcessContext context) {
