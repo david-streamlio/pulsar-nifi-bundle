@@ -42,7 +42,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicLong;
 
 public class PublisherLease implements Closeable {
@@ -80,30 +79,14 @@ public class PublisherLease implements Closeable {
 
                     if (futureList.size() > 99) {
                         producer.flush();
-
-                        futureList.stream()
-                                // Call get() on each Future object to get the result
-                                .map(future -> {
-                                    try {
-                                        return future.get();
-                                    } catch (InterruptedException | ExecutionException e) {
-                                        throw new RuntimeException(e);
-                                    }
-                                });
-
-                        futureList.clear();
+                        awaitAll(futureList);
                     }
                 }
             }
         }
 
-        // Wait for futures to complete, flush all the producers in parallel etc.
-        // Block here until work queue is empty and all producers have been flushed.
-        if (!futureList.isEmpty()) {
-            CompletableFuture<MessageId>[] futureArray = futureList.toArray(new CompletableFuture[0]);
-            CompletableFuture<Void> allFutures = CompletableFuture.allOf(futureArray);
-            allFutures.join(); // wait for all futures to complete
-        }
+        // Block here until every message has been confirmed by the broker.
+        awaitAll(futureList);
 
         IOUtils.closeQuietly(flowFileContent);
     }
@@ -119,7 +102,6 @@ public class PublisherLease implements Closeable {
 
         try {
             while ((record = recordSet.next()) != null) {
-                messagesSent.incrementAndGet();
                 baos.reset();
 
                 final byte[] messageContent;
@@ -141,32 +123,43 @@ public class PublisherLease implements Closeable {
 
                 if (futureList.size() > 100) {
                     producer.flush();
-
-                    futureList.stream()
-                            // Call get() on each Future object to get the result
-                            .map(future -> {
-                                try {
-                                    return future.get();
-                                } catch (InterruptedException | ExecutionException e) {
-                                    throw new RuntimeException(e);
-                                }
-                            });
-
-                    futureList.clear();
+                    awaitAll(futureList);
                 }
             }
 
-            if (!futureList.isEmpty()) {
-                CompletableFuture<MessageId>[] futureArray = futureList.toArray(new CompletableFuture[0]);
-                CompletableFuture<Void> allFutures = CompletableFuture.allOf(futureArray);
-                allFutures.join(); // wait for all futures to complete
-            }
+            awaitAll(futureList);
 
         } catch (final Exception ex) {
             logger.error("Unable to Publish Pulsar Records", ex);
             throw new IOException(ex.getCause());
         }
 
+    }
+
+    /**
+     * Waits for every send in {@code futures} to be confirmed by the broker, then empties the list.
+     * <p>
+     * This used to be {@code futures.stream().map(future -> future.get())} with no terminal operation.
+     * Streams are lazy, so the mapping function never ran: the futures were never waited on and the list
+     * was cleared regardless. Only the final partial batch was ever awaited, which meant that for any
+     * FlowFile larger than one batch the sends were fire and forget - a failure was swallowed with no log
+     * and no failure relationship, and the message count reported success for messages that had not been
+     * confirmed (and in the worst case never arrived).
+     *
+     * @param futures the sends issued since the last await; emptied before returning
+     */
+    private void awaitAll(final List<CompletableFuture<MessageId>> futures) {
+        if (futures.isEmpty()) {
+            return;
+        }
+
+        try {
+            CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+            // only count what the broker actually confirmed
+            messagesSent.addAndGet(futures.size());
+        } finally {
+            futures.clear();
+        }
     }
 
     public long complete() {
