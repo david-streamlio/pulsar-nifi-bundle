@@ -15,6 +15,46 @@ The bundle version tracks the NiFi platform version it is built for; each releas
 line targets one Pulsar client major. See [VERSIONING.md](VERSIONING.md) for the
 full scheme, branching model, and release process.
 
+## Consumer FlowFile attributes
+
+`ConsumePulsar` and `ConsumePulsarRecord` write these attributes onto every FlowFile
+they emit:
+
+| Attribute | Written by | Value |
+|---|---|---|
+| `message.count` | `ConsumePulsar` | number of Pulsar messages in the FlowFile |
+| `record.count` | `ConsumePulsarRecord` | number of records in the FlowFile |
+| `pulsar.message.id` | both | the message id — **only when the FlowFile holds exactly one message** |
+| `pulsar.message.id.first` | both | id of the first message in the FlowFile |
+| `pulsar.message.id.last` | both | id of the last message in the FlowFile |
+| `pulsar.property.*` | both | message properties, prefixed — **only those whose value is identical in every message** |
+| `topicName` | `ConsumePulsarRecord` | the logical topic the messages came from |
+| `avro.schema` | `ConsumePulsarRecord` | the topic schema, when it is an AVRO schema |
+
+A FlowFile can hold several messages: *Consumer Message Batch Size* controls how many.
+Consecutive messages are appended to the same FlowFile as long as their *Mapped FlowFile
+Attributes* are identical — a change in any mapped value starts a new FlowFile before the
+batch size is reached. Per-message metadata (the message id, unmapped message properties)
+deliberately does **not** take part in that decision, so it never splits a batch.
+
+To force messages that differ in some property into separate FlowFiles, map that property
+through *Mapped FlowFile Attributes*.
+
+> **Attribute change since `2.9.0`:** `pulsar.message.id` and the full set of
+> `pulsar.property.*` used to appear on every FlowFile, because a bug made each FlowFile
+> hold exactly one message regardless of *Consumer Message Batch Size*. Now that batching
+> works, a FlowFile that holds more than one message has no single message id, so
+> `pulsar.message.id` is omitted there and only the properties common to the whole batch
+> are set. Flows that read `${pulsar.message.id}` downstream should use
+> `${pulsar.message.id.first}` / `${pulsar.message.id.last}`, or set *Consumer Message
+> Batch Size* to `1` to keep one message per FlowFile.
+>
+> For the same reason, `pulsar.property.*` values are no longer available to
+> `ConsumePulsarRecord`'s Schema Access Strategy: they are attached once the batch is
+> complete, which is after the record reader and writer have been created. A schema name
+> that comes from a message property has to be mapped through *Mapped FlowFile Attributes*
+> instead.
+
 ## How to build
 
 To build the NAR files using Maven, just run the following commands. The first one makes sure that you are using Java 

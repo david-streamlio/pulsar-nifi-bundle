@@ -271,6 +271,8 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
                     WriteResult result = writer.finishRecordSet();
                     IOUtils.closeQuietly(writer);
                     IOUtils.closeQuietly(rawOut);
+                    writer = null;
+                    rawOut = null;
 
                     if (result != WriteResult.EMPTY) {
                         flowFile = session.putAllAttributes(flowFile, result.getAttributes());
@@ -305,8 +307,14 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
 
                     if (schema == null || writer == null) {
                         parseFailures.add(msg);
-                        session.remove(flowFile);
+                        // the OutputStream has to be closed before the FlowFile can be removed, otherwise
+                        // the session rejects the removal with an IllegalStateException
+                        IOUtils.closeQuietly(writer);
                         IOUtils.closeQuietly(rawOut);
+                        session.remove(flowFile);
+                        // no record set is open now: keep the invariant that writer != null means "open"
+                        writer = null;
+                        rawOut = null;
                         getLogger().error("Unable to create a record writer to consume from the Pulsar topic");
                         continue;
                     }
@@ -337,7 +345,11 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
                 }
             }
 
-            WriteResult result = writer.finishRecordSet();
+            // writer is null when no record set is open: every message in this batch failed to produce a
+            // schema or a writer (each one hit the 'continue' above and went to parseFailures), or the last
+            // record set was already finished when the mapped attributes changed. There is nothing to
+            // finish in that case - the parse failures are routed below.
+            WriteResult result = writer == null ? WriteResult.EMPTY : writer.finishRecordSet();
             IOUtils.closeQuietly(writer);
             IOUtils.closeQuietly(rawOut);
 
@@ -347,7 +359,7 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
                 flowFile = session.putAttribute(flowFile, MSG_COUNT, result.getRecordCount() + "");
                 session.getProvenanceReporter().receive(flowFile, getPulsarClientService().getPulsarBrokerRootURL() + "/" + consumer.getTopic());
                 session.transfer(flowFile, REL_SUCCESS);
-            } else {
+            } else if (writer != null) {
                 // We were able to parse the records, but unable to write them to the FlowFile
                 session.rollback();
             }
