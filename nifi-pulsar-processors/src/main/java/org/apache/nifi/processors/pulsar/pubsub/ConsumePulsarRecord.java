@@ -58,6 +58,7 @@ import org.apache.pulsar.client.api.Consumer;
 import org.apache.pulsar.client.api.Message;
 import org.apache.pulsar.client.api.PulsarClientException;
 import org.apache.pulsar.client.api.schema.GenericRecord;
+import org.apache.pulsar.common.naming.TopicName;
 import org.apache.pulsar.common.schema.SchemaType;
 
 @CapabilityDescription("Consumes messages from Apache Pulsar. "
@@ -225,9 +226,13 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
             return;
         }
 
+        // Group by the logical topic so that the partitions of one partitioned topic stay together, and
+        // collect into a LinkedHashMap so that the groups - and the messages within them - keep the order
+        // in which they were received rather than the hash order of the topic names.
         final List<Message<GenericRecord>> groupedMessages = messages
                 .stream()
-                .collect(Collectors.groupingBy(Message::getTopicName))
+                .collect(Collectors.groupingBy(msg -> getLogicalTopicName(msg.getTopicName()),
+                        LinkedHashMap::new, Collectors.toList()))
                 .values()
                 .stream()
                 .flatMap(List::stream)
@@ -254,7 +259,7 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
                 currentAttributes = getMappedFlowFileAttributes(context, msg);
                 // Introduce an attribute to distinguish between current and previously captured attributes,
                 // particularly when the message originates from a different topic.
-                currentAttributes.put("topicName", msg.getTopicName());
+                currentAttributes.put("topicName", getLogicalTopicName(msg.getTopicName()));
                 // add the schema to the attributes in-case the schema is updated on the topic
                 if (msg.getReaderSchema().isPresent() && msg.getReaderSchema().get().getSchemaInfo().getType() == SchemaType.AVRO) {
                     currentAttributes.put("avro.schema", new String(msg.getReaderSchema().get().getSchemaInfo().getSchema()));
@@ -366,6 +371,35 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
 
         if (!shared) {
             acknowledgeCumulative(consumer, messages.get(messages.size() - 1), async);
+        }
+    }
+
+    /**
+     * Returns the logical topic a message belongs to.
+     * <p>
+     * For a partitioned topic Pulsar reports the physical partition in {@link Message#getTopicName()}
+     * (<code>persistent://tenant/ns/topic-partition-N</code>). Every partition of a topic shares one schema,
+     * so they belong in the same record set; batching on the physical name instead splits each batch into one
+     * FlowFile per partition and reorders the messages.
+     * <p>
+     * Only the partitions of a partitioned topic are rewritten. Anything else - including a non-partitioned
+     * topic given as a short name - is returned exactly as the broker reported it, so the <code>topicName</code>
+     * attribute is unchanged for the non-partitioned case.
+     *
+     * @param topic the topic name reported for the message
+     * @return the logical (un-partitioned) topic name
+     */
+    static String getLogicalTopicName(final String topic) {
+        if (topic == null || topic.isEmpty()) {
+            return topic;
+        }
+
+        try {
+            final TopicName topicName = TopicName.get(topic);
+            return topicName.isPartitioned() ? topicName.getPartitionedTopicName() : topic;
+        } catch (final IllegalArgumentException e) {
+            // Not a well-formed Pulsar topic name: batch on the raw value rather than failing the flow.
+            return topic;
         }
     }
 

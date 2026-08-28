@@ -124,10 +124,12 @@ public class TestAsyncConsumePulsarRecord extends TestConsumePulsarRecord {
         runner.setProperty(ConsumePulsarRecord.CONSUMER_BATCH_SIZE, 4 + "");
         runner.run(1, true);
 
+        // The topics are emitted in the order their first message was received (foo, then bar), not in the
+        // hash order of the topic names - see issue #141.
         List<MockFlowFile> successFlowFiles = runner.getFlowFilesForRelationship(ConsumePulsarRecord.REL_SUCCESS);
-        successFlowFiles.get(0).assertContentEquals("\"Z\",\"10\"\n\"F\",\"7\"\n".getBytes());
+        successFlowFiles.get(0).assertContentEquals("\"A\",\"9\"\n\"G\",\"1\"\n".getBytes());
         successFlowFiles.get(0).assertAttributeNotExists("avro.schema");
-        successFlowFiles.get(1).assertContentEquals("\"A\",\"9\"\n\"G\",\"1\"\n".getBytes());
+        successFlowFiles.get(1).assertContentEquals("\"Z\",\"10\"\n\"F\",\"7\"\n".getBytes());
         successFlowFiles.get(1).assertAttributeNotExists("avro.schema");
         assertEquals(2, successFlowFiles.size());
     }
@@ -156,16 +158,18 @@ public class TestAsyncConsumePulsarRecord extends TestConsumePulsarRecord {
         runner.setProperty(ConsumePulsarRecord.CONSUMER_BATCH_SIZE, 4 + "");
         runner.run(1, true);
 
+        // foo is emitted first (its message was received first); its schema change still splits its two
+        // messages into separate record sets. Group order follows receive order - see issue #141.
         List<MockFlowFile> successFlowFiles = runner.getFlowFilesForRelationship(ConsumePulsarRecord.REL_SUCCESS);
-        successFlowFiles.get(0).assertContentEquals("\"Z\",\"10\"\n\"F\",\"7\"\n".getBytes());
+        successFlowFiles.get(0).assertContentEquals("\"A\",\"9\"\n".getBytes());
         successFlowFiles.get(0).assertAttributeExists("avro.schema");
         successFlowFiles.get(0).assertAttributeEquals("avro.schema", schema1);
-        successFlowFiles.get(1).assertContentEquals("\"A\",\"9\"\n".getBytes());
+        successFlowFiles.get(1).assertContentEquals("\"G\",\"1\"\n".getBytes());
         successFlowFiles.get(1).assertAttributeExists("avro.schema");
-        successFlowFiles.get(1).assertAttributeEquals("avro.schema", schema1);
-        successFlowFiles.get(2).assertContentEquals("\"G\",\"1\"\n".getBytes());
+        successFlowFiles.get(1).assertAttributeEquals("avro.schema", schema1_updated);
+        successFlowFiles.get(2).assertContentEquals("\"Z\",\"10\"\n\"F\",\"7\"\n".getBytes());
         successFlowFiles.get(2).assertAttributeExists("avro.schema");
-        successFlowFiles.get(2).assertAttributeEquals("avro.schema", schema1_updated);
+        successFlowFiles.get(2).assertAttributeEquals("avro.schema", schema1);
         assertEquals(3, successFlowFiles.size());
     }
 
