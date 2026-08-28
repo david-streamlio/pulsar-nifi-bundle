@@ -630,6 +630,71 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
         }
     }
 
+    /**
+     * Commits the session and, once the commit has succeeded, acknowledges {@code messages} to the broker.
+     * <p>
+     * An acknowledged message is gone from the subscription: the broker never redelivers it. So a message
+     * may only be acknowledged once the FlowFile that carries it has been committed. Acknowledging earlier
+     * - as each message was claimed, or on a path that then rolled the session back - told the broker the
+     * message was handled while its content could still be discarded, and a write error (a full content
+     * repository, a permissions problem, a disk fault) lost the message for good: it was neither in NiFi
+     * nor recoverable from Pulsar. The acknowledgement now runs in the commit callback, so a session that
+     * is never committed acknowledges nothing and the broker redelivers its messages instead.
+     * <p>
+     * Shared and Key_Shared subscriptions do not permit cumulative acknowledgements, so every message is
+     * acknowledged individually; the other subscription types acknowledge cumulatively up to the last
+     * message. In asynchronous mode the acknowledgements are submitted to the acknowledgement service and
+     * collected by {@link #drainAcknowledgments()}, as before. {@code messages} is emptied so the caller
+     * can keep collecting the messages of the next commit in the same list.
+     *
+     * @param session  the session holding the FlowFiles the messages were written to
+     * @param consumer the consumer the messages were received from
+     * @param messages the messages carried by the FlowFiles in the session; cleared on return
+     * @param shared   whether the subscription is Shared or Key_Shared
+     * @param async    whether to acknowledge through the asynchronous acknowledgement service
+     */
+    protected void commitAndAcknowledge(final ProcessSession session, final Consumer<GenericRecord> consumer,
+                                        final List<Message<GenericRecord>> messages, final boolean shared, final boolean async) {
+        if (messages.isEmpty()) {
+            return;
+        }
+
+        final List<Message<GenericRecord>> committed = new ArrayList<>(messages);
+        messages.clear();
+
+        session.commitAsync(() -> acknowledge(consumer, committed, shared, async));
+    }
+
+    private void acknowledge(final Consumer<GenericRecord> consumer, final List<Message<GenericRecord>> messages,
+                             final boolean shared, final boolean async) {
+        final ExecutorCompletionService<Object> service = async ? getAckService() : null;
+
+        try {
+            if (shared) {
+                for (final Message<GenericRecord> message : messages) {
+                    if (service != null) {
+                        service.submit(() -> consumer.acknowledgeAsync(message).get());
+                    } else {
+                        consumer.acknowledge(message);
+                    }
+                }
+            } else {
+                final Message<GenericRecord> last = messages.get(messages.size() - 1);
+
+                if (service != null) {
+                    service.submit(() -> consumer.acknowledgeCumulativeAsync(last).get());
+                } else {
+                    consumer.acknowledgeCumulative(last);
+                }
+            }
+        } catch (final PulsarClientException e) {
+            // The FlowFiles are already committed, so nothing is lost: the broker redelivers whatever was
+            // not acknowledged and the flow sees those messages again.
+            getLogger().error("Unable to acknowledge {} message(s) whose FlowFiles were committed; the broker will redeliver them",
+                    messages.size(), e);
+        }
+    }
+
     protected synchronized ExecutorCompletionService<Object> getAckService() {
        return ackService;
     }

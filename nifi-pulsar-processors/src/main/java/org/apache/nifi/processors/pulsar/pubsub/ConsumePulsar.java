@@ -19,9 +19,9 @@ package org.apache.nifi.processors.pulsar.pubsub;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
@@ -108,9 +108,11 @@ public class ConsumePulsar extends AbstractPulsarConsumerProcessor<byte[]> {
                     AtomicInteger msgCount = new AtomicInteger(0);
 
                     Map<String, String> lastAttributes = null;
-                    Message<GenericRecord> lastMessage = null;
                     Map<String, String> currentAttributes = null;
                     MessageBatchAttributes batchAttributes = null;
+                    // the messages written to the FlowFile that has not been committed yet: they are
+                    // acknowledged once it is, and not at all if it is rolled back
+                    final List<Message<GenericRecord>> uncommitted = new ArrayList<>();
 
                     for (Message<GenericRecord> msg : messages) {
                         currentAttributes = getMappedFlowFileAttributes(context, msg);
@@ -130,22 +132,9 @@ public class ConsumePulsar extends AbstractPulsarConsumerProcessor<byte[]> {
                                 session.transfer(flowFile, REL_SUCCESS);
                             }
 
-                            session.commitAsync();
-
-                            if (!shared) {
-	                            final Message<GenericRecord> finalMessage = lastMessage;
-	                            // Cumulatively acknowledge consuming the messages for non-shared subs
-	                            
-	                            getAckService().submit(new Callable<Object>() {
-	                                @Override
-	                                public Object call() throws Exception {
-	                                    return consumer.acknowledgeCumulativeAsync(finalMessage).get();
-	                                }
-	                            });
-                            }
+                            commitAndAcknowledge(session, consumer, uncommitted, shared, true);
 
                             lastAttributes = null;
-                            lastMessage = null;
                         }
 
                         if (lastAttributes == null) {
@@ -158,19 +147,9 @@ public class ConsumePulsar extends AbstractPulsarConsumerProcessor<byte[]> {
                         }
 
                         lastAttributes = currentAttributes;
-                        lastMessage = msg;
                         batchAttributes.add(msg);
- 
-                        if (shared) {
-                        	// acknowledge each message individually for shared subs
-                        	getAckService().submit(new Callable<Object>() {
-                        		@Override
-                        		public Object call() throws Exception {
-                        			return consumer.acknowledgeAsync(msg).get();
-                        		}
-                        	});
-                        }
-                        
+                        uncommitted.add(msg);
+
                         try {
                             byte[] data = msg.getData();
 
@@ -187,6 +166,9 @@ public class ConsumePulsar extends AbstractPulsarConsumerProcessor<byte[]> {
                             }
                              
                         } catch (final IOException ioEx) {
+                            // nothing has been acknowledged, so the broker redelivers the whole batch
+                            getLogger().error("Unable to write the received messages to a FlowFile; they will be redelivered", ioEx);
+                            IOUtils.closeQuietly(out);
                             session.rollback();
                             return;
                         }
@@ -203,19 +185,10 @@ public class ConsumePulsar extends AbstractPulsarConsumerProcessor<byte[]> {
                         session.transfer(flowFile, REL_SUCCESS);
                     }
 
-                    session.commitAsync();
-
-                    // Cumulatively acknowledge consuming the message for non-shared subs. This has to stay
-                    // inside the isNotEmpty() guard: on an idle topic the list is empty and there is no last
-                    // message to acknowledge.
-                    if (!shared) {
-	                    getAckService().submit(new Callable<Object>() {
-	                        @Override
-	                        public Object call() throws Exception {
-	                           return consumer.acknowledgeCumulativeAsync(messages.get(messages.size() - 1)).get();
-	                        }
-	                    });
-                    }
+                    // Commits, then acknowledges: cumulatively for non-shared subscriptions, one message at a
+                    // time otherwise. This has to stay inside the isNotEmpty() guard: on an idle topic the
+                    // list is empty and there is nothing to commit or acknowledge.
+                    commitAndAcknowledge(session, consumer, uncommitted, shared, true);
                 }
             }
         } catch (InterruptedException | ExecutionException e) {
@@ -247,6 +220,9 @@ public class ConsumePulsar extends AbstractPulsarConsumerProcessor<byte[]> {
             Map<String, String> lastAttributes = null;
             Map<String, String> currentAttributes = null;
             MessageBatchAttributes batchAttributes = null;
+            // the messages written to the FlowFile that has not been committed yet: they are acknowledged
+            // once it is, and not at all if it is rolled back
+            final List<Message<GenericRecord>> uncommitted = new ArrayList<>();
 
             while (loopCounter.get() < maxMessages && (msg = consumer.receive(0, TimeUnit.SECONDS)) != null) {
                 currentAttributes = getMappedFlowFileAttributes(context, msg);
@@ -254,13 +230,8 @@ public class ConsumePulsar extends AbstractPulsarConsumerProcessor<byte[]> {
                 if (lastMsg != null && !lastAttributes.equals(currentAttributes)) {
                     IOUtils.closeQuietly(out);
 
-                    if (!shared)  {
-                        consumer.acknowledgeCumulative(lastMsg);
-                    }
-
                     if (msgCount.get() < 1) {
                         session.remove(flowFile);
-                        session.commitAsync();
                     } else {
                         flowFile = session.putAllAttributes(flowFile, batchAttributes.toAttributes());
                         flowFile = session.putAttribute(flowFile, MSG_COUNT, msgCount.toString());
@@ -269,6 +240,8 @@ public class ConsumePulsar extends AbstractPulsarConsumerProcessor<byte[]> {
                         getLogger().debug("Created {} from {} messages received from Pulsar Server and transferred to 'success'",
                             new Object[]{flowFile, msgCount.toString()});
                     }
+
+                    commitAndAcknowledge(session, consumer, uncommitted, shared, false);
 
                     lastAttributes = null;
                     lastMsg = null;
@@ -288,10 +261,7 @@ public class ConsumePulsar extends AbstractPulsarConsumerProcessor<byte[]> {
                     lastAttributes = currentAttributes;
                     batchAttributes.add(msg);
                     loopCounter.incrementAndGet();
-                    
-                    if (shared) {
-                    	consumer.acknowledge(msg);
-                    }
+                    uncommitted.add(msg);
                     
                     byte[] data = msg.getData();
 
@@ -306,26 +276,19 @@ public class ConsumePulsar extends AbstractPulsarConsumerProcessor<byte[]> {
                     }
                     
                 } catch (final IOException ioEx) {
-                    getLogger().error("Unable to create flow file ", ioEx);
+                    // nothing has been acknowledged, so the broker redelivers the whole batch
+                    getLogger().error("Unable to write the received messages to a FlowFile; they will be redelivered", ioEx);
+                    IOUtils.closeQuietly(out);
                     session.rollback();
-                    if (!shared) {
-                        consumer.acknowledgeCumulative(lastMsg);
-                    }
-  
                     return;
                 }
             }
             
             IOUtils.closeQuietly(out);
 
-            if (!shared && lastMsg != null)  {
-                consumer.acknowledgeCumulative(lastMsg);
-            }
-
             if (msgCount.get() < 1) {
                 if (flowFile != null) {
                     session.remove(flowFile);
-                    session.commitAsync();
                 }
             } else {
                 flowFile = session.putAllAttributes(flowFile, batchAttributes.toAttributes());
@@ -335,6 +298,10 @@ public class ConsumePulsar extends AbstractPulsarConsumerProcessor<byte[]> {
                 getLogger().debug("Created {} from {} messages received from Pulsar Server and transferred to 'success'",
                    new Object[]{flowFile, msgCount.toString()});
             }
+
+            // Commits, then acknowledges: cumulatively for non-shared subscriptions, one message at a time
+            // otherwise. Nothing is committed or acknowledged when no message was received.
+            commitAndAcknowledge(session, consumer, uncommitted, shared, false);
 
         } catch (PulsarClientException e) {
             getLogger().error("Error communicating with Apache Pulsar", e);

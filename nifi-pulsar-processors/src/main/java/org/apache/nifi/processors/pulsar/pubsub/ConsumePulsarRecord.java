@@ -23,7 +23,6 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.*;
 import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -205,7 +204,9 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
     /**
      * Perform the actual processing of the messages, by parsing the messages and writing them out to a FlowFile.
      * All of the messages passed in shall be routed to either SUCCESS or PARSE_FAILURE, allowing us to acknowledge
-     * the receipt of the messages to Pulsar, so they are not re-sent.
+     * the receipt of the messages to Pulsar, so they are not re-sent. The acknowledgement is issued once the
+     * session carrying the FlowFiles has been committed; if the batch cannot be written, the session is rolled
+     * back and nothing is acknowledged, so the broker redelivers the messages instead of losing them.
      *
      * @param context       - The current ProcessContext
      * @param session       - The current ProcessSession.
@@ -250,6 +251,9 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
         Message<GenericRecord> lastMessage = null;
         Map<String, String> currentAttributes = null;
         MessageBatchAttributes batchAttributes = null;
+        // the messages carried - on success or on parse_failure - by the FlowFiles that have not been
+        // committed yet: they are acknowledged once those are, and not at all if they are rolled back
+        final List<Message<GenericRecord>> uncommitted = new ArrayList<>();
 
         // Cumulative acks are NOT permitted on Shared subscriptions
         final boolean shared = isSharedSubscription(context);
@@ -281,19 +285,22 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
                         session.getProvenanceReporter().receive(flowFile, getPulsarClientService().getPulsarBrokerRootURL() + "/" + consumer.getTopic());
                         session.transfer(flowFile, REL_SUCCESS);
                     } else {
-                        session.rollback();
+                        // the record set holds no records: discard its FlowFile. Rolling the session back
+                        // here would also discard everything routed before it in this session.
+                        session.remove(flowFile);
                     }
 
                     handleFailures(session, parseFailures, demarcator);
                     parseFailures.clear();
-
-                    if (!shared) {
-                        acknowledgeCumulative(consumer, lastMessage, async);
-                    }
+                    commitAndAcknowledge(session, consumer, uncommitted, shared, async);
 
                     lastAttributes = null;
                     lastMessage = null;
                 }
+
+                // every message ends up in a FlowFile - on success or on parse_failure - or is discarded on
+                // purpose, so it is acknowledged with the commit of the FlowFiles it belongs to
+                uncommitted.add(msg);
 
                 // if there's no record set actively being written, begin one
                 byte[] data = msg.getData();
@@ -326,10 +333,6 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
                 lastMessage = msg;
                 batchAttributes.add(msg);
 
-                if (shared) {
-                    acknowledge(consumer, msg, async);
-                }
-
                 // write each of the records in the current message to the active record set. These will each
                 // have the same mapped flowfile attribute values, which means that it's ok that they are all placed
                 // in the same output flowfile.
@@ -360,18 +363,22 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
                 session.getProvenanceReporter().receive(flowFile, getPulsarClientService().getPulsarBrokerRootURL() + "/" + consumer.getTopic());
                 session.transfer(flowFile, REL_SUCCESS);
             } else if (writer != null) {
-                // We were able to parse the records, but unable to write them to the FlowFile
-                session.rollback();
+                // the record set holds no records: discard its FlowFile rather than roll the session back
+                session.remove(flowFile);
             }
+
+            handleFailures(session, parseFailures, demarcator);
         } catch (IOException e) {
-            getLogger().error("Unable to consume from Pulsar topic ", e);
+            // nothing has been acknowledged, so the broker redelivers the whole batch
+            getLogger().error("Unable to write the received messages to a FlowFile; they will be redelivered", e);
+            IOUtils.closeQuietly(writer);
+            IOUtils.closeQuietly(rawOut);
+            session.rollback();
+            return;
         }
 
-        handleFailures(session, parseFailures, demarcator);
-
-        if (!shared) {
-            acknowledgeCumulative(consumer, messages.get(messages.size() - 1), async);
-        }
+        // Commits, then acknowledges: cumulatively for non-shared subscriptions, one message at a time otherwise.
+        commitAndAcknowledge(session, consumer, uncommitted, shared, async);
     }
 
     /**
@@ -403,34 +410,15 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
         }
     }
 
-    private void acknowledge(final Consumer<GenericRecord> consumer, final Message<GenericRecord> msg, final boolean async) throws PulsarClientException {
-        if (async) {
-            getAckService().submit(new Callable<Object>() {
-                @Override
-                public Object call() throws Exception {
-                    return consumer.acknowledgeAsync(msg).get();
-                }
-            });
-        } else {
-            consumer.acknowledge(msg);
-        }
-    }
-
-    private void acknowledgeCumulative(final Consumer<GenericRecord> consumer, final Message<GenericRecord> msg, final boolean async) throws PulsarClientException {
-        if (async) {
-            getAckService().submit(new Callable<Object>() {
-                @Override
-                public Object call() throws Exception {
-                    return consumer.acknowledgeCumulativeAsync(msg).get();
-                }
-            });
-        } else {
-            consumer.acknowledgeCumulative(msg);
-        }
-    }
-
+    /**
+     * Routes the messages that could not be parsed to {@link #REL_PARSE_FAILURE}.
+     *
+     * @throws IOException if their content cannot be written. The FlowFile is discarded first, so nothing
+     *                     is left dangling in the session; the caller rolls the session back without
+     *                     acknowledging the messages, and the broker redelivers them.
+     */
     private void handleFailures(ProcessSession session,
-                                BlockingQueue<Message<GenericRecord>> parseFailures, byte[] demarcator) {
+                                BlockingQueue<Message<GenericRecord>> parseFailures, byte[] demarcator) throws IOException {
 
         if (CollectionUtils.isEmpty(parseFailures)) {
             return;
@@ -438,25 +426,20 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
 
         FlowFile flowFile = session.create();
         final OutputStream rawOut = session.write(flowFile);
-        boolean written = false;
 
         try {
             writeParseFailures(rawOut, parseFailures, demarcator);
-            written = true;
         } catch (final IOException e) {
-            getLogger().error("Unable to write the messages that could not be parsed", e);
-        } finally {
-            // The stream has to be closed before the FlowFile can be transferred or removed. Leaving it
-            // open - as the error path used to - leaves a FlowFile dangling in the session that is neither
-            // routed nor discarded, so the parse failures are lost and the session cannot be committed.
+            // The stream has to be closed before the FlowFile can be removed. Leaving it open - as the
+            // error path used to - leaves a FlowFile dangling in the session that is neither routed nor
+            // discarded, so the session cannot be committed.
             IOUtils.closeQuietly(rawOut);
+            session.remove(flowFile);
+            throw e;
         }
 
-        if (written) {
-            session.transfer(flowFile, REL_PARSE_FAILURE);
-        } else {
-            session.remove(flowFile);
-        }
+        IOUtils.closeQuietly(rawOut);
+        session.transfer(flowFile, REL_PARSE_FAILURE);
     }
 
     /**
