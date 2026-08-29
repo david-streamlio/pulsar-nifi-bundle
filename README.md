@@ -134,8 +134,13 @@ Use `Topic Schema` when the topic carries an AVRO schema: the Record Writer's ou
 Avro-with-header — is not what the broker accepts, so it is rejected. On a topic with no Avro
 schema this strategy falls back to the Record Writer, so turning it on is safe either way.
 
-JSON-schema topics are not yet encoded; only AVRO. Those still need `Record Writer` output that
-happens to match.
+`Topic Schema` encodes for both **AVRO** and **JSON** topic schemas.
+
+> **Worth knowing about JSON-schema topics:** the broker validates payloads against an AVRO schema
+> and rejects content that does not match, but it does **not** do the same for a JSON schema. Before
+> this, publishing to a JSON-schema topic with the Record Writer put content on the topic that a
+> schema-aware consumer decoded as all-null fields, with nothing reported at either end. `Topic
+> Schema` is the only strategy that produces messages such a consumer can read.
 
 ## How to build
 

@@ -63,7 +63,7 @@ public class PublishPulsarRecord extends AbstractPulsarProducerProcessor<byte[]>
 
     static final AllowableValue SCHEMA_FROM_TOPIC = new AllowableValue("Topic Schema", "Topic Schema",
             "Encode each record with the schema the topic currently carries, so a schema-aware consumer can "
-            + "decode it. Falls back to the Record Writer when the topic has no Avro schema.");
+            + "decode it. Falls back to the Record Writer when the topic has no Avro or JSON schema.");
 
     public static final PropertyDescriptor MESSAGE_SCHEMA_STRATEGY = new PropertyDescriptor.Builder()
             .name("MESSAGE_SCHEMA_STRATEGY")
