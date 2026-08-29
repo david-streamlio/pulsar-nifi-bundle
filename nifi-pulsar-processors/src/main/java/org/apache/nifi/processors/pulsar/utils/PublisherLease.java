@@ -287,19 +287,33 @@ public class PublisherLease implements Closeable {
         return tmb.sendAsync();
     }
 
+    /**
+     * Sends one message and waits for it, on the calling thread.
+     * <p>
+     * This used to wrap the blocking send in {@code CompletableFuture.supplyAsync()}, handing every message
+     * to the common ForkJoinPool. The sends then raced, so a FlowFile's messages reached the broker in
+     * whatever order the pool happened to run them - a FlowFile holding sensor-2 then sensor-3 arrived as
+     * sensor-3, sensor-2. Pulsar preserves ordering per producer and flows rely on that, and out-of-order
+     * sends also defeat message keys, whose whole purpose is to order the messages sharing one.
+     * <p>
+     * Sending on the calling thread costs the pipelining that dispatching bought. Asynchronous mode is the
+     * place to ask for that: {@link #sendAsync} issues {@code sendAsync()} in record order on this thread,
+     * which Pulsar pipelines while preserving the order the calls were made in.
+     */
     protected CompletableFuture<MessageId> send(Producer producer, String key, Map<String, String> properties, byte[] value) {
-        return CompletableFuture.supplyAsync(() -> {
-            TypedMessageBuilder tmb = producer.newMessage().properties(properties).value(value);
+        TypedMessageBuilder tmb = producer.newMessage().properties(properties).value(value);
 
-            if (key != null) {
-                tmb = tmb.key(key);
-            }
-            try {
-                return tmb.send();
-            } catch (PulsarClientException e) {
-                throw new RuntimeException(e);
-            }
-        });
+        if (key != null) {
+            tmb = tmb.key(key);
+        }
+
+        try {
+            return CompletableFuture.completedFuture(tmb.send());
+        } catch (final PulsarClientException e) {
+            final CompletableFuture<MessageId> failed = new CompletableFuture<>();
+            failed.completeExceptionally(e);
+            return failed;
+        }
     }
 
     private String getMessageKey(final FlowFile flowFile, final RecordSetWriterFactory writerFactory,
