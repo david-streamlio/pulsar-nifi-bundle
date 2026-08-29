@@ -16,9 +16,13 @@
  */
 package org.apache.nifi.processors.pulsar.utils;
 
+import com.fasterxml.jackson.core.JsonFactory;
+import com.fasterxml.jackson.core.JsonGenerator;
 import org.apache.commons.compress.utils.IOUtils;
 import org.apache.nifi.avro.AvroTypeUtil;
+import org.apache.avro.generic.GenericData;
 import org.apache.avro.generic.GenericDatumWriter;
+import org.apache.avro.generic.GenericFixed;
 import org.apache.avro.io.BinaryEncoder;
 import org.apache.avro.io.EncoderFactory;
 import org.apache.nifi.flowfile.FlowFile;
@@ -44,6 +48,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.Closeable;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
@@ -61,9 +66,9 @@ public class PublisherLease implements Closeable {
     /** The schema the producer was created with, used to discover what schema the topic carries. */
     private final Schema<byte[]> topicSchema;
 
-    /** The topic's Avro schema, parsed once and re-parsed only if the definition itself changes. */
+    /** The topic's schema, parsed once and re-parsed only if the definition itself changes. */
     private String cachedSchemaDefinition;
-    private org.apache.avro.Schema cachedAvroSchema;
+    private TopicSchema cachedTopicSchema;
 
     public PublisherLease(Producer producer, ComponentLog logger) {
         this(producer, logger, null);
@@ -76,13 +81,13 @@ public class PublisherLease implements Closeable {
     }
 
     /**
-     * The Avro schema the topic currently carries, or null when it has none, when the producer was not
-     * created with a schema-discovering one, or when the schema is not Avro.
+     * The schema the topic currently carries, or null when it has none, when the producer was not created
+     * with a schema-discovering one, or when the schema is of a type records cannot be encoded with.
      * <p>
      * Producers are created with {@code Schema.AUTO_PRODUCE_BYTES()}, which binds to the topic when the
      * producer is created and then reports the topic's registered SchemaInfo.
      */
-    org.apache.avro.Schema getTopicAvroSchema() {
+    TopicSchema getTopicSchema() {
         if (topicSchema == null) {
             return null;
         }
@@ -90,9 +95,9 @@ public class PublisherLease implements Closeable {
         try {
             final SchemaInfo info = topicSchema.getSchemaInfo();
 
-            if (info == null || info.getType() != SchemaType.AVRO) {
+            if (info == null || (info.getType() != SchemaType.AVRO && info.getType() != SchemaType.JSON)) {
                 cachedSchemaDefinition = null;
-                cachedAvroSchema = null;
+                cachedTopicSchema = null;
                 return null;
             }
 
@@ -101,16 +106,49 @@ public class PublisherLease implements Closeable {
             // Leases are pooled and serve many FlowFiles, so parsing this on every publish rebuilds the
             // same Avro type tree over and over. Keyed on the definition rather than cached outright, so a
             // schema that does change is still picked up rather than frozen at whatever was seen first.
-            if (!definition.equals(cachedSchemaDefinition)) {
-                cachedAvroSchema = new org.apache.avro.Schema.Parser().parse(definition);
+            if (cachedTopicSchema == null || !definition.equals(cachedSchemaDefinition)
+                    || cachedTopicSchema.getType() != info.getType()) {
+                cachedTopicSchema =
+                        new TopicSchema(new org.apache.avro.Schema.Parser().parse(definition), info.getType());
                 cachedSchemaDefinition = definition;
             }
 
-            return cachedAvroSchema;
+            return cachedTopicSchema;
         } catch (final RuntimeException e) {
             // getSchemaInfo() throws when the schema was never bound to a topic
             logger.debug("Unable to determine the topic's schema; falling back to the configured writer", e);
             return null;
+        }
+    }
+
+    /**
+     * A schema a topic carries, in the form records get encoded against.
+     * <p>
+     * Pulsar registers AVRO and JSON schemas the same way - the schema definition is an Avro schema
+     * document describing the record in both cases - and only the {@link SchemaType} says which encoding
+     * goes on the wire: Avro binary for one, plain JSON for the other. So the two travel together; the
+     * definition alone cannot say how to encode.
+     */
+    static final class TopicSchema {
+
+        private final org.apache.avro.Schema definition;
+        private final SchemaType type;
+
+        TopicSchema(final org.apache.avro.Schema definition, final SchemaType type) {
+            this.definition = definition;
+            this.type = type;
+        }
+
+        org.apache.avro.Schema getDefinition() {
+            return definition;
+        }
+
+        SchemaType getType() {
+            return type;
+        }
+
+        boolean isJson() {
+            return type == SchemaType.JSON;
         }
     }
 
@@ -158,22 +196,28 @@ public class PublisherLease implements Closeable {
     /**
      * @param useTopicSchema encode each record with the schema the topic carries rather than with the
      *                       configured record writer. Falls back to the writer when the topic has no Avro
-     *                       schema, so a topic without one behaves exactly as before.
+     *                       or JSON schema, so a topic without one behaves exactly as before.
      */
     public void publish(final FlowFile flowFile, final RecordSet recordSet, final RecordSetWriterFactory writerFactory,
                         final RecordSchema schema, final String messageKeyField, Map<String, String> messageProperties,
                         boolean async, boolean useTopicSchema) throws IOException {
 
-        final org.apache.avro.Schema avroSchema = useTopicSchema ? getTopicAvroSchema() : null;
+        final TopicSchema resolvedSchema = useTopicSchema ? getTopicSchema() : null;
 
-        if (useTopicSchema && avroSchema == null) {
-            logger.debug("The topic carries no Avro schema; encoding with the configured record writer instead");
+        if (useTopicSchema && resolvedSchema == null) {
+            logger.debug("The topic carries no Avro or JSON schema; encoding with the configured record writer instead");
         }
 
-        // Built once for the whole record set rather than per record: both are reusable across writes on
-        // the same schema, and the buffer below is already reset each iteration.
+        final org.apache.avro.Schema avroSchema = resolvedSchema == null ? null : resolvedSchema.getDefinition();
+        final boolean encodeAsJson = resolvedSchema != null && resolvedSchema.isJson();
+
+        // Built once for the whole record set rather than per record: all of these are reusable across
+        // writes on the same schema, and the buffer below is already reset each iteration.
         final GenericDatumWriter<org.apache.avro.generic.GenericRecord> datumWriter =
-                avroSchema == null ? null : new GenericDatumWriter<>(avroSchema);
+                (avroSchema == null || encodeAsJson) ? null : new GenericDatumWriter<>(avroSchema);
+        // AUTO_CLOSE_TARGET off: the stream below outlives each generator and is reused for every record.
+        final JsonFactory jsonFactory =
+                encodeAsJson ? new JsonFactory().disable(JsonGenerator.Feature.AUTO_CLOSE_TARGET) : null;
         BinaryEncoder encoder = null;
 
         final ByteArrayOutputStream baos = new ByteArrayOutputStream(1024);
@@ -189,8 +233,12 @@ public class PublisherLease implements Closeable {
                 final String messageKey;
 
                 if (avroSchema != null) {
-                    encoder = EncoderFactory.get().binaryEncoder(baos, encoder);
-                    encodeWithTopicSchema(record, avroSchema, datumWriter, encoder);
+                    if (encodeAsJson) {
+                        encodeWithTopicJsonSchema(record, avroSchema, jsonFactory, baos);
+                    } else {
+                        encoder = EncoderFactory.get().binaryEncoder(baos, encoder);
+                        encodeWithTopicSchema(record, avroSchema, datumWriter, encoder);
+                    }
                     messageContent = baos.toByteArray();
                 } else {
                     try (final RecordSetWriter writer = writerFactory.createWriter(logger, schema, baos, flowFile)) {
@@ -273,6 +321,142 @@ public class PublisherLease implements Closeable {
 
         datumWriter.write(avroRecord, encoder);
         encoder.flush();
+    }
+
+    /**
+     * Encodes a NiFi record as plain JSON conforming to the topic's schema.
+     * <p>
+     * A Pulsar JSON schema is registered as an Avro schema document, but what it puts on the wire is
+     * ordinary JSON - Jackson's rendering of the message object - and not Avro's own JSON encoding, which
+     * wraps a union value in its branch name. So the record is converted to the topic's schema exactly as
+     * the Avro path converts it, and then written out as plain JSON.
+     * <p>
+     * Falling through to the configured record writer instead emitted whatever that writer emits - CSV,
+     * say - and, unlike an AVRO topic, a JSON one accepts it: the message landed on the topic looking
+     * valid and a schema-aware consumer decoded every one of its fields as null.
+     *
+     * @param record the record to encode
+     * @param avroSchema the schema document the topic carries
+     * @param jsonFactory the factory to build the generator from, shared across the record set
+     * @param out the buffer to encode into
+     * @throws IOException if the record cannot be converted or encoded
+     */
+    private void encodeWithTopicJsonSchema(final Record record, final org.apache.avro.Schema avroSchema,
+                                           final JsonFactory jsonFactory, final ByteArrayOutputStream out)
+            throws IOException {
+
+        final org.apache.avro.generic.GenericRecord avroRecord;
+
+        try {
+            avroRecord = AvroTypeUtil.createAvroRecord(record, avroSchema);
+        } catch (final Exception e) {
+            throw new IOException("Unable to convert the record to the topic's schema " + avroSchema.getFullName(), e);
+        }
+
+        try (JsonGenerator generator = jsonFactory.createGenerator(out)) {
+            writeAsJson(generator, avroSchema, avroRecord);
+        }
+    }
+
+    /**
+     * Writes one value as plain JSON, guided by the schema branch it was converted to.
+     * <p>
+     * Deliberately not Avro's {@code JsonEncoder}: that emits Avro's JSON encoding, in which a union value
+     * appears as {@code {"string": "x"}} and which a Pulsar consumer reading the same JSON schema cannot
+     * decode. Here a union writes the value it holds, and nothing else, which is what Pulsar's own JSON
+     * schema produces and reads back.
+     *
+     * @param generator the generator to write to
+     * @param schema the schema of this value
+     * @param value the value, already converted to the schema by {@link AvroTypeUtil}
+     */
+    private static void writeAsJson(final JsonGenerator generator, final org.apache.avro.Schema schema,
+                                    final Object value) throws IOException {
+
+        if (value == null) {
+            generator.writeNull();
+            return;
+        }
+
+        switch (schema.getType()) {
+            case UNION:
+                writeAsJson(generator, schema.getTypes().get(GenericData.get().resolveUnion(schema, value)), value);
+                break;
+
+            case RECORD:
+                final org.apache.avro.generic.GenericRecord nested = (org.apache.avro.generic.GenericRecord) value;
+                generator.writeStartObject();
+                for (final org.apache.avro.Schema.Field field : schema.getFields()) {
+                    generator.writeFieldName(field.name());
+                    writeAsJson(generator, field.schema(), nested.get(field.pos()));
+                }
+                generator.writeEndObject();
+                break;
+
+            case ARRAY:
+                generator.writeStartArray();
+                if (value instanceof Object[]) {
+                    for (final Object element : (Object[]) value) {
+                        writeAsJson(generator, schema.getElementType(), element);
+                    }
+                } else {
+                    for (final Object element : (Iterable<?>) value) {
+                        writeAsJson(generator, schema.getElementType(), element);
+                    }
+                }
+                generator.writeEndArray();
+                break;
+
+            case MAP:
+                generator.writeStartObject();
+                for (final Map.Entry<?, ?> entry : ((Map<?, ?>) value).entrySet()) {
+                    generator.writeFieldName(String.valueOf(entry.getKey()));
+                    writeAsJson(generator, schema.getValueType(), entry.getValue());
+                }
+                generator.writeEndObject();
+                break;
+
+            case BYTES:
+                final ByteBuffer buffer = ((ByteBuffer) value).duplicate();
+                final byte[] bytes = new byte[buffer.remaining()];
+                buffer.get(bytes);
+                generator.writeBinary(bytes);
+                break;
+
+            case FIXED:
+                generator.writeBinary(((GenericFixed) value).bytes());
+                break;
+
+            case BOOLEAN:
+                generator.writeBoolean((Boolean) value);
+                break;
+
+            case INT:
+                generator.writeNumber(((Number) value).intValue());
+                break;
+
+            case LONG:
+                generator.writeNumber(((Number) value).longValue());
+                break;
+
+            case FLOAT:
+                generator.writeNumber(((Number) value).floatValue());
+                break;
+
+            case DOUBLE:
+                generator.writeNumber(((Number) value).doubleValue());
+                break;
+
+            case NULL:
+                generator.writeNull();
+                break;
+
+            // STRING and ENUM, plus anything a future Avro adds: Avro hands strings back as Utf8, so the
+            // value is rendered rather than cast.
+            default:
+                generator.writeString(value.toString());
+                break;
+        }
     }
 
     public long complete() {
