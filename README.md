@@ -55,6 +55,21 @@ through *Mapped FlowFile Attributes*.
 > that comes from a message property has to be mapped through *Mapped FlowFile Attributes*
 > instead.
 
+### Record sets and the record schema
+
+`ConsumePulsarRecord` writes consecutive messages with the same mapped attributes (and topic)
+as one record set, using the schema the set was opened with. A message whose schema differs
+starts a new record set - and a new FlowFile - just as a change in the mapped attributes does.
+
+> **Behaviour change since `2.9.0`:** the record set used to be written with the schema of its
+> **first** message. With a Record Reader that infers the schema from each message (the default
+> of `JsonTreeReader`), every field that the first message of a batch did not have was silently
+> dropped from the rest of the batch, and a field whose type differed made the trigger fail. Such
+> batches are now split at every schema change instead, so a topic with payloads of several
+> shapes produces more, smaller FlowFiles than before. If that matters more than the optional
+> fields, give the reader an explicit schema (*Schema Text* or a schema registry): every message
+> then resolves to the same schema and the batch stays one FlowFile.
+
 ## Publisher message metadata
 
 `PublishPulsar` and `PublishPulsarRecord` set the message key and message properties from the
