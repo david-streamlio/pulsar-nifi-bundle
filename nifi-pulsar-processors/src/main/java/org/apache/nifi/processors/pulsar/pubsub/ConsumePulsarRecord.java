@@ -19,7 +19,6 @@ package org.apache.nifi.processors.pulsar.pubsub;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.*;
 import java.util.concurrent.BlockingQueue;
@@ -204,7 +203,8 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
     /**
      * Perform the actual processing of the messages, by parsing the messages and writing them out to a FlowFile.
      * All of the messages passed in shall be routed to either SUCCESS or PARSE_FAILURE, allowing us to acknowledge
-     * the receipt of the messages to Pulsar, so they are not re-sent. The acknowledgement is issued once the
+     * the receipt of the messages to Pulsar, so they are not re-sent. Consecutive messages with the same mapped
+     * attributes and the same record schema share one record set; a change in either starts a new one. The acknowledgement is issued once the
      * session carrying the FlowFiles has been committed; if the batch cannot be written, the session is rolled
      * back and nothing is acknowledged, so the broker redelivers the messages instead of losing them.
      *
@@ -275,9 +275,28 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
                     currentAttributes.put("avro.schema", new String(msg.getReaderSchema().get().getSchemaInfo().getSchema()));
                 }
 
-                // if the current message's mapped attribute values differ from the previous set's,
-                // write out the active record set and clear various references so that we'll start a new one
-                if (lastAttributes != null && !lastAttributes.equals(currentAttributes)) {
+                // Parse the message before deciding which record set it joins. The reader's schema is the
+                // message's own - with an inferred schema, the shape of this payload - and a message whose
+                // schema differs from the open set's cannot go through the set's writer: a writer only emits
+                // the fields of the schema it was created with, so the fields the message does not share
+                // would be dropped silently, and a field of a different type would fail to coerce.
+                final byte[] data = msg.getData();
+                RecordReader reader = null;
+                RecordSchema currentSchema = null;
+
+                try {
+                    reader = readerFactory.createRecordReader(currentAttributes, new ByteArrayInputStream(data), data.length, getLogger());
+                    currentSchema = reader.getSchema();
+                } catch (MalformedRecordException | IOException | SchemaNotFoundException e) {
+                    IOUtils.closeQuietly(reader);
+                    reader = null;
+                }
+
+                // if the current message's mapped attribute values - or its schema - differ from the open
+                // record set's, write out the active record set and clear various references so that we'll
+                // start a new one. An unparseable message has no schema and leaves the open set as it is.
+                if (lastAttributes != null && (!lastAttributes.equals(currentAttributes)
+                        || (reader != null && !schema.equals(currentSchema)))) {
                     WriteResult result = writer.finishRecordSet();
                     IOUtils.closeQuietly(writer);
                     IOUtils.closeQuietly(rawOut);
@@ -308,25 +327,29 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
                 // purpose, so it is acknowledged with the commit of the FlowFiles it belongs to
                 uncommitted.add(msg);
 
+                if (reader == null) {
+                    // the message could not be parsed: it is routed to parse_failure with the rest of the set
+                    parseFailures.add(msg);
+                    continue;
+                }
+
                 // if there's no record set actively being written, begin one
-                byte[] data = msg.getData();
                 if (lastMessage == null) {
                     flowFile = session.create();
                     flowFile = session.putAllAttributes(flowFile, currentAttributes);
                     batchAttributes = new MessageBatchAttributes();
-                    schema = getSchema(flowFile, readerFactory, data);
+                    schema = currentSchema;
                     rawOut = session.write(flowFile);
                     writer = getRecordWriter(writerFactory, schema, rawOut, flowFile);
 
-                    if (schema == null || writer == null) {
+                    if (writer == null) {
                         parseFailures.add(msg);
+                        IOUtils.closeQuietly(reader);
                         // the OutputStream has to be closed before the FlowFile can be removed, otherwise
                         // the session rejects the removal with an IllegalStateException
-                        IOUtils.closeQuietly(writer);
                         IOUtils.closeQuietly(rawOut);
                         session.remove(flowFile);
                         // no record set is open now: keep the invariant that writer != null means "open"
-                        writer = null;
                         rawOut = null;
                         getLogger().error("Unable to create a record writer to consume from the Pulsar topic");
                         continue;
@@ -340,18 +363,17 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
                 batchAttributes.add(msg);
 
                 // write each of the records in the current message to the active record set. These will each
-                // have the same mapped flowfile attribute values, which means that it's ok that they are all placed
-                // in the same output flowfile.
-
-                final InputStream in = new ByteArrayInputStream(data);
+                // have the same mapped flowfile attribute values and the same schema, which means that it's ok
+                // that they are all placed in the same output flowfile.
                 try {
-                    RecordReader r = readerFactory.createRecordReader(flowFile, in, getLogger());
-                    for (Record record = r.nextRecord(); record != null; record = r.nextRecord()) {
+                    for (Record record = reader.nextRecord(); record != null; record = reader.nextRecord()) {
                         writer.write(record);
                         writtenRecords++;
                     }
-                } catch (MalformedRecordException | IOException | SchemaNotFoundException e) {
+                } catch (MalformedRecordException | IOException e) {
                     parseFailures.add(msg);
+                } finally {
+                    IOUtils.closeQuietly(reader);
                 }
             }
 
@@ -547,23 +569,6 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
         } finally {
             drainAcknowledgments();
         }
-    }
-
-    private RecordSchema getSchema(FlowFile flowFile, RecordReaderFactory readerFactory, byte[] msgValue) {
-        RecordSchema schema = null;
-        InputStream in = null;
-
-        try {
-            in = new ByteArrayInputStream(msgValue);
-            schema = readerFactory.createRecordReader(flowFile, in, getLogger()).getSchema();
-        } catch (MalformedRecordException | IOException | SchemaNotFoundException e) {
-            getLogger().error("Unable to determine the schema", e);
-            return null;
-        } finally {
-            IOUtils.closeQuietly(in);
-        }
-
-        return schema;
     }
 
     private RecordSetWriter getRecordWriter(RecordSetWriterFactory writerFactory,

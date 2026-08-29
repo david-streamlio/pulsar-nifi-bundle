@@ -299,7 +299,10 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
                     + "default: 1000. If set to a value greater than 1, messages within the FlowFile will be seperated "
                     + "by the Message Demarcator. Consecutive messages are written to the same FlowFile as long as their "
                     + "Mapped FlowFile Attributes are identical; a change in those attributes starts a new FlowFile before "
-                    + "the batch size is reached.")
+                    + "the batch size is reached. ConsumePulsarRecord also starts a new FlowFile when the record schema "
+                    + "changes: with a Record Reader that infers the schema from each message, a batch of messages of "
+                    + "different shapes is split into one FlowFile per shape change rather than losing the fields that "
+                    + "the first message of the batch does not have.")
             .required(false)
             .addValidator(StandardValidators.POSITIVE_INTEGER_VALIDATOR)
             .defaultValue("1000")
