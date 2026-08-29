@@ -57,6 +57,8 @@ import org.apache.pulsar.client.api.Message;
 import org.apache.pulsar.client.api.PulsarClientException;
 import org.apache.pulsar.client.api.schema.GenericRecord;
 import org.apache.pulsar.common.naming.TopicName;
+import org.apache.pulsar.client.api.Schema;
+import org.apache.pulsar.common.schema.SchemaInfo;
 import org.apache.pulsar.common.schema.SchemaType;
 
 @CapabilityDescription("Consumes messages from Apache Pulsar. "
@@ -271,8 +273,11 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
                 // particularly when the message originates from a different topic.
                 currentAttributes.put("topicName", getLogicalTopicName(msg.getTopicName()));
                 // add the schema to the attributes in-case the schema is updated on the topic
-                if (msg.getReaderSchema().isPresent() && msg.getReaderSchema().get().getSchemaInfo().getType() == SchemaType.AVRO) {
-                    currentAttributes.put("avro.schema", new String(msg.getReaderSchema().get().getSchemaInfo().getSchema()));
+                // With AUTO_CONSUME the reader schema is present even for a topic that has no schema at all -
+                // it is the AutoConsumeSchema itself - but its SchemaInfo is null. Treat that like no schema.
+                final SchemaInfo readerSchemaInfo = msg.getReaderSchema().map(Schema::getSchemaInfo).orElse(null);
+                if (readerSchemaInfo != null && readerSchemaInfo.getType() == SchemaType.AVRO) {
+                    currentAttributes.put("avro.schema", new String(readerSchemaInfo.getSchema()));
                 }
 
                 // Parse the message before deciding which record set it joins. The reader's schema is the
