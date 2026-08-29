@@ -90,6 +90,22 @@ FlowFile:
 > partition a message routes to, and it makes the topic compactable by that key. If you relied on
 > the previous unkeyed behaviour, clear the `msg.key` attribute before the publish processor.
 
+## Message routing on partitioned topics
+
+*Message Routing Mode* decides where an **unkeyed** message goes on a partitioned topic:
+`RoundRobinPartition` (the default) spreads them over the partitions, `SinglePartition` keeps
+them on one partition chosen per producer. A message with a key is hashed to a partition in
+either mode, so keyed messages keep their order per key regardless of the setting.
+`CustomPartition` needs a `MessageRouter` the processors cannot configure and is rejected at
+validation. *Max Pending Messages* bounds the producer's queue of messages awaiting the
+broker's acknowledgement.
+
+> **Behaviour change since `2.9.0`:** neither property reached the producer since the publish
+> processors were refactored in 2023 — the producer always ran with the client defaults. A flow
+> that has *Message Routing Mode* set to `SinglePartition` will now really route its unkeyed
+> messages to a single partition, and *Max Pending Messages* now applies. A flow that had
+> `CustomPartition` selected becomes invalid and has to pick one of the other two modes.
+
 ## Publishing to topics that have a schema
 
 `PublishPulsar` and `PublishPulsarRecord` create their producers with
