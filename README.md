@@ -4,6 +4,7 @@
 
 | Bundle version | NiFi | Pulsar client | Java |
 |---|---|---|---|
+| `2.10.0` | 2.10.0 | 4.2.4 | 21 |
 | `2.9.0` | 2.9.0 | 4.2.2 | 21 |
 | `2.1.0` | 2.1.0 | 3.3.7 | 21 |
 
@@ -14,6 +15,9 @@
 The bundle version tracks the NiFi platform version it is built for; each release
 line targets one Pulsar client major. See [VERSIONING.md](VERSIONING.md) for the
 full scheme, branching model, and release process.
+
+Release notes live in [`docs/release-notes/`](docs/release-notes/). `2.10.0` carries
+several behaviour changes — see [its notes](docs/release-notes/2.10.0.md) before upgrading.
 
 ## Consumer FlowFile attributes
 
