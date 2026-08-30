@@ -90,17 +90,27 @@ public class TopicSchemaRecordDecoderTest {
         assertEquals("C", record.getValue("unit"));
     }
 
-    /** Only the two struct types map to a record; everything else falls back to the Record Reader. */
+    /** The struct types map to a record directly; the primitives map to a single-field one (#189). */
     @Test
-    public void supportsOnlyTheStructTypes() {
+    public void supportsTheStructAndPrimitiveTypes() {
         assertTrue(TopicSchemaRecordDecoder.supports(schemaInfo(SchemaType.AVRO)));
         assertTrue(TopicSchemaRecordDecoder.supports(schemaInfo(SchemaType.JSON)));
-        assertFalse("a primitive schema has no record shape (#189)",
+        assertTrue("a primitive topic becomes a single-field record (#189)",
                 TopicSchemaRecordDecoder.supports(schemaInfo(SchemaType.STRING)));
         assertFalse("KeyValue carries two schemas and needs its own handling (#190)",
                 TopicSchemaRecordDecoder.supports(schemaInfo(SchemaType.KEY_VALUE)));
         assertFalse("a topic with no schema reports null, which is the #181 case",
                 TopicSchemaRecordDecoder.supports(null));
+    }
+
+    /** Only the primitives need the reader-precedence rule, so struct types must not be flagged as such. */
+    @Test
+    public void onlyPrimitiveTopicsAreReportedAsPrimitive() {
+        assertTrue(TopicSchemaRecordDecoder.isPrimitive(schemaInfo(SchemaType.STRING)));
+        assertTrue(TopicSchemaRecordDecoder.isPrimitive(schemaInfo(SchemaType.INT32)));
+        assertFalse(TopicSchemaRecordDecoder.isPrimitive(schemaInfo(SchemaType.AVRO)));
+        assertFalse(TopicSchemaRecordDecoder.isPrimitive(schemaInfo(SchemaType.JSON)));
+        assertFalse(TopicSchemaRecordDecoder.isPrimitive(null));
     }
 
     /** A payload that does not match the schema is an error the caller routes, not a half-built record. */

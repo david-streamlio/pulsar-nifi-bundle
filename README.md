@@ -141,8 +141,28 @@ with.
 
 A *Record Reader* may still be configured under `Topic Schema`, and messages the strategy cannot decode
 fall back to it — a topic with no schema at all, or one whose schema has no record shape. Without a
-reader to fall back to, those messages go to `parse.failure`. Primitive and `KeyValue` schemas are not
-yet decoded this way.
+reader to fall back to, those messages go to `parse.failure`. `KeyValue` schemas are not yet decoded this
+way.
+
+### Topics with a primitive schema
+
+A topic whose schema is a primitive — `STRING`, `BOOLEAN`, or one of the numeric types — carries one
+value per message and has no fields, so `Topic Schema` gives each message a record of a single field
+named by **Primitive Value Field** (`value` by default). It becomes a column name downstream, so it is
+worth setting to something meaningful.
+
+**A configured *Record Reader* takes precedence on these topics.** A `STRING` topic carrying JSON text is
+a common shape, and those flows want the payload parsed into records rather than wrapped in one string
+field — so with a reader configured the payload is parsed, and the single-field record is what happens
+when there is no reader to parse with.
+
+Publishing to a primitive topic requires a record with **exactly one field**, whose value is coerced to
+the topic's type. A record with several fields has no unambiguous mapping onto a single value, so it is
+routed to `failure` rather than guessing which field was meant.
+
+`BYTES` is not treated as a primitive schema. Pulsar reports a topic with *no* schema as `BYTES` with an
+empty definition, so the two are indistinguishable, and treating it as primitive would capture every
+schema-less topic. The date and time schemas are not supported yet either.
 
 ## Publishing to topics that have a schema
 
