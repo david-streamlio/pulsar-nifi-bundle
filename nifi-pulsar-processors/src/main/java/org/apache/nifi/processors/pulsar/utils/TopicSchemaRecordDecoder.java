@@ -175,7 +175,9 @@ public class TopicSchemaRecordDecoder {
     private Record decodeJson(final byte[] data, final Parsed current) throws IOException {
         final Map<String, Object> values = JSON.readValue(data, Map.class);
 
-        return new MapRecord(current.recordSchema, values, false, true);
+        // Through DataTypeUtils rather than a MapRecord constructor, which does not convert a nested
+        // JSON object: without this a nested field comes back as a raw Map instead of a Record.
+        return org.apache.nifi.serialization.record.util.DataTypeUtils.toRecord(values, current.recordSchema, null);
     }
 
     /**
@@ -211,20 +213,26 @@ public class TopicSchemaRecordDecoder {
         final org.apache.avro.Schema avroSchema = new org.apache.avro.Schema.Parser()
                 .parse(new String(schemaInfo.getSchema(), StandardCharsets.UTF_8));
 
-        if (schemaInfo.getType() == SchemaType.JSON) {
-            final Map<String, Object> values = new java.util.LinkedHashMap<>();
-            for (final org.apache.avro.Schema.Field field : avroSchema.getFields()) {
-                values.put(field.name(), record.getValue(field.name()));
-            }
-            return JSON.writeValueAsBytes(values);
-        }
-
         final org.apache.avro.generic.GenericRecord avroRecord;
 
         try {
             avroRecord = AvroTypeUtil.createAvroRecord(record, avroSchema);
         } catch (final Exception e) {
             throw new IOException("Unable to convert the record to " + avroSchema.getFullName(), e);
+        }
+
+        if (schemaInfo.getType() == SchemaType.JSON) {
+            // Through the same writer a whole JSON message uses. Building a map of the record's field
+            // values and handing it to Jackson looked equivalent and was not: a nested field arrives as a
+            // MapRecord, which Jackson cannot serialize, so any JSON side with a nested record failed to
+            // publish. Converting to an Avro record first and writing that gives nesting, unions and
+            // logical types the same treatment they get at the top level.
+            final java.io.ByteArrayOutputStream json = new java.io.ByteArrayOutputStream();
+            try (com.fasterxml.jackson.core.JsonGenerator generator =
+                         new com.fasterxml.jackson.core.JsonFactory().createGenerator(json)) {
+                PublisherLease.writeAsJson(generator, avroSchema, avroRecord);
+            }
+            return json.toByteArray();
         }
 
         final java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();

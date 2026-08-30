@@ -298,7 +298,12 @@ public class PublisherLease implements Closeable {
                         // The schema owns the message key on a SEPARATED topic, so Message Key Field cannot
                         // also own it. Refusing beats silently overwriting one with the other; the topic's
                         // schema is not knowable at validation time, so this has to be caught here.
-                        if (messageKeyField != null && !messageKeyField.isEmpty()) {
+                        //
+                        // Naming the same field is not a conflict: the user is asking for exactly what the
+                        // schema already guarantees, and failing there would surprise anyone who set both
+                        // for clarity. Only a genuine disagreement is refused.
+                        if (messageKeyField != null && !messageKeyField.isEmpty()
+                                && !messageKeyField.equals(keyValueKeyField)) {
                             throw new IOException("The topic's KeyValue schema is SEPARATED, so its key field "
                                     + "'" + keyValueKeyField + "' becomes the message key; remove Message Key "
                                     + "Field, which would overwrite it");
@@ -474,7 +479,11 @@ public class PublisherLease implements Closeable {
      * @param schema the schema of this value
      * @param value the value, already converted to the schema by {@link AvroTypeUtil}
      */
-    private static void writeAsJson(final JsonGenerator generator, final org.apache.avro.Schema schema,
+    /**
+     * Package-private so the KeyValue sides encode JSON the same way a whole message does (#190 review):
+     * a second, simpler JSON encoding there could not represent nested records.
+     */
+    static void writeAsJson(final JsonGenerator generator, final org.apache.avro.Schema schema,
                                     final Object value) throws IOException {
 
         if (value == null) {

@@ -122,16 +122,37 @@ public class KeyValueSchemaRoundTripIT extends AbstractPulsarIT {
      * known at publish time, this cannot be caught at validation.
      */
     @Test
-    public void messageKeyFieldIsRefusedOnASeparatedTopic() throws Exception {
+    public void aDifferentMessageKeyFieldIsRefusedOnASeparatedTopic() throws Exception {
         final String topic = seededTopic("kv-key-clash", KeyValueEncodingType.SEPARATED, SchemaType.AVRO);
+
+        final TestRunner publisher = publisher(topic);
+        publisher.setProperty(PublishPulsarRecord.MESSAGE_KEY_FIELD, "value");
+        publisher.enqueue(recordsJson().getBytes(UTF_8));
+        publisher.run(1, true);
+
+        publisher.assertTransferCount(PublishPulsarRecord.REL_SUCCESS, 0);
+        publisher.assertTransferCount(PublishPulsarRecord.REL_FAILURE, 1);
+    }
+
+    /**
+     * Naming the same field is not a conflict - it asks for exactly what the schema already guarantees -
+     * so it publishes rather than failing, which would surprise anyone who set both for clarity.
+     */
+    @Test
+    public void theSameMessageKeyFieldIsAllowedOnASeparatedTopic() throws Exception {
+        final String topic = seededTopic("kv-key-same", KeyValueEncodingType.SEPARATED, SchemaType.AVRO);
 
         final TestRunner publisher = publisher(topic);
         publisher.setProperty(PublishPulsarRecord.MESSAGE_KEY_FIELD, "key");
         publisher.enqueue(recordsJson().getBytes(UTF_8));
         publisher.run(1, true);
 
-        publisher.assertTransferCount(PublishPulsarRecord.REL_SUCCESS, 0);
-        publisher.assertTransferCount(PublishPulsarRecord.REL_FAILURE, 1);
+        publisher.assertTransferCount(PublishPulsarRecord.REL_FAILURE, 0);
+        publisher.assertTransferCount(PublishPulsarRecord.REL_SUCCESS, 1);
+
+        final TestRunner consumer = topicSchemaConsumer(topic, "kv-key-same");
+        assertEquals(RECORDS + 1, consumeRecords(consumer, RECORDS + 1));
+        assertTrue(successContent(consumer).contains("device-1"));
     }
 
     /** A record missing either side cannot be mapped onto the topic's two schemas. */

@@ -73,18 +73,20 @@ public class KeyValueTopicSchema {
     private SchemaInfo cachedValueSchema;
     private KeyValueEncodingType cachedEncoding;
 
+    /**
+     * The parsed side schemas, cached alongside the definition they came from. These were re-derived on
+     * every message - {@code Schema.Parser().parse} plus {@code AvroTypeUtil.createSchema} per side, and
+     * the Avro schema parsed a second time for the datum reader - while the primitive and top-level struct
+     * paths both cached. Parsing is the expensive part of decoding a small message.
+     */
+    private DataType cachedKeyType;
+    private DataType cachedValueType;
+    private org.apache.avro.Schema cachedKeyAvro;
+    private org.apache.avro.Schema cachedValueAvro;
+
     /** Whether this topic carries a key schema and a value schema. */
     public static boolean supports(final SchemaInfo schemaInfo) {
         return schemaInfo != null && schemaInfo.getType() == SchemaType.KEY_VALUE;
-    }
-
-    /**
-     * Where the key lives for this topic. Callers need this before decoding: a {@code SEPARATED} topic's
-     * key is message metadata rather than payload, so it has to be fetched from the message.
-     */
-    public KeyValueEncodingType encodingOf(final SchemaInfo schemaInfo) {
-        parse(schemaInfo, cachedKeyField, cachedValueField);
-        return cachedEncoding;
     }
 
     /**
@@ -119,8 +121,8 @@ public class KeyValueTopicSchema {
         }
 
         final Map<String, Object> values = new HashMap<>(2);
-        values.put(keyField, decodeSide(keyBytes, cachedKeySchema, keyField));
-        values.put(valueField, decodeSide(valueBytes, cachedValueSchema, valueField));
+        values.put(keyField, decodeSide(keyBytes, cachedKeySchema, cachedKeyType, cachedKeyAvro));
+        values.put(valueField, decodeSide(valueBytes, cachedValueSchema, cachedValueType, cachedValueAvro));
 
         return new MapRecord(cachedRecordSchema, values, false, true);
     }
@@ -192,9 +194,14 @@ public class KeyValueTopicSchema {
         cachedValueSchema = schemas.getValue();
         cachedEncoding = KeyValueSchemaInfo.decodeKeyValueEncodingType(schemaInfo);
 
+        cachedKeyAvro = avroSchemaOf(cachedKeySchema);
+        cachedValueAvro = avroSchemaOf(cachedValueSchema);
+        cachedKeyType = dataTypeOf(cachedKeySchema, cachedKeyAvro);
+        cachedValueType = dataTypeOf(cachedValueSchema, cachedValueAvro);
+
         final List<RecordField> fields = new ArrayList<>(2);
-        fields.add(new RecordField(keyField, dataTypeOf(cachedKeySchema)));
-        fields.add(new RecordField(valueField, dataTypeOf(cachedValueSchema)));
+        fields.add(new RecordField(keyField, cachedKeyType));
+        fields.add(new RecordField(valueField, cachedValueType));
 
         cachedRecordSchema = new SimpleRecordSchema(fields);
         cachedDefinition = definition;
@@ -203,15 +210,21 @@ public class KeyValueTopicSchema {
     }
 
     /** Each side keeps the shape its own schema describes: a scalar stays a scalar, a record a record. */
-    private static DataType dataTypeOf(final SchemaInfo side) {
+    private static org.apache.avro.Schema avroSchemaOf(final SchemaInfo side) {
+        if (side.getType() == SchemaType.AVRO || side.getType() == SchemaType.JSON) {
+            return new org.apache.avro.Schema.Parser().parse(new String(side.getSchema(), StandardCharsets.UTF_8));
+        }
+
+        return null;
+    }
+
+    private static DataType dataTypeOf(final SchemaInfo side, final org.apache.avro.Schema avroSchema) {
         if (PrimitiveTopicSchema.supports(side.getType())) {
             return PrimitiveTopicSchema.dataTypeOf(side.getType());
         }
 
-        if (side.getType() == SchemaType.AVRO || side.getType() == SchemaType.JSON) {
-            return RecordFieldType.RECORD.getRecordDataType(
-                    AvroTypeUtil.createSchema(new org.apache.avro.Schema.Parser()
-                            .parse(new String(side.getSchema(), StandardCharsets.UTF_8))));
+        if (avroSchema != null) {
+            return RecordFieldType.RECORD.getRecordDataType(AvroTypeUtil.createSchema(avroSchema));
         }
 
         // BYTES is how a side with no schema of its own is reported, and anything else is a type we do
@@ -219,24 +232,25 @@ public class KeyValueTopicSchema {
         return RecordFieldType.ARRAY.getArrayDataType(RecordFieldType.BYTE.getDataType());
     }
 
-    private static Object decodeSide(final byte[] data, final SchemaInfo side, final String fieldName)
-            throws IOException {
+    private static Object decodeSide(final byte[] data, final SchemaInfo side, final DataType dataType,
+            final org.apache.avro.Schema avroSchema) throws IOException {
         if (PrimitiveTopicSchema.supports(side.getType())) {
             return PrimitiveTopicSchema.decode(side.getType(), data);
         }
 
-        if (side.getType() == SchemaType.AVRO || side.getType() == SchemaType.JSON) {
-            final RecordSchema schema = ((org.apache.nifi.serialization.record.type.RecordDataType)
-                    dataTypeOf(side)).getChildSchema();
+        if (avroSchema != null) {
+            final RecordSchema schema =
+                    ((org.apache.nifi.serialization.record.type.RecordDataType) dataType).getChildSchema();
 
             if (side.getType() == SchemaType.JSON) {
                 @SuppressWarnings("unchecked")
                 final Map<String, Object> values = JSON.readValue(data, Map.class);
-                return new MapRecord(schema, values, false, true);
+                // Through DataTypeUtils rather than a MapRecord constructor: neither the checked nor the
+                // unchecked constructor converts a nested JSON object, so a nested field came back as a
+                // raw LinkedHashMap that no downstream writer expecting a record could handle.
+                return org.apache.nifi.serialization.record.util.DataTypeUtils.toRecord(values, schema, null);
             }
 
-            final org.apache.avro.Schema avroSchema = new org.apache.avro.Schema.Parser()
-                    .parse(new String(side.getSchema(), StandardCharsets.UTF_8));
             final org.apache.avro.generic.GenericRecord avroRecord =
                     new org.apache.avro.generic.GenericDatumReader<org.apache.avro.generic.GenericRecord>(avroSchema)
                             .read(null, org.apache.avro.io.DecoderFactory.get().binaryDecoder(data, null));
