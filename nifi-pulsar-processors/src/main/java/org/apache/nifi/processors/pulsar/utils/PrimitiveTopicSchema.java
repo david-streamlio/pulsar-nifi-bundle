@@ -75,6 +75,23 @@ public final class PrimitiveTopicSchema {
     private PrimitiveTopicSchema() {
     }
 
+    /**
+     * A scalar rendered as text. Structured values are refused rather than coerced: {@code toString()} on a
+     * record or a collection produces a Java debug string, and publishing that to a STRING topic would look
+     * like it worked while putting something like {@code MapRecord[{id=1}]} on the topic.
+     */
+    private static String asString(final Object value, final String fieldName) throws IOException {
+        if (value instanceof org.apache.nifi.serialization.record.Record
+                || value instanceof java.util.Map || value instanceof Object[]
+                || value instanceof Iterable) {
+            throw new IOException("Field '" + fieldName + "' is a " + value.getClass().getSimpleName()
+                    + ", which has no meaningful text form for a STRING topic; publish a scalar field or "
+                    + "use a topic whose schema is a record");
+        }
+
+        return DataTypeUtils.toString(value, (String) null);
+    }
+
     /** Whether a topic of this schema type can be mapped to a single-field record. */
     public static boolean supports(final SchemaType type) {
         return type != null && TYPES.containsKey(type);
@@ -132,7 +149,7 @@ public final class PrimitiveTopicSchema {
 
         try {
             switch (type) {
-                case STRING:  return Schema.STRING.encode(DataTypeUtils.toString(value, (String) null));
+                case STRING:  return Schema.STRING.encode(asString(value, fieldName));
                 case BOOLEAN: return Schema.BOOL.encode(DataTypeUtils.toBoolean(value, fieldName));
                 case INT8:    return Schema.INT8.encode(DataTypeUtils.toByte(value, fieldName));
                 case INT16:   return Schema.INT16.encode(DataTypeUtils.toShort(value, fieldName));

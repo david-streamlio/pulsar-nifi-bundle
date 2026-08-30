@@ -77,6 +77,27 @@ public class PrimitiveTopicSchemaTest {
                 () -> PrimitiveTopicSchema.encode(SchemaType.INT32, null, "reading"));
     }
 
+    /**
+     * A structured value has no meaningful text form, so it is refused rather than published as its
+     * toString(). Coercing it would put a Java debug string on the topic and look like it had worked.
+     */
+    @Test
+    public void aStructuredValueIsNotStringifiedOntoAStringTopic() {
+        final java.util.Map<String, Object> nested = new java.util.HashMap<>();
+        nested.put("id", 1);
+
+        assertThrows(IOException.class, () -> PrimitiveTopicSchema.encode(SchemaType.STRING, nested, "payload"));
+        assertThrows(IOException.class,
+                () -> PrimitiveTopicSchema.encode(SchemaType.STRING, new Object[] {1, 2}, "payload"));
+    }
+
+    /** Scalars still render as text, including numbers and booleans. */
+    @Test
+    public void scalarsStillRenderAsText() throws Exception {
+        assertEquals("42", Schema.STRING.decode(PrimitiveTopicSchema.encode(SchemaType.STRING, 42, "v")));
+        assertEquals("true", Schema.STRING.decode(PrimitiveTopicSchema.encode(SchemaType.STRING, true, "v")));
+    }
+
     /** A payload of the wrong width is a parse failure, not a garbage value. */
     @Test
     public void aPayloadOfTheWrongWidthFails() {
