@@ -169,6 +169,28 @@ routed to `failure` rather than guessing which field was meant.
 empty definition, so the two are indistinguishable, and treating it as primitive would capture every
 schema-less topic. The date and time schemas are not supported yet either.
 
+### Topics with a KeyValue schema
+
+A `KEY_VALUE` topic carries two schemas — one for the key, one for the value — and an encoding that says
+where the key is written. `INLINE` length-prefixes both into the payload; `SEPARATED` puts the key in the
+message's key metadata and only the value in the payload, which is what makes a topic compactable by key.
+Both are supported and behave the same to a flow.
+
+`Topic Schema` gives each message a record with two fields, named by **KeyValue Key Field** and
+**KeyValue Value Field** (`key` and `value` by default). Each side keeps the shape its own schema
+describes: a `STRING` key becomes a string field, an `AVRO` value becomes a nested record.
+
+Publishing needs a record with both of those fields. **On a `SEPARATED` topic the key field becomes the
+message key, so *Message Key Field* must not name a different field** — the two would overwrite each
+other, and the FlowFile is routed to `failure` rather than silently letting one win. Naming the *same*
+field is allowed: that asks for what the schema already guarantees. The topic's schema is not known until
+publish time, so this cannot be caught when the processor is configured.
+
+Because the schema's key becomes the message key on a `SEPARATED` topic, it is also the routing key — the
+same key lands on the same partition, and the topic is compactable by it, without configuring anything.
+On an `INLINE` topic the key metadata is unused by the schema, so *Message Key Field* still works there as
+the routing key.
+
 ## Publishing to topics that have a schema
 
 `PublishPulsar` and `PublishPulsarRecord` create their producers with

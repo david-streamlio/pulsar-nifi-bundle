@@ -50,6 +50,7 @@ import org.apache.nifi.processor.exception.ProcessException;
 import org.apache.nifi.processor.util.StandardValidators;
 import org.apache.nifi.processors.pulsar.AbstractPulsarConsumerProcessor;
 import org.apache.nifi.processors.pulsar.utils.MessageBatchAttributes;
+import org.apache.nifi.processors.pulsar.utils.KeyValueTopicSchema;
 import org.apache.nifi.processors.pulsar.utils.TopicSchemaRecordDecoder;
 import org.apache.nifi.schema.access.SchemaNotFoundException;
 import org.apache.nifi.serialization.*;
@@ -151,6 +152,28 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
             .expressionLanguageSupported(ExpressionLanguageScope.ENVIRONMENT)
             .build();
 
+    public static final PropertyDescriptor KEY_VALUE_KEY_FIELD = new PropertyDescriptor.Builder()
+            .name("KEY_VALUE_KEY_FIELD")
+            .displayName("KeyValue Key Field")
+            .description("The field name to give the key of a topic whose schema is a KeyValue schema. Only "
+                    + "used by the 'Topic Schema' strategy.")
+            .required(false)
+            .defaultValue(KeyValueTopicSchema.DEFAULT_KEY_FIELD)
+            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
+            .expressionLanguageSupported(ExpressionLanguageScope.ENVIRONMENT)
+            .build();
+
+    public static final PropertyDescriptor KEY_VALUE_VALUE_FIELD = new PropertyDescriptor.Builder()
+            .name("KEY_VALUE_VALUE_FIELD")
+            .displayName("KeyValue Value Field")
+            .description("The field name to give the value of a topic whose schema is a KeyValue schema. "
+                    + "Only used by the 'Topic Schema' strategy.")
+            .required(false)
+            .defaultValue(KeyValueTopicSchema.DEFAULT_VALUE_FIELD)
+            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
+            .expressionLanguageSupported(ExpressionLanguageScope.ENVIRONMENT)
+            .build();
+
     public static final PropertyDescriptor RECORD_READER = new PropertyDescriptor.Builder()
             .name("Record Reader")
             .displayName("Record Reader")
@@ -221,6 +244,8 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
         properties.add(MESSAGE_SCHEMA_STRATEGY);
         properties.add(PRIMITIVE_SCHEMA_HANDLING);
         properties.add(PRIMITIVE_VALUE_FIELD);
+        properties.add(KEY_VALUE_KEY_FIELD);
+        properties.add(KEY_VALUE_VALUE_FIELD);
         properties.add(RECORD_READER);
         properties.add(RECORD_WRITER);
         properties.add(MAX_WAIT_TIME);
@@ -371,7 +396,10 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
         // to success (#195). One decoder per batch parses each definition once per trigger, which is
         // cheap, and shares nothing.
         final TopicSchemaRecordDecoder topicSchemaDecoder = new TopicSchemaRecordDecoder();
+        final KeyValueTopicSchema keyValueDecoder = new KeyValueTopicSchema();
         final String primitiveField = context.getProperty(PRIMITIVE_VALUE_FIELD).evaluateAttributeExpressions().getValue();
+        final String kvKeyField = context.getProperty(KEY_VALUE_KEY_FIELD).evaluateAttributeExpressions().getValue();
+        final String kvValueField = context.getProperty(KEY_VALUE_VALUE_FIELD).evaluateAttributeExpressions().getValue();
         final boolean deferPrimitivesToReader =
                 PRIMITIVE_VIA_READER.getValue().equals(context.getProperty(PRIMITIVE_SCHEMA_HANDLING).getValue());
 
@@ -407,7 +435,19 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
                 final boolean readerWins = readerFactory != null && deferPrimitivesToReader
                         && TopicSchemaRecordDecoder.isPrimitive(readerSchemaInfo);
 
-                if (useTopicSchema && !readerWins && TopicSchemaRecordDecoder.supports(readerSchemaInfo)) {
+                if (useTopicSchema && KeyValueTopicSchema.supports(readerSchemaInfo)) {
+                    // A KeyValue topic's key is either length-prefixed in the payload (INLINE) or carried
+                    // in the message's key metadata (SEPARATED), so the message has to be consulted for
+                    // it, not just its payload.
+                    try {
+                        topicSchemaRecord = keyValueDecoder.decode(data, msg.hasKey() ? msg.getKeyBytes() : null,
+                                readerSchemaInfo, kvKeyField, kvValueField);
+                        currentSchema = topicSchemaRecord.getSchema();
+                    } catch (final IOException | RuntimeException e) {
+                        getLogger().debug("Unable to decode a message with the topic's KeyValue schema", e);
+                        topicSchemaRecord = null;
+                    }
+                } else if (useTopicSchema && !readerWins && TopicSchemaRecordDecoder.supports(readerSchemaInfo)) {
                     // The topic's schema decides the record's shape, so no reader is consulted at all. One
                     // message is one record here: a schema-bearing topic carries a single encoded value per
                     // message, unlike a reader, which may find several records in one payload.

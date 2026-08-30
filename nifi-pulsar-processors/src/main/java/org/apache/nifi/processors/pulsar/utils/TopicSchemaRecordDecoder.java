@@ -175,7 +175,9 @@ public class TopicSchemaRecordDecoder {
     private Record decodeJson(final byte[] data, final Parsed current) throws IOException {
         final Map<String, Object> values = JSON.readValue(data, Map.class);
 
-        return new MapRecord(current.recordSchema, values, false, true);
+        // Through DataTypeUtils rather than a MapRecord constructor, which does not convert a nested
+        // JSON object: without this a nested field comes back as a raw Map instead of a Record.
+        return org.apache.nifi.serialization.record.util.DataTypeUtils.toRecord(values, current.recordSchema, null);
     }
 
     /**
@@ -194,6 +196,52 @@ public class TopicSchemaRecordDecoder {
 
         return new MapRecord(current.recordSchema,
                 Collections.singletonMap(fieldName, PrimitiveTopicSchema.decode(type, data)), false, true);
+    }
+
+    /**
+     * Encodes a record with a struct schema, for the sides of a KeyValue topic (#190).
+     * <p>
+     * AVRO is written as bare binary and JSON as plain text, matching what {@code PublisherLease} writes
+     * for a whole message - a KeyValue side is the same encoding, just nested inside a larger payload.
+     *
+     * @param record the record to encode
+     * @param schemaInfo the AVRO or JSON schema of the side
+     * @return the encoded bytes
+     * @throws IOException if the record cannot be represented in the schema
+     */
+    public static byte[] encodeStruct(final Record record, final SchemaInfo schemaInfo) throws IOException {
+        final org.apache.avro.Schema avroSchema = new org.apache.avro.Schema.Parser()
+                .parse(new String(schemaInfo.getSchema(), StandardCharsets.UTF_8));
+
+        final org.apache.avro.generic.GenericRecord avroRecord;
+
+        try {
+            avroRecord = AvroTypeUtil.createAvroRecord(record, avroSchema);
+        } catch (final Exception e) {
+            throw new IOException("Unable to convert the record to " + avroSchema.getFullName(), e);
+        }
+
+        if (schemaInfo.getType() == SchemaType.JSON) {
+            // Through the same writer a whole JSON message uses. Building a map of the record's field
+            // values and handing it to Jackson looked equivalent and was not: a nested field arrives as a
+            // MapRecord, which Jackson cannot serialize, so any JSON side with a nested record failed to
+            // publish. Converting to an Avro record first and writing that gives nesting, unions and
+            // logical types the same treatment they get at the top level.
+            final java.io.ByteArrayOutputStream json = new java.io.ByteArrayOutputStream();
+            try (com.fasterxml.jackson.core.JsonGenerator generator =
+                         new com.fasterxml.jackson.core.JsonFactory().createGenerator(json)) {
+                PublisherLease.writeAsJson(generator, avroSchema, avroRecord);
+            }
+            return json.toByteArray();
+        }
+
+        final java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+        final org.apache.avro.io.BinaryEncoder encoder =
+                org.apache.avro.io.EncoderFactory.get().binaryEncoder(out, null);
+        new org.apache.avro.generic.GenericDatumWriter<org.apache.avro.generic.GenericRecord>(avroSchema)
+                .write(avroRecord, encoder);
+        encoder.flush();
+        return out.toByteArray();
     }
 
     /** The schema the last decoded message was shaped by, for callers that group records into sets. */
