@@ -128,6 +128,56 @@ public class KeyValueTopicSchema {
     }
 
     /**
+     * Decodes only the key of a SEPARATED message, as text for a FlowFile attribute (#198).
+     * <p>
+     * {@code Message.getKey()} returns base64 for a key set through {@code keyBytes()}, so a STRING key
+     * of {@code device-1} surfaces as {@code ZGV2aWNlLTE=} - not wrong so much as unusable, since nothing
+     * downstream can route or filter on it. This gives the decoded key instead: the value's string form
+     * for a primitive key, its JSON rendering for a struct key. Never base64.
+     * <p>
+     * Parses under the default field names, so callers should give this its own instance rather than
+     * sharing the one used for record decoding: a decoder alternating between two sets of field names
+     * would re-parse the schema on every message.
+     * <p>
+     * Never throws. A mapped attribute is not worth failing a message over, so anything undecodable
+     * yields null and leaves the attribute absent - which is also what a key we cannot render as text
+     * (a BYTES key) produces, rather than swapping base64 for some other unusable encoding.
+     *
+     * @param messageKey the message's key bytes; may be null
+     * @param schemaInfo the topic's schema, which need not be a KeyValue schema
+     * @return the decoded key as text, or null if there is none to give
+     */
+    public String decodeKeyAsText(final byte[] messageKey, final SchemaInfo schemaInfo) {
+        if (messageKey == null || !supports(schemaInfo)) {
+            return null;
+        }
+
+        try {
+            parse(schemaInfo, DEFAULT_KEY_FIELD, DEFAULT_VALUE_FIELD);
+
+            // INLINE keeps the key in the payload, so the message's key metadata is not the topic's key
+            // and decoding it against the key schema would be meaningless.
+            if (cachedEncoding != KeyValueEncodingType.SEPARATED) {
+                return null;
+            }
+
+            final Object key = decodeSide(messageKey, cachedKeySchema, cachedKeyType, cachedKeyAvro);
+
+            if (key instanceof Record) {
+                return TopicSchemaRecordDecoder.toJsonText((Record) key, cachedKeyAvro);
+            }
+
+            if (key == null || key instanceof byte[]) {
+                return null;
+            }
+
+            return String.valueOf(key);
+        } catch (final IOException | RuntimeException e) {
+            return null;
+        }
+    }
+
+    /**
      * Encodes a record's key and value fields for this topic.
      *
      * @return the payload, and the message key when the encoding is SEPARATED; the key is null otherwise
