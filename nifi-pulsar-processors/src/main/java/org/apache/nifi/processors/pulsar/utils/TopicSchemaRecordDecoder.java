@@ -170,6 +170,46 @@ public class TopicSchemaRecordDecoder {
         return new MapRecord(cachedRecordSchema, values, false, true);
     }
 
+    /**
+     * Encodes a record with a struct schema, for the sides of a KeyValue topic (#190).
+     * <p>
+     * AVRO is written as bare binary and JSON as plain text, matching what {@code PublisherLease} writes
+     * for a whole message - a KeyValue side is the same encoding, just nested inside a larger payload.
+     *
+     * @param record the record to encode
+     * @param schemaInfo the AVRO or JSON schema of the side
+     * @return the encoded bytes
+     * @throws IOException if the record cannot be represented in the schema
+     */
+    public static byte[] encodeStruct(final Record record, final SchemaInfo schemaInfo) throws IOException {
+        final org.apache.avro.Schema avroSchema = new org.apache.avro.Schema.Parser()
+                .parse(new String(schemaInfo.getSchema(), StandardCharsets.UTF_8));
+
+        if (schemaInfo.getType() == SchemaType.JSON) {
+            final Map<String, Object> values = new java.util.LinkedHashMap<>();
+            for (final org.apache.avro.Schema.Field field : avroSchema.getFields()) {
+                values.put(field.name(), record.getValue(field.name()));
+            }
+            return JSON.writeValueAsBytes(values);
+        }
+
+        final org.apache.avro.generic.GenericRecord avroRecord;
+
+        try {
+            avroRecord = AvroTypeUtil.createAvroRecord(record, avroSchema);
+        } catch (final Exception e) {
+            throw new IOException("Unable to convert the record to " + avroSchema.getFullName(), e);
+        }
+
+        final java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+        final org.apache.avro.io.BinaryEncoder encoder =
+                org.apache.avro.io.EncoderFactory.get().binaryEncoder(out, null);
+        new org.apache.avro.generic.GenericDatumWriter<org.apache.avro.generic.GenericRecord>(avroSchema)
+                .write(avroRecord, encoder);
+        encoder.flush();
+        return out.toByteArray();
+    }
+
     /** The schema the last decoded message was shaped by, for callers that group records into sets. */
     public RecordSchema getLastRecordSchema() {
         return cachedRecordSchema;

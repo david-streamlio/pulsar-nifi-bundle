@@ -67,6 +67,9 @@ public class PublisherLease implements Closeable {
     private final Schema<byte[]> topicSchema;
 
     /** The topic's schema, parsed once and re-parsed only if the definition itself changes. */
+    /** Holds the parsed key and value schemas of a KeyValue topic between records. */
+    private final KeyValueTopicSchema keyValueTopicSchema = new KeyValueTopicSchema();
+
     private String cachedSchemaDefinition;
     private TopicSchema cachedTopicSchema;
 
@@ -92,6 +95,19 @@ public class PublisherLease implements Closeable {
      * which only answers for the two struct types that map to an Avro document; a primitive topic (#189)
      * has a type but no record shape.
      */
+    /** The topic's SchemaInfo as the client reports it, or null when the topic has none. */
+    SchemaInfo rawTopicSchemaInfo() {
+        if (topicSchema == null) {
+            return null;
+        }
+
+        try {
+            return topicSchema.getSchemaInfo();
+        } catch (final RuntimeException e) {
+            return null;
+        }
+    }
+
     SchemaType getTopicSchemaType() {
         if (topicSchema == null) {
             return null;
@@ -220,6 +236,18 @@ public class PublisherLease implements Closeable {
     public void publish(final FlowFile flowFile, final RecordSet recordSet, final RecordSetWriterFactory writerFactory,
                         final RecordSchema schema, final String messageKeyField, Map<String, String> messageProperties,
                         boolean async, boolean useTopicSchema) throws IOException {
+        publish(flowFile, recordSet, writerFactory, schema, messageKeyField, messageProperties, async, useTopicSchema,
+                KeyValueTopicSchema.DEFAULT_KEY_FIELD, KeyValueTopicSchema.DEFAULT_VALUE_FIELD);
+    }
+
+    /**
+     * @param keyValueKeyField the record field holding the key of a KeyValue topic
+     * @param keyValueValueField the record field holding its value
+     */
+    public void publish(final FlowFile flowFile, final RecordSet recordSet, final RecordSetWriterFactory writerFactory,
+                        final RecordSchema schema, final String messageKeyField, Map<String, String> messageProperties,
+                        boolean async, boolean useTopicSchema, final String keyValueKeyField,
+                        final String keyValueValueField) throws IOException {
 
         final TopicSchema resolvedSchema = useTopicSchema ? getTopicSchema() : null;
 
@@ -231,6 +259,11 @@ public class PublisherLease implements Closeable {
         // encode nor a Record Writer serialization.
         final SchemaType primitiveType = useTopicSchema && resolvedSchema == null
                 && PrimitiveTopicSchema.supports(getTopicSchemaType()) ? getTopicSchemaType() : null;
+
+        // A KeyValue topic carries two schemas; the key goes either inside the payload (INLINE) or into
+        // the message's key metadata (SEPARATED), so it is neither of the paths below.
+        final SchemaInfo keyValueSchema = useTopicSchema && resolvedSchema == null
+                && KeyValueTopicSchema.supports(rawTopicSchemaInfo()) ? rawTopicSchemaInfo() : null;
 
         final org.apache.avro.Schema avroSchema = resolvedSchema == null ? null : resolvedSchema.getDefinition();
         final boolean encodeAsJson = resolvedSchema != null && resolvedSchema.isJson();
@@ -256,7 +289,32 @@ public class PublisherLease implements Closeable {
                 final byte[] messageContent;
                 final String messageKey;
 
-                if (primitiveType != null) {
+                if (keyValueSchema != null) {
+                    final KeyValueTopicSchema.EncodedKeyValue encoded =
+                            keyValueTopicSchema.encode(record, keyValueSchema, keyValueKeyField, keyValueValueField);
+                    messageContent = encoded.getPayload();
+
+                    if (encoded.getMessageKey() != null) {
+                        // The schema owns the message key on a SEPARATED topic, so Message Key Field cannot
+                        // also own it. Refusing beats silently overwriting one with the other; the topic's
+                        // schema is not knowable at validation time, so this has to be caught here.
+                        if (messageKeyField != null && !messageKeyField.isEmpty()) {
+                            throw new IOException("The topic's KeyValue schema is SEPARATED, so its key field "
+                                    + "'" + keyValueKeyField + "' becomes the message key; remove Message Key "
+                                    + "Field, which would overwrite it");
+                        }
+
+                        futureList.add(async
+                                ? sendAsyncWithKeyBytes(producer, encoded.getMessageKey(), messageProperties, messageContent)
+                                : sendWithKeyBytes(producer, encoded.getMessageKey(), messageProperties, messageContent));
+
+                        if (futureList.size() > 100) {
+                            producer.flush();
+                            awaitAll(futureList);
+                        }
+                        continue;
+                    }
+                } else if (primitiveType != null) {
                     messageContent = encodeWithPrimitiveTopicSchema(record, primitiveType);
                 } else if (avroSchema != null) {
                     if (encodeAsJson) {
@@ -508,6 +566,23 @@ public class PublisherLease implements Closeable {
     public long complete() {
         return this.messagesSent.get();
     }
+    /** A KeyValue SEPARATED key is the encoded key itself, so it goes on as bytes rather than a string. */
+    protected CompletableFuture<MessageId> sendAsyncWithKeyBytes(Producer producer, byte[] keyBytes, Map<String, String> properties, byte[] value) {
+        return producer.newMessage().properties(properties).keyBytes(keyBytes).value(value).sendAsync();
+    }
+
+    protected CompletableFuture<MessageId> sendWithKeyBytes(Producer producer, byte[] keyBytes, Map<String, String> properties, byte[] value)
+            throws PulsarClientException {
+        try {
+            return CompletableFuture.completedFuture(
+                    producer.newMessage().properties(properties).keyBytes(keyBytes).value(value).send());
+        } catch (final PulsarClientException e) {
+            final CompletableFuture<MessageId> failed = new CompletableFuture<>();
+            failed.completeExceptionally(e);
+            return failed;
+        }
+    }
+
     protected CompletableFuture<MessageId> sendAsync(Producer producer, String key, Map<String, String> properties, byte[] value) {
         TypedMessageBuilder tmb = producer.newMessage().properties(properties).value(value);
 

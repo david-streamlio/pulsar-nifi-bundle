@@ -33,6 +33,8 @@ import org.apache.nifi.processor.ProcessSession;
 import org.apache.nifi.processor.exception.ProcessException;
 import org.apache.nifi.processor.util.StandardValidators;
 import org.apache.nifi.processors.pulsar.AbstractPulsarProducerProcessor;
+import org.apache.nifi.expression.ExpressionLanguageScope;
+import org.apache.nifi.processors.pulsar.utils.KeyValueTopicSchema;
 import org.apache.nifi.processors.pulsar.utils.PublishPulsarUtils;
 import org.apache.nifi.processors.pulsar.utils.PublisherLease;
 import org.apache.nifi.schema.access.SchemaNotFoundException;
@@ -93,6 +95,29 @@ public class PublishPulsarRecord extends AbstractPulsarProducerProcessor<byte[]>
             .required(true)
             .build();
 
+    public static final PropertyDescriptor KEY_VALUE_KEY_FIELD = new PropertyDescriptor.Builder()
+            .name("KEY_VALUE_KEY_FIELD")
+            .displayName("KeyValue Key Field")
+            .description("The record field holding the key when publishing to a topic whose schema is a "
+                    + "KeyValue schema. Only used with the 'Topic Schema' strategy. On a SEPARATED topic "
+                    + "this field becomes the message key, so Message Key Field must not also be set.")
+            .required(false)
+            .defaultValue(KeyValueTopicSchema.DEFAULT_KEY_FIELD)
+            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
+            .expressionLanguageSupported(ExpressionLanguageScope.ENVIRONMENT)
+            .build();
+
+    public static final PropertyDescriptor KEY_VALUE_VALUE_FIELD = new PropertyDescriptor.Builder()
+            .name("KEY_VALUE_VALUE_FIELD")
+            .displayName("KeyValue Value Field")
+            .description("The record field holding the value when publishing to a topic whose schema is a "
+                    + "KeyValue schema. Only used with the 'Topic Schema' strategy.")
+            .required(false)
+            .defaultValue(KeyValueTopicSchema.DEFAULT_VALUE_FIELD)
+            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
+            .expressionLanguageSupported(ExpressionLanguageScope.ENVIRONMENT)
+            .build();
+
     public static final PropertyDescriptor MESSAGE_KEY_FIELD = new PropertyDescriptor.Builder()
             .name("message-key-field")
             .displayName("Message Key Field")
@@ -110,6 +135,8 @@ public class PublishPulsarRecord extends AbstractPulsarProducerProcessor<byte[]>
         properties.add(RECORD_WRITER);
         properties.add(MESSAGE_SCHEMA_STRATEGY);
         properties.add(MESSAGE_KEY_FIELD);
+        properties.add(KEY_VALUE_KEY_FIELD);
+        properties.add(KEY_VALUE_VALUE_FIELD);
         properties.addAll(AbstractPulsarProducerProcessor.PROPERTIES);
         PROPERTIES = Collections.unmodifiableList(properties);
     }
@@ -167,7 +194,9 @@ public class PublishPulsarRecord extends AbstractPulsarProducerProcessor<byte[]>
 
                             final RecordSchema schema = writerFactory.getSchema(flowFile.getAttributes(), recordSet.getSchema());
                             lease.publish(flowFile, recordSet, writerFactory, schema, messageKeyField,
-                                    getMappedMessageProperties(context, flowFile), asyncFlag, useTopicSchema);
+                                    getMappedMessageProperties(context, flowFile), asyncFlag, useTopicSchema,
+                                    context.getProperty(KEY_VALUE_KEY_FIELD).evaluateAttributeExpressions().getValue(),
+                                    context.getProperty(KEY_VALUE_VALUE_FIELD).evaluateAttributeExpressions().getValue());
 
                         } catch (final SchemaNotFoundException | MalformedRecordException e) {
                             throw new ProcessException(e);
