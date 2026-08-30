@@ -1,0 +1,22 @@
+# Accepted Trivy findings.
+#
+# Every entry here is a decision, not a mute. An entry without a reason and a
+# review date should be deleted rather than trusted - if nobody remembers why a
+# finding was accepted, it has not been accepted, it has been forgotten.
+#
+# Format (one CVE per line, preceded by its justification):
+#
+#   # CVE-YYYY-NNNNN - <component>
+#   # Reason:  why this does not affect this bundle, or why we cannot act on it
+#   # Review:  YYYY-MM-DD
+#   CVE-YYYY-NNNNN
+#
+# Prefer fixing over ignoring. Reach for this file when the finding is in the
+# apache/nifi base image with no newer base available, or when the vulnerable
+# code path is provably unreachable from this bundle.
+#
+# The container image scan in .github/workflows/security-scan.yml is currently
+# report-only. Once its baseline has been triaged into this file, flip that job's
+# exit-code to '1' so new findings stop the run.
+
+# (no accepted findings yet)
