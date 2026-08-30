@@ -118,6 +118,29 @@ broker's acknowledgement.
 > either raise *Max Pending Messages*, set it to `0` to restore the previous unbounded behaviour, or
 > enable *Block if Message Queue Full* so sends wait instead of failing.
 
+## Consuming from topics that have a schema
+
+`ConsumePulsarRecord`'s **Message Schema Strategy** decides how a message becomes records.
+
+`Record Reader` (the default) parses each message with the configured reader, which has to match how the
+topic is encoded. That is not always obvious: an AVRO topic carries *bare Avro binary* — no file header
+and no embedded schema, because Pulsar keeps the schema in its registry — so it needs an `AvroReader`
+whose *Schema Access Strategy* is `Use 'Schema Text' Property` and whose *Schema Text* is
+`${avro.schema}`, the attribute this processor sets from the topic's registered schema. A JSON topic
+carries text a `JsonTreeReader` can infer. Pointing the wrong reader at a topic sends every message to
+`parse.failure`.
+
+`Topic Schema` builds records from the schema the topic carries instead. The field definitions come from
+the broker — Pulsar attaches each message's schema to it — so no reader and no schema configuration are
+needed at all, and AVRO and JSON topics behave identically. Because the schema arrives per message,
+evolution is handled: a message published under an older version decodes with the version it was written
+with.
+
+A *Record Reader* may still be configured under `Topic Schema`, and messages the strategy cannot decode
+fall back to it — a topic with no schema at all, or one whose schema has no record shape. Without a
+reader to fall back to, those messages go to `parse.failure`. Primitive and `KeyValue` schemas are not
+yet decoded this way.
+
 ## Publishing to topics that have a schema
 
 `PublishPulsar` and `PublishPulsarRecord` create their producers with
