@@ -57,8 +57,13 @@ import org.junit.Test;
  * {@code ConsumePulsarRecord} hands the raw message bytes to the configured reader rather than the
  * decoded value, so the reader has to match what the topic holds. Pointing the wrong one at a topic is a
  * realistic misconfiguration - the properties are set in different places by different people - and the
- * last two tests establish that it surfaces as {@code parse.failure}, message by message, rather than as
- * silent corruption or a stuck consumer.
+ * last two tests pin what happens then.
+ * <p>
+ * That behaviour is the processor's contract rather than an accident of the mismatch: every message is
+ * routed to either {@code success} or {@code parse.failure} precisely so that it can be acknowledged, and
+ * the {@code parse.failure} FlowFile is what carries the undecodable ones to their acknowledgement -
+ * which is what #169 and #170 depend on. Nothing partially parsed reaches {@code success}, and the raw
+ * payload stays recoverable from {@code parse.failure}.
  * <p>
  * Only AVRO and JSON are covered because only those two are encoded: {@code PublisherLease} returns no
  * topic schema for any other {@link SchemaType}, and records fall back to the configured Record Writer.

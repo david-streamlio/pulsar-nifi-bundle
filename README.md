@@ -125,10 +125,13 @@ broker's acknowledgement.
 `Record Reader` (the default) parses each message with the configured reader, which has to match how the
 topic is encoded. That is not always obvious: an AVRO topic carries *bare Avro binary* — no file header
 and no embedded schema, because Pulsar keeps the schema in its registry — so it needs an `AvroReader`
-whose *Schema Access Strategy* is `Use 'Schema Text' Property` and whose *Schema Text* is
-`${avro.schema}`, the attribute this processor sets from the topic's registered schema. A JSON topic
-carries text a `JsonTreeReader` can infer. Pointing the wrong reader at a topic sends every message to
-`parse.failure`.
+with *Schema Access Strategy* set to `Use 'Schema Text' Property`. Its *Schema Text* already defaults to
+`${avro.schema}`, which is the attribute this processor sets from the topic's registered schema, so the
+access strategy is the only field that has to change. Because `avro.schema` is part of what decides a
+record set's boundaries, a schema version change closes the current FlowFile and opens a new one carrying
+its own schema, and the reader is created with those attributes so `${avro.schema}` resolves for the
+reader itself rather than only downstream. A JSON topic carries text a `JsonTreeReader` can infer.
+Pointing the wrong reader at a topic sends every message to `parse.failure`.
 
 `Topic Schema` builds records from the schema the topic carries instead. The field definitions come from
 the broker — Pulsar attaches each message's schema to it — so no reader and no schema configuration are
