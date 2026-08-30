@@ -167,7 +167,10 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
      */
     @Override
     protected Collection<ValidationResult> customValidate(final ValidationContext validationContext) {
-        final Collection<ValidationResult> results = new ArrayList<>();
+        // Seeded with the superclass results, not an empty list: AbstractPulsarConsumerProcessor enforces
+        // that exactly one of Topics / Topics Pattern is set and that Acknowledgment Timeout is at least
+        // 10 seconds, and starting empty silently dropped both for this processor (#194).
+        final Collection<ValidationResult> results = new ArrayList<>(super.customValidate(validationContext));
 
         if (!usesTopicSchema(validationContext.getProperty(MESSAGE_SCHEMA_STRATEGY).getValue())
                 && !validationContext.getProperty(RECORD_READER).isSet()) {
@@ -181,9 +184,6 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
 
         return results;
     }
-
-    /** Holds the parsed schema between messages, so a batch on one schema parses the definition once. */
-    private final TopicSchemaRecordDecoder topicSchemaDecoder = new TopicSchemaRecordDecoder();
 
     static boolean usesTopicSchema(final String strategy) {
         return SCHEMA_FROM_TOPIC.getValue().equals(strategy);
@@ -339,6 +339,13 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
         final boolean shared = isSharedSubscription(context);
 
         final boolean useTopicSchema = usesTopicSchema(context.getProperty(MESSAGE_SCHEMA_STRATEGY).getValue());
+
+        // Created per batch rather than held on the processor. Concurrent Tasks > 1 gave every task the
+        // same decoder, and its schema cache was read and replaced without synchronization, so two tasks
+        // decoding different schemas returned each other's records - silently, with no exception, straight
+        // to success (#195). One decoder per batch parses each definition once per trigger, which is
+        // cheap, and shares nothing.
+        final TopicSchemaRecordDecoder topicSchemaDecoder = new TopicSchemaRecordDecoder();
         final String primitiveField = context.getProperty(PRIMITIVE_VALUE_FIELD).evaluateAttributeExpressions().getValue();
 
         try {

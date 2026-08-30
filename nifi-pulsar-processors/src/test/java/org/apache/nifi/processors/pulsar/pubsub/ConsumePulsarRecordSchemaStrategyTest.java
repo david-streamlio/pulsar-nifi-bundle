@@ -79,6 +79,30 @@ public class ConsumePulsarRecordSchemaStrategyTest extends AbstractPulsarProcess
         runner.assertValid();
     }
 
+    /**
+     * The override must keep the superclass rules, not replace them (#194). Overriding customValidate with
+     * a fresh list silently dropped both of the consumer's own rules for this processor, so a
+     * ConsumePulsarRecord with no topic at all became a valid configuration and failed at runtime instead.
+     */
+    @Test
+    public void theConsumersOwnValidationRulesStillApply() throws InitializationException {
+        addRecordReader();
+        runner.assertValid();
+
+        runner.removeProperty(AbstractPulsarConsumerProcessor.TOPICS);
+        runner.assertNotValid();
+    }
+
+    /** The other superclass rule, which the same bug disabled. */
+    @Test
+    public void theAcknowledgementTimeoutRuleStillApplies() throws InitializationException {
+        addRecordReader();
+        runner.assertValid();
+
+        runner.setProperty(AbstractPulsarConsumerProcessor.ACK_TIMEOUT, "2 sec");
+        runner.assertNotValid();
+    }
+
     private void addRecordReader() throws InitializationException {
         final MockRecordParser reader = new MockRecordParser();
         runner.addControllerService("record-reader", reader);

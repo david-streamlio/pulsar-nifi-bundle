@@ -126,6 +126,68 @@ public class TopicSchemaRecordDecoderTest {
         assertNull(new TopicSchemaRecordDecoder().getLastRecordSchema());
     }
 
+    /**
+     * Two threads decoding two schemas through one decoder must never see each other's shape (#195).
+     * <p>
+     * The cache was five mutable fields read and replaced one at a time, so a thread could pick up the
+     * other's Avro schema together with its own RecordSchema. The failure was silent - no exception, wrong
+     * records straight to success - and 13-36% of records were affected under contention. The decoder is
+     * now created per batch rather than shared, but the class is also safe on its own, and this is what
+     * says so.
+     */
+    @Test
+    public void twoThreadsDecodingTwoSchemasDoNotSeeEachOther() throws Exception {
+        final String alphaDef = "{\"type\":\"record\",\"name\":\"A\",\"fields\":["
+                + "{\"name\":\"alpha\",\"type\":\"string\"}]}";
+        final String betaDef = "{\"type\":\"record\",\"name\":\"B\",\"fields\":["
+                + "{\"name\":\"beta\",\"type\":\"string\"}]}";
+
+        final SchemaInfo alpha = SchemaInfo.builder().name("A").type(SchemaType.JSON)
+                .schema(alphaDef.getBytes(UTF_8)).build();
+        final SchemaInfo beta = SchemaInfo.builder().name("B").type(SchemaType.JSON)
+                .schema(betaDef.getBytes(UTF_8)).build();
+
+        final TopicSchemaRecordDecoder shared = new TopicSchemaRecordDecoder();
+        final int iterations = 20_000;
+        final java.util.concurrent.atomic.AtomicInteger wrong = new java.util.concurrent.atomic.AtomicInteger();
+        final java.util.concurrent.atomic.AtomicInteger failed = new java.util.concurrent.atomic.AtomicInteger();
+
+        final Runnable alphaTask = decoding(shared, alpha, "alpha", "a-value", iterations, wrong, failed);
+        final Runnable betaTask = decoding(shared, beta, "beta", "b-value", iterations, wrong, failed);
+
+        final Thread one = new Thread(alphaTask);
+        final Thread two = new Thread(betaTask);
+        one.start();
+        two.start();
+        one.join();
+        two.join();
+
+        assertEquals("records came back with the other thread's shape or value", 0, wrong.get());
+        assertEquals("decoding threw rather than returning a wrong record", 0, failed.get());
+    }
+
+    private static Runnable decoding(final TopicSchemaRecordDecoder decoder, final SchemaInfo schemaInfo,
+            final String field, final String value, final int iterations,
+            final java.util.concurrent.atomic.AtomicInteger wrong,
+            final java.util.concurrent.atomic.AtomicInteger failed) {
+        final byte[] payload = ("{\"" + field + "\":\"" + value + "\"}").getBytes(UTF_8);
+
+        return () -> {
+            for (int i = 0; i < iterations; i++) {
+                try {
+                    final Record record = decoder.decode(payload, schemaInfo);
+
+                    if (!value.equals(record.getValue(field))
+                            || !record.getSchema().getFieldNames().contains(field)) {
+                        wrong.incrementAndGet();
+                    }
+                } catch (final Exception e) {
+                    failed.incrementAndGet();
+                }
+            }
+        };
+    }
+
     // ------------------------------------------------------------------ helpers
 
     private static SchemaInfo schemaInfo(final SchemaType type) {
