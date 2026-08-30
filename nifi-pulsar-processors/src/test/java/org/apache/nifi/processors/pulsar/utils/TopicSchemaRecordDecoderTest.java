@@ -188,6 +188,47 @@ public class TopicSchemaRecordDecoderTest {
         };
     }
 
+    /**
+     * A schema carrying {@code __AVRO_READ_OFFSET__} says how many bytes precede the Avro body (#207).
+     * <p>
+     * Pulsar's own {@code GenericAvroReader} honours it by reading the property off the parsed Avro schema
+     * and starting the decoder there. The Kafka Connect adaptor sets it to 5 for Avro - the Confluent wire
+     * format's magic byte plus a four-byte schema id - so every Debezium-sourced topic carries a five-byte
+     * preamble. Decoding from byte zero reads the preamble as record data.
+     * <p>
+     * The assertion is on the decoded values rather than on "no exception" deliberately: Avro's binary
+     * encoding is permissive enough that a wrong offset usually yields a plausible record instead of an
+     * error, which is what makes this silent.
+     */
+    @Test
+    public void anAvroReadOffsetSkipsThePreamble() throws Exception {
+        final String withOffset = "{\"type\":\"record\",\"name\":\"Sensor\",\"__AVRO_READ_OFFSET__\":\"5\","
+                + "\"fields\":[{\"name\":\"id\",\"type\":\"string\"},"
+                + "{\"name\":\"reading\",\"type\":\"int\"}]}";
+
+        // the Confluent preamble the adaptor prepends: magic byte 0x00 then a four-byte schema id
+        final byte[] body = avroBytes("sensor-9", 99);
+        final byte[] framed = new byte[5 + body.length];
+        framed[0] = 0x00;
+        framed[1] = 0x00; framed[2] = 0x00; framed[3] = 0x00; framed[4] = 0x2A;
+        System.arraycopy(body, 0, framed, 5, body.length);
+
+        final Record record = decoder.decode(framed, SchemaInfo.builder().name("Sensor")
+                .type(SchemaType.AVRO).schema(withOffset.getBytes(UTF_8)).build());
+
+        assertEquals("sensor-9", record.getValue("id"));
+        assertEquals(99, record.getValue("reading"));
+    }
+
+    /** No property means offset zero, which is what every topic not fed through the adaptor relies on. */
+    @Test
+    public void aSchemaWithoutTheOffsetPropertyStillDecodesFromByteZero() throws Exception {
+        final Record record = decoder.decode(avroBytes("sensor-1", 42), schemaInfo(SchemaType.AVRO));
+
+        assertEquals("sensor-1", record.getValue("id"));
+        assertEquals(42, record.getValue("reading"));
+    }
+
     // ------------------------------------------------------------------ helpers
 
     private static SchemaInfo schemaInfo(final SchemaType type) {
