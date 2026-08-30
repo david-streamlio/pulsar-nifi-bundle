@@ -141,8 +141,33 @@ with.
 
 A *Record Reader* may still be configured under `Topic Schema`, and messages the strategy cannot decode
 fall back to it — a topic with no schema at all, or one whose schema has no record shape. Without a
-reader to fall back to, those messages go to `parse.failure`. Primitive and `KeyValue` schemas are not
-yet decoded this way.
+reader to fall back to, those messages go to `parse.failure`. `KeyValue` schemas are not yet decoded this
+way.
+
+### Topics with a primitive schema
+
+A topic whose schema is a primitive — `STRING`, `BOOLEAN`, or one of the numeric types — carries one
+value per message and has no fields, so `Topic Schema` gives each message a record of a single field
+named by **Primitive Value Field** (`value` by default). It becomes a column name downstream, so it is
+worth setting to something meaningful.
+
+**Primitive Schema Handling** decides what happens when a *Record Reader* is also configured.
+`Record Reader if configured` — the default — parses the payload with the reader, which is what a `STRING`
+topic carrying JSON or CSV text wants. `Single-field record` always wraps the value instead.
+
+The choice is a property rather than an inference from whether a reader is set, because the reader is
+*also* the fallback for topics with no schema: configuring one for that reason should not silently change
+how primitive topics are read. Under the default, a `STRING` topic carrying plain text with a
+`JsonTreeReader` configured sends every message to `parse.failure`, since the reader cannot parse it and
+the single-field record is not reachable — `Single-field record` is the setting for that flow.
+
+Publishing to a primitive topic requires a record with **exactly one field**, whose value is coerced to
+the topic's type. A record with several fields has no unambiguous mapping onto a single value, so it is
+routed to `failure` rather than guessing which field was meant.
+
+`BYTES` is not treated as a primitive schema. Pulsar reports a topic with *no* schema as `BYTES` with an
+empty definition, so the two are indistinguishable, and treating it as primitive would capture every
+schema-less topic. The date and time schemas are not supported yet either.
 
 ## Publishing to topics that have a schema
 

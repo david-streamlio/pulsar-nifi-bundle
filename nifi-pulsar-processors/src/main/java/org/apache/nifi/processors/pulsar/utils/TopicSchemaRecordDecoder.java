@@ -23,7 +23,11 @@ import java.util.Map;
 import org.apache.avro.generic.GenericDatumReader;
 import org.apache.avro.io.DecoderFactory;
 import org.apache.nifi.avro.AvroTypeUtil;
+import java.util.Collections;
+
 import org.apache.nifi.serialization.record.MapRecord;
+import org.apache.nifi.serialization.record.RecordField;
+import org.apache.nifi.serialization.SimpleRecordSchema;
 import org.apache.nifi.serialization.record.Record;
 import org.apache.nifi.serialization.record.RecordSchema;
 import org.apache.pulsar.common.schema.SchemaInfo;
@@ -52,11 +56,42 @@ public class TopicSchemaRecordDecoder {
 
     private static final ObjectMapper JSON = new ObjectMapper();
 
-    /** Parsed once and re-parsed only when the definition itself changes, as leases do on the publish side. */
-    private String cachedDefinition;
-    private SchemaType cachedType;
-    private org.apache.avro.Schema cachedAvroSchema;
-    private RecordSchema cachedRecordSchema;
+    /**
+     * The parsed schema, as one immutable snapshot behind a single volatile reference.
+     * <p>
+     * These were five separate mutable fields, read and replaced one at a time. Sharing one decoder across
+     * concurrent tasks then tore the cache: a thread could read another thread's Avro schema together with
+     * its own RecordSchema and return a record of the wrong shape with no exception raised (#195). Swapping
+     * one immutable object means a reader either sees the whole previous parse or the whole next one.
+     */
+    private volatile Parsed parsed;
+
+    /** One parse of one schema definition; every field is set together or not at all. */
+    private static final class Parsed {
+
+        private final String definition;
+        private final SchemaType type;
+        private final String primitiveField;
+        private final org.apache.avro.Schema avroSchema;
+        private final RecordSchema recordSchema;
+
+        private Parsed(final String definition, final SchemaType type, final String primitiveField,
+                final org.apache.avro.Schema avroSchema, final RecordSchema recordSchema) {
+            this.definition = definition;
+            this.type = type;
+            this.primitiveField = primitiveField;
+            this.avroSchema = avroSchema;
+            this.recordSchema = recordSchema;
+        }
+
+        private boolean matches(final String definition, final SchemaType type, final String primitiveField) {
+            return this.type == type && java.util.Objects.equals(this.definition, definition)
+                    && java.util.Objects.equals(this.primitiveField, primitiveField);
+        }
+    }
+
+    /** Used when a caller does not name the field, and the default of the processor property. */
+    public static final String DEFAULT_PRIMITIVE_FIELD = "value";
 
     /**
      * Whether records can be built from this schema. Only the two struct types Pulsar registers as an Avro
@@ -65,7 +100,17 @@ public class TopicSchemaRecordDecoder {
      */
     public static boolean supports(final SchemaInfo schemaInfo) {
         return schemaInfo != null
-                && (schemaInfo.getType() == SchemaType.AVRO || schemaInfo.getType() == SchemaType.JSON);
+                && (schemaInfo.getType() == SchemaType.AVRO || schemaInfo.getType() == SchemaType.JSON
+                        || PrimitiveTopicSchema.supports(schemaInfo.getType()));
+    }
+
+    /**
+     * Whether this topic's schema is a single primitive value rather than a record (#189). Callers treat
+     * these differently: a primitive payload is often something a Record Reader should parse - JSON text on
+     * a STRING topic is a common shape - so a configured reader takes precedence over wrapping the value.
+     */
+    public static boolean isPrimitive(final SchemaInfo schemaInfo) {
+        return schemaInfo != null && PrimitiveTopicSchema.supports(schemaInfo.getType());
     }
 
     /**
@@ -77,27 +122,48 @@ public class TopicSchemaRecordDecoder {
      * @throws IOException if the payload does not match the schema
      */
     public Record decode(final byte[] data, final SchemaInfo schemaInfo) throws IOException {
-        final String definition = new String(schemaInfo.getSchema(), StandardCharsets.UTF_8);
+        return decode(data, schemaInfo, DEFAULT_PRIMITIVE_FIELD);
+    }
 
-        if (cachedRecordSchema == null || !definition.equals(cachedDefinition) || cachedType != schemaInfo.getType()) {
-            cachedAvroSchema = new org.apache.avro.Schema.Parser().parse(definition);
-            cachedRecordSchema = AvroTypeUtil.createSchema(cachedAvroSchema);
-            cachedDefinition = definition;
-            cachedType = schemaInfo.getType();
+    /**
+     * Decodes one message into a record shaped by the topic's schema.
+     *
+     * @param data the raw message payload
+     * @param schemaInfo the schema the message was published under, which must {@link #supports} it
+     * @param primitiveField the field name to give the value of a primitive topic
+     * @return the decoded record
+     * @throws IOException if the payload does not match the schema
+     */
+    public Record decode(final byte[] data, final SchemaInfo schemaInfo, final String primitiveField)
+            throws IOException {
+        if (PrimitiveTopicSchema.supports(schemaInfo.getType())) {
+            return decodePrimitive(data, schemaInfo.getType(), primitiveField);
         }
 
-        return schemaInfo.getType() == SchemaType.AVRO ? decodeAvro(data) : decodeJson(data);
+        final String definition = new String(schemaInfo.getSchema(), StandardCharsets.UTF_8);
+
+        Parsed current = parsed;
+
+        if (current == null || !current.matches(definition, schemaInfo.getType(), null)) {
+            final org.apache.avro.Schema avroSchema = new org.apache.avro.Schema.Parser().parse(definition);
+            current = new Parsed(definition, schemaInfo.getType(), null, avroSchema,
+                    AvroTypeUtil.createSchema(avroSchema));
+            parsed = current;
+        }
+
+        return schemaInfo.getType() == SchemaType.AVRO ? decodeAvro(data, current) : decodeJson(data, current);
     }
 
     /** AVRO topics carry bare Avro binary - no file header, no embedded schema - so the schema comes from us. */
-    private Record decodeAvro(final byte[] data) throws IOException {
+    private Record decodeAvro(final byte[] data, final Parsed current) throws IOException {
         final GenericDatumReader<org.apache.avro.generic.GenericRecord> datumReader =
-                new GenericDatumReader<>(cachedAvroSchema);
+                new GenericDatumReader<>(current.avroSchema);
 
         final org.apache.avro.generic.GenericRecord avroRecord =
                 datumReader.read(null, DecoderFactory.get().binaryDecoder(data, null));
 
-        return new MapRecord(cachedRecordSchema, AvroTypeUtil.convertAvroRecordToMap(avroRecord, cachedRecordSchema));
+        return new MapRecord(current.recordSchema,
+                AvroTypeUtil.convertAvroRecordToMap(avroRecord, current.recordSchema));
     }
 
     /**
@@ -106,14 +172,33 @@ public class TopicSchemaRecordDecoder {
      * has no way to distinguish an int from a long, or a string from a UUID.
      */
     @SuppressWarnings("unchecked")
-    private Record decodeJson(final byte[] data) throws IOException {
+    private Record decodeJson(final byte[] data, final Parsed current) throws IOException {
         final Map<String, Object> values = JSON.readValue(data, Map.class);
 
-        return new MapRecord(cachedRecordSchema, values, false, true);
+        return new MapRecord(current.recordSchema, values, false, true);
+    }
+
+    /**
+     * A primitive topic has one value per message and no fields, so the record shape is chosen rather than
+     * derived: a single field, named by the caller, typed as the topic's schema.
+     */
+    private Record decodePrimitive(final byte[] data, final SchemaType type, final String fieldName)
+            throws IOException {
+        Parsed current = parsed;
+
+        if (current == null || !current.matches(null, type, fieldName)) {
+            current = new Parsed(null, type, fieldName, null, new SimpleRecordSchema(Collections.singletonList(
+                    new RecordField(fieldName, PrimitiveTopicSchema.dataTypeOf(type)))));
+            parsed = current;
+        }
+
+        return new MapRecord(current.recordSchema,
+                Collections.singletonMap(fieldName, PrimitiveTopicSchema.decode(type, data)), false, true);
     }
 
     /** The schema the last decoded message was shaped by, for callers that group records into sets. */
     public RecordSchema getLastRecordSchema() {
-        return cachedRecordSchema;
+        final Parsed current = parsed;
+        return current == null ? null : current.recordSchema;
     }
 }

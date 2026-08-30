@@ -87,6 +87,25 @@ public class PublisherLease implements Closeable {
      * Producers are created with {@code Schema.AUTO_PRODUCE_BYTES()}, which binds to the topic when the
      * producer is created and then reports the topic's registered SchemaInfo.
      */
+    /**
+     * The topic's schema type, or null when it has none. Kept separate from {@link #getTopicSchema()},
+     * which only answers for the two struct types that map to an Avro document; a primitive topic (#189)
+     * has a type but no record shape.
+     */
+    SchemaType getTopicSchemaType() {
+        if (topicSchema == null) {
+            return null;
+        }
+
+        try {
+            final SchemaInfo info = topicSchema.getSchemaInfo();
+            return info == null ? null : info.getType();
+        } catch (final RuntimeException e) {
+            // getSchemaInfo() throws when the schema was never bound to a topic
+            return null;
+        }
+    }
+
     TopicSchema getTopicSchema() {
         if (topicSchema == null) {
             return null;
@@ -208,6 +227,11 @@ public class PublisherLease implements Closeable {
             logger.debug("The topic carries no Avro or JSON schema; encoding with the configured record writer instead");
         }
 
+        // A primitive topic takes the record's single field as its whole payload, so it is neither an Avro
+        // encode nor a Record Writer serialization.
+        final SchemaType primitiveType = useTopicSchema && resolvedSchema == null
+                && PrimitiveTopicSchema.supports(getTopicSchemaType()) ? getTopicSchemaType() : null;
+
         final org.apache.avro.Schema avroSchema = resolvedSchema == null ? null : resolvedSchema.getDefinition();
         final boolean encodeAsJson = resolvedSchema != null && resolvedSchema.isJson();
 
@@ -232,7 +256,9 @@ public class PublisherLease implements Closeable {
                 final byte[] messageContent;
                 final String messageKey;
 
-                if (avroSchema != null) {
+                if (primitiveType != null) {
+                    messageContent = encodeWithPrimitiveTopicSchema(record, primitiveType);
+                } else if (avroSchema != null) {
                     if (encodeAsJson) {
                         encodeWithTopicJsonSchema(record, avroSchema, jsonFactory, baos);
                     } else {
@@ -307,6 +333,26 @@ public class PublisherLease implements Closeable {
      * @return the encoded message content
      * @throws IOException if the record cannot be converted or encoded
      */
+    /**
+     * Encodes a record for a topic whose schema is a single primitive value. The record must have exactly
+     * one field: a primitive topic carries one value per message, so a record with several fields has no
+     * unambiguous mapping onto it, and guessing which field was meant would publish the wrong data
+     * silently. Failing here routes the FlowFile to failure with a message naming the fields instead.
+     */
+    private byte[] encodeWithPrimitiveTopicSchema(final Record record, final SchemaType primitiveType)
+            throws IOException {
+        final List<String> fields = record.getSchema().getFieldNames();
+
+        if (fields.size() != 1) {
+            throw new IOException("A " + primitiveType + " topic carries a single value per message, but the "
+                    + "record has " + fields.size() + " fields " + fields + "; publish a single-field record "
+                    + "or use a topic whose schema is a record");
+        }
+
+        final String fieldName = fields.get(0);
+        return PrimitiveTopicSchema.encode(primitiveType, record.getValue(fieldName), fieldName);
+    }
+
     private void encodeWithTopicSchema(final Record record, final org.apache.avro.Schema avroSchema,
                                        final GenericDatumWriter<org.apache.avro.generic.GenericRecord> datumWriter,
                                        final BinaryEncoder encoder) throws IOException {

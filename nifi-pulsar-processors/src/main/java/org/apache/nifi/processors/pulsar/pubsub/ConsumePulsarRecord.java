@@ -113,6 +113,44 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
             .defaultValue(SCHEMA_FROM_RECORD_READER.getValue())
             .build();
 
+    static final AllowableValue PRIMITIVE_VIA_READER = new AllowableValue("Record Reader if configured",
+            "Record Reader if configured",
+            "Parse the payload with the Record Reader when one is configured, and wrap it in a single field "
+            + "only when there is none. Suits a STRING topic carrying JSON or CSV text.");
+
+    static final AllowableValue PRIMITIVE_AS_RECORD = new AllowableValue("Single-field record",
+            "Single-field record",
+            "Always wrap the value in a single field, whether a Record Reader is configured or not. Suits a "
+            + "topic whose values are genuinely scalar, and leaves the reader free to serve as the fallback "
+            + "for topics that have no schema.");
+
+    public static final PropertyDescriptor PRIMITIVE_SCHEMA_HANDLING = new PropertyDescriptor.Builder()
+            .name("PRIMITIVE_SCHEMA_HANDLING")
+            .displayName("Primitive Schema Handling")
+            .description("What to do with a topic whose schema is a primitive. Only used by the 'Topic "
+                    + "Schema' strategy. The default defers to the Record Reader when one is configured, "
+                    + "which is what a STRING topic carrying JSON text wants; choose 'Single-field record' "
+                    + "when the values really are scalar, so that configuring a reader as the schema-less "
+                    + "fallback does not change how primitive topics are read.")
+            .required(false)
+            .allowableValues(PRIMITIVE_VIA_READER, PRIMITIVE_AS_RECORD)
+            .defaultValue(PRIMITIVE_VIA_READER.getValue())
+            .build();
+
+    public static final PropertyDescriptor PRIMITIVE_VALUE_FIELD = new PropertyDescriptor.Builder()
+            .name("PRIMITIVE_VALUE_FIELD")
+            .displayName("Primitive Value Field")
+            .description("The field name to give the value of a topic whose schema is a primitive - a "
+                    + "STRING or INT32 topic, for instance - which carries one value per message and has no "
+                    + "fields of its own. Only used by the 'Topic Schema' strategy, and only when no Record "
+                    + "Reader is configured: a reader takes precedence, so JSON text on a STRING topic can "
+                    + "still be parsed into records rather than wrapped in a single field.")
+            .required(false)
+            .defaultValue(TopicSchemaRecordDecoder.DEFAULT_PRIMITIVE_FIELD)
+            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
+            .expressionLanguageSupported(ExpressionLanguageScope.ENVIRONMENT)
+            .build();
+
     public static final PropertyDescriptor RECORD_READER = new PropertyDescriptor.Builder()
             .name("Record Reader")
             .displayName("Record Reader")
@@ -153,7 +191,10 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
      */
     @Override
     protected Collection<ValidationResult> customValidate(final ValidationContext validationContext) {
-        final Collection<ValidationResult> results = new ArrayList<>();
+        // Seeded with the superclass results, not an empty list: AbstractPulsarConsumerProcessor enforces
+        // that exactly one of Topics / Topics Pattern is set and that Acknowledgment Timeout is at least
+        // 10 seconds, and starting empty silently dropped both for this processor (#194).
+        final Collection<ValidationResult> results = new ArrayList<>(super.customValidate(validationContext));
 
         if (!usesTopicSchema(validationContext.getProperty(MESSAGE_SCHEMA_STRATEGY).getValue())
                 && !validationContext.getProperty(RECORD_READER).isSet()) {
@@ -168,9 +209,6 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
         return results;
     }
 
-    /** Holds the parsed schema between messages, so a batch on one schema parses the definition once. */
-    private final TopicSchemaRecordDecoder topicSchemaDecoder = new TopicSchemaRecordDecoder();
-
     static boolean usesTopicSchema(final String strategy) {
         return SCHEMA_FROM_TOPIC.getValue().equals(strategy);
     }
@@ -181,6 +219,8 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
     static {
         final List<PropertyDescriptor> properties = new ArrayList<>();
         properties.add(MESSAGE_SCHEMA_STRATEGY);
+        properties.add(PRIMITIVE_SCHEMA_HANDLING);
+        properties.add(PRIMITIVE_VALUE_FIELD);
         properties.add(RECORD_READER);
         properties.add(RECORD_WRITER);
         properties.add(MAX_WAIT_TIME);
@@ -325,6 +365,16 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
 
         final boolean useTopicSchema = usesTopicSchema(context.getProperty(MESSAGE_SCHEMA_STRATEGY).getValue());
 
+        // Created per batch rather than held on the processor. Concurrent Tasks > 1 gave every task the
+        // same decoder, and its schema cache was read and replaced without synchronization, so two tasks
+        // decoding different schemas returned each other's records - silently, with no exception, straight
+        // to success (#195). One decoder per batch parses each definition once per trigger, which is
+        // cheap, and shares nothing.
+        final TopicSchemaRecordDecoder topicSchemaDecoder = new TopicSchemaRecordDecoder();
+        final String primitiveField = context.getProperty(PRIMITIVE_VALUE_FIELD).evaluateAttributeExpressions().getValue();
+        final boolean deferPrimitivesToReader =
+                PRIMITIVE_VIA_READER.getValue().equals(context.getProperty(PRIMITIVE_SCHEMA_HANDLING).getValue());
+
         try {
             for (Message<GenericRecord> msg : groupedMessages) {
                 currentAttributes = getMappedFlowFileAttributes(context, msg);
@@ -349,12 +399,20 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
                 RecordSchema currentSchema = null;
                 Record topicSchemaRecord = null;
 
-                if (useTopicSchema && TopicSchemaRecordDecoder.supports(readerSchemaInfo)) {
+                // What a primitive topic does is chosen by Primitive Schema Handling rather than inferred
+                // from whether a reader happens to be set. A STRING topic carrying JSON text wants the
+                // reader; a genuinely scalar topic wants the single field - and because the reader is also
+                // the fallback for schema-less topics, configuring one for that reason must not silently
+                // decide this too. Deferring to the reader is the default, so nothing changes by upgrading.
+                final boolean readerWins = readerFactory != null && deferPrimitivesToReader
+                        && TopicSchemaRecordDecoder.isPrimitive(readerSchemaInfo);
+
+                if (useTopicSchema && !readerWins && TopicSchemaRecordDecoder.supports(readerSchemaInfo)) {
                     // The topic's schema decides the record's shape, so no reader is consulted at all. One
                     // message is one record here: a schema-bearing topic carries a single encoded value per
                     // message, unlike a reader, which may find several records in one payload.
                     try {
-                        topicSchemaRecord = topicSchemaDecoder.decode(data, readerSchemaInfo);
+                        topicSchemaRecord = topicSchemaDecoder.decode(data, readerSchemaInfo, primitiveField);
                         currentSchema = topicSchemaRecord.getSchema();
                     } catch (final IOException | RuntimeException e) {
                         getLogger().debug("Unable to decode a message with the topic's schema", e);
