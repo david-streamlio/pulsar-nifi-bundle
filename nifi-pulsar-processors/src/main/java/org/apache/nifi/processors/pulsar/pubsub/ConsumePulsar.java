@@ -39,6 +39,7 @@ import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSession;
 import org.apache.nifi.processor.exception.ProcessException;
 import org.apache.nifi.processors.pulsar.AbstractPulsarConsumerProcessor;
+import org.apache.nifi.processors.pulsar.utils.KeyValueTopicSchema;
 import org.apache.nifi.processors.pulsar.utils.MessageBatchAttributes;
 import org.apache.pulsar.client.api.Consumer;
 import org.apache.pulsar.client.api.Message;
@@ -114,8 +115,14 @@ public class ConsumePulsar extends AbstractPulsarConsumerProcessor<byte[]> {
                     // acknowledged once it is, and not at all if it is rolled back
                     final List<Message<GenericRecord>> uncommitted = new ArrayList<>();
 
+                    // One per batch, outside the loop so the schema is parsed once rather than per message,
+                    // and never held on the processor: a decoder shared across concurrent tasks is what
+                    // caused the silent cross-talk fixed in #195. Used only to decode the message key for
+                    // a mapped attribute (#198); this processor does no record shaping of its own.
+                    final KeyValueTopicSchema keyAttributeDecoder = new KeyValueTopicSchema();
+
                     for (Message<GenericRecord> msg : messages) {
-                        currentAttributes = getMappedFlowFileAttributes(context, msg);
+                        currentAttributes = getMappedFlowFileAttributes(context, msg, keyAttributeDecoder);
 
                        if (lastAttributes != null && !lastAttributes.equals(currentAttributes)) {
                             // mapped attributes changed, write the current flowfile and start a new one
@@ -224,8 +231,14 @@ public class ConsumePulsar extends AbstractPulsarConsumerProcessor<byte[]> {
             // once it is, and not at all if it is rolled back
             final List<Message<GenericRecord>> uncommitted = new ArrayList<>();
 
+            // One per batch, outside the loop so the schema is parsed once rather than per message,
+            // and never held on the processor: a decoder shared across concurrent tasks is what
+            // caused the silent cross-talk fixed in #195. Used only to decode the message key for
+            // a mapped attribute (#198); this processor does no record shaping of its own.
+            final KeyValueTopicSchema keyAttributeDecoder = new KeyValueTopicSchema();
+
             while (loopCounter.get() < maxMessages && (msg = consumer.receive(0, TimeUnit.SECONDS)) != null) {
-                currentAttributes = getMappedFlowFileAttributes(context, msg);
+                currentAttributes = getMappedFlowFileAttributes(context, msg, keyAttributeDecoder);
 
                 if (lastMsg != null && !lastAttributes.equals(currentAttributes)) {
                     IOUtils.closeQuietly(out);

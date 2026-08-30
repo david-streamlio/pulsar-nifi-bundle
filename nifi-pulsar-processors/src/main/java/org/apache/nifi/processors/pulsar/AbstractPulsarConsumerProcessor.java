@@ -43,6 +43,7 @@ import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSession;
 import org.apache.nifi.processor.Relationship;
 import org.apache.nifi.processor.util.StandardValidators;
+import org.apache.nifi.processors.pulsar.utils.KeyValueTopicSchema;
 import org.apache.nifi.processors.pulsar.utils.PropertyMappingUtils;
 import org.apache.nifi.pulsar.PulsarClientService;
 import org.apache.nifi.pulsar.cache.PulsarConsumerLRUCache;
@@ -52,6 +53,7 @@ import org.apache.pulsar.client.api.ConsumerCryptoFailureAction;
 import org.apache.pulsar.client.api.Message;
 import org.apache.pulsar.client.api.PulsarClientException;
 import org.apache.pulsar.client.api.Schema;
+import org.apache.pulsar.common.schema.SchemaInfo;
 import org.apache.pulsar.client.api.SubscriptionInitialPosition;
 import org.apache.pulsar.client.api.SubscriptionType;
 import org.apache.pulsar.client.api.schema.GenericRecord;
@@ -320,7 +322,13 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
                     + " identical mapped values are batched together (up to the Consumer Message Batch Size), while a change"
                     + " in any mapped value starts a new FlowFile. Message metadata that is not mapped here (message id,"
                     + " message properties) is added to the FlowFile as 'pulsar.message.id*' / 'pulsar.property.*' attributes"
-                    + " but never splits a batch.")
+                    + " but never splits a batch."
+                    + " Because the mapped values decide batching, mapping __KEY__ puts every distinct key in its own"
+                    + " FlowFile - inexpensive on a low-cardinality key such as a device or tenant id, and expensive on"
+                    + " a high-cardinality one such as an order id."
+                    + " On a topic whose schema is a KeyValue schema with SEPARATED encoding, the key is decoded with the"
+                    + " topic's key schema rather than reported as the base64 that Pulsar's message key metadata holds:"
+                    + " a primitive key becomes its string form and a structured key its JSON rendering.")
             .required(false)
             .addValidator(Validator.VALID)
             .defaultValue("")
@@ -747,10 +755,45 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
      * @return the mapped attribute values of the message (never null, possibly empty)
      */
     protected Map<String, String> getMappedFlowFileAttributes(ProcessContext context, final Message<GenericRecord> msg) {
+        return getMappedFlowFileAttributes(context, msg, null);
+    }
+
+    /**
+     * As {@link #getMappedFlowFileAttributes(ProcessContext, Message)}, decoding the message key against
+     * the topic's schema when one is given.
+     *
+     * @param keyDecoder decodes the key of a KeyValue SEPARATED topic; null to take the key as Pulsar
+     *                   reports it. Must be an instance used for nothing else, and created per batch
+     *                   rather than held on the processor - a decoder shared across concurrent tasks is
+     *                   what caused the silent cross-talk fixed in #195.
+     */
+    protected Map<String, String> getMappedFlowFileAttributes(ProcessContext context,
+            final Message<GenericRecord> msg, final KeyValueTopicSchema keyDecoder) {
         String mappings = context.getProperty(MAPPED_FLOWFILE_ATTRIBUTES).getValue();
 
         return PropertyMappingUtils.getMappedValues(mappings,
-        		(p) -> PULSAR_MESSAGE_KEY.equals(p) ? msg.getKey() : msg.getProperty(p));
+        		(p) -> PULSAR_MESSAGE_KEY.equals(p) ? messageKey(msg, keyDecoder) : msg.getProperty(p));
+    }
+
+    /**
+     * The message key as something a flow can use.
+     * <p>
+     * On a KeyValue SEPARATED topic the key is set through {@code keyBytes()}, and {@code getKey()}
+     * returns its base64 text - so a STRING key of {@code device-1} arrives as {@code ZGV2aWNlLTE=},
+     * which nothing downstream can route or filter on (#198). Where the topic's schema tells us how the
+     * key was written, decode it; otherwise report it exactly as Pulsar does.
+     */
+    private String messageKey(final Message<GenericRecord> msg, final KeyValueTopicSchema keyDecoder) {
+        if (keyDecoder != null && msg.hasKey()) {
+            final SchemaInfo readerSchema = msg.getReaderSchema().map(Schema::getSchemaInfo).orElse(null);
+            final String decoded = keyDecoder.decodeKeyAsText(msg.getKeyBytes(), readerSchema);
+
+            if (decoded != null) {
+                return decoded;
+            }
+        }
+
+        return msg.getKey();
     }
     
     protected boolean isSharedSubscription(ProcessContext context) {

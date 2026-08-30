@@ -18,6 +18,7 @@ package org.apache.nifi.processors.pulsar.utils;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertThrows;
@@ -194,7 +195,97 @@ public class KeyValueTopicSchemaTest {
         assertTrue(!KeyValueTopicSchema.supports(null));
     }
 
+    // ------------------------------------------------- decodeKeyAsText (#198)
+
+    /**
+     * The issue's own example. Message.getKey() returns base64 for a key set through keyBytes(), so a
+     * STRING key of device-1 surfaced as ZGV2aWNlLTE= and nothing downstream could route on it.
+     */
+    @Test
+    public void aSeparatedStringKeyDecodesToTextRatherThanBase64() {
+        final SchemaInfo info = keyValueSchema(READING, org.apache.pulsar.common.schema.SchemaType.AVRO,
+                KeyValueEncodingType.SEPARATED);
+
+        final String key = schema.decodeKeyAsText(Schema.STRING.encode("device-1"), info);
+
+        assertEquals("device-1", key);
+        assertNotEquals("ZGV2aWNlLTE=", key);
+    }
+
+    @Test
+    public void aSeparatedIntKeyDecodesToItsStringForm() {
+        final SchemaInfo info = keyValueSchemaWithKey(Schema.INT32.getSchemaInfo(), READING,
+                org.apache.pulsar.common.schema.SchemaType.AVRO, KeyValueEncodingType.SEPARATED);
+
+        assertEquals("42", schema.decodeKeyAsText(Schema.INT32.encode(42), info));
+    }
+
+    /**
+     * A struct key is what Pulsar's Debezium connector emits - the changed row's primary key, which is a
+     * record whenever the key is composite. It renders as JSON rather than being dropped.
+     */
+    @Test
+    public void aSeparatedStructKeyDecodesToJson() throws Exception {
+        final SchemaInfo keySchema = SchemaInfo.builder().name("K")
+                .type(org.apache.pulsar.common.schema.SchemaType.AVRO).schema(READING.getBytes(UTF_8)).build();
+
+        final SchemaInfo info = keyValueSchemaWithKey(keySchema, READING,
+                org.apache.pulsar.common.schema.SchemaType.AVRO, KeyValueEncodingType.SEPARATED);
+
+        assertEquals("{\"reading\":7}", schema.decodeKeyAsText(avro(READING, "reading", 7), info));
+    }
+
+    /** INLINE keeps the key in the payload, so the message's key metadata is not the topic's key. */
+    @Test
+    public void anInlineTopicHasNoDecodableMessageKey() {
+        final SchemaInfo info = keyValueSchema(READING, org.apache.pulsar.common.schema.SchemaType.AVRO,
+                KeyValueEncodingType.INLINE);
+
+        assertNull(schema.decodeKeyAsText(Schema.STRING.encode("device-1"), info));
+    }
+
+    @Test
+    public void aNonKeyValueTopicHasNoDecodableMessageKey() {
+        assertNull(schema.decodeKeyAsText(Schema.STRING.encode("device-1"), Schema.STRING.getSchemaInfo()));
+        assertNull(schema.decodeKeyAsText(Schema.STRING.encode("device-1"), null));
+    }
+
+    @Test
+    public void aMessageWithoutAKeyHasNoDecodableMessageKey() {
+        final SchemaInfo info = keyValueSchema(READING, org.apache.pulsar.common.schema.SchemaType.AVRO,
+                KeyValueEncodingType.SEPARATED);
+
+        assertNull(schema.decodeKeyAsText(null, info));
+    }
+
+    /**
+     * A mapped attribute must never be able to fail a message that would otherwise parse.
+     * <p>
+     * Truncated rather than merely wrong bytes: Avro's binary encoding is permissive enough that most
+     * short byte sequences decode to <em>something</em> - {@code {0x00, 0x01}} against this schema
+     * yields {@code {"reading":0}} rather than an error - so only running out of input reliably fails.
+     */
+    @Test
+    public void anUndecodableKeyYieldsNoAttributeRatherThanThrowing() {
+        final SchemaInfo keySchema = SchemaInfo.builder().name("K")
+                .type(org.apache.pulsar.common.schema.SchemaType.AVRO).schema(ORDER.getBytes(UTF_8)).build();
+
+        final SchemaInfo info = keyValueSchemaWithKey(keySchema, READING,
+                org.apache.pulsar.common.schema.SchemaType.AVRO, KeyValueEncodingType.SEPARATED);
+
+        // ORDER needs an int then a nested record holding a string; one byte cannot supply that.
+        assertNull(schema.decodeKeyAsText(new byte[] {0x02}, info));
+    }
+
     // ------------------------------------------------------------------ helpers
+    private static SchemaInfo keyValueSchemaWithKey(final SchemaInfo key, final String valueDefinition,
+            final org.apache.pulsar.common.schema.SchemaType valueType, final KeyValueEncodingType encoding) {
+        final SchemaInfo value = SchemaInfo.builder().name("V").type(valueType)
+                .schema(valueDefinition.getBytes(UTF_8)).build();
+
+        return KeyValueSchemaInfo.encodeKeyValueSchemaInfo("kv", key, value, encoding);
+    }
+
 
     private static SchemaInfo keyValueSchema(final String valueDefinition,
             final org.apache.pulsar.common.schema.SchemaType valueType, final KeyValueEncodingType encoding) {

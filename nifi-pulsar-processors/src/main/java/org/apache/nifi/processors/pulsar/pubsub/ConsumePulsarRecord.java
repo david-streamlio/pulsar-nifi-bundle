@@ -397,6 +397,10 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
         // cheap, and shares nothing.
         final TopicSchemaRecordDecoder topicSchemaDecoder = new TopicSchemaRecordDecoder();
         final KeyValueTopicSchema keyValueDecoder = new KeyValueTopicSchema();
+        // Its own instance, not the one above: this parses under the default field names while the
+        // record decoder parses under the configured ones, and a single decoder alternating between
+        // the two would re-parse the schema on every message.
+        final KeyValueTopicSchema keyAttributeDecoder = new KeyValueTopicSchema();
         final String primitiveField = context.getProperty(PRIMITIVE_VALUE_FIELD).evaluateAttributeExpressions().getValue();
         final String kvKeyField = context.getProperty(KEY_VALUE_KEY_FIELD).evaluateAttributeExpressions().getValue();
         final String kvValueField = context.getProperty(KEY_VALUE_VALUE_FIELD).evaluateAttributeExpressions().getValue();
@@ -405,7 +409,7 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
 
         try {
             for (Message<GenericRecord> msg : groupedMessages) {
-                currentAttributes = getMappedFlowFileAttributes(context, msg);
+                currentAttributes = getMappedFlowFileAttributes(context, msg, keyAttributeDecoder);
                 // Introduce an attribute to distinguish between current and previously captured attributes,
                 // particularly when the message originates from a different topic.
                 currentAttributes.put("topicName", getLogicalTopicName(msg.getTopicName()));
