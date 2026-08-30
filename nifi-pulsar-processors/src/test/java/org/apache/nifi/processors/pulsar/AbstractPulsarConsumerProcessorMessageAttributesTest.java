@@ -161,6 +161,60 @@ public class AbstractPulsarConsumerProcessorMessageAttributesTest {
         assertEquals("B", thirdAttributes.get("tenant"));
     }
 
+    // ------------------------------------------------- decoded message key (#198)
+
+    /**
+     * On a KeyValue SEPARATED topic the key is set through keyBytes(), so getKey() reports base64. The
+     * mapped attribute must carry the decoded key instead - a flow cannot route on ZGV2aWNlLTE=.
+     */
+    @Test
+    public void aMappedKeyOnASeparatedTopicIsDecodedNotBase64() {
+        givenMessageProperties(new HashMap<>());
+        testRunner.setProperty(AbstractPulsarConsumerProcessor.MAPPED_FLOWFILE_ATTRIBUTES, "msg.key=__KEY__");
+
+        final byte[] keyBytes = org.apache.pulsar.client.api.Schema.STRING.encode("device-1");
+        givenSeparatedKeyValueMessage(keyBytes);
+
+        final Map<String, String> attributes = processor.testGetMappedFlowFileAttributes(
+                testRunner.getProcessContext(), mockMessage,
+                new org.apache.nifi.processors.pulsar.utils.KeyValueTopicSchema());
+
+        assertEquals("device-1", attributes.get("msg.key"));
+    }
+
+    /** Without a decoder - and on any non-KeyValue topic - the key is reported exactly as Pulsar gives it. */
+    @Test
+    public void aMappedKeyIsUnchangedWithoutADecoder() {
+        givenMessageProperties(new HashMap<>());
+        testRunner.setProperty(AbstractPulsarConsumerProcessor.MAPPED_FLOWFILE_ATTRIBUTES, "msg.key=__KEY__");
+        when(mockMessage.getKey()).thenReturn("plain-key");
+
+        final Map<String, String> attributes = processor.testGetMappedFlowFileAttributes(
+                testRunner.getProcessContext(), mockMessage);
+
+        assertEquals("plain-key", attributes.get("msg.key"));
+    }
+
+    private void givenSeparatedKeyValueMessage(final byte[] keyBytes) {
+        final org.apache.pulsar.common.schema.SchemaInfo value =
+                org.apache.pulsar.common.schema.SchemaInfo.builder().name("V")
+                        .type(org.apache.pulsar.common.schema.SchemaType.STRING)
+                        .schema(new byte[0]).build();
+
+        final org.apache.pulsar.common.schema.SchemaInfo kv =
+                org.apache.pulsar.client.impl.schema.KeyValueSchemaInfo.encodeKeyValueSchemaInfo("kv",
+                        org.apache.pulsar.client.api.Schema.STRING.getSchemaInfo(), value,
+                        org.apache.pulsar.common.schema.KeyValueEncodingType.SEPARATED);
+
+        final org.apache.pulsar.client.api.Schema<?> schema =
+                org.mockito.Mockito.mock(org.apache.pulsar.client.api.Schema.class);
+        when(schema.getSchemaInfo()).thenReturn(kv);
+
+        when(mockMessage.hasKey()).thenReturn(true);
+        when(mockMessage.getKeyBytes()).thenReturn(keyBytes);
+        when(mockMessage.getReaderSchema()).thenAnswer(i -> java.util.Optional.of(schema));
+    }
+
     // Test processor that extends AbstractPulsarConsumerProcessor for testing purposes
     private static class TestConsumerProcessor extends AbstractPulsarConsumerProcessor<byte[]> {
         @Override
@@ -171,6 +225,11 @@ public class AbstractPulsarConsumerProcessorMessageAttributesTest {
         // Expose protected method for testing
         public Map<String, String> testGetMappedFlowFileAttributes(ProcessContext context, Message<GenericRecord> msg) {
             return getMappedFlowFileAttributes(context, msg);
+        }
+
+        public Map<String, String> testGetMappedFlowFileAttributes(ProcessContext context,
+                Message<GenericRecord> msg, org.apache.nifi.processors.pulsar.utils.KeyValueTopicSchema keyDecoder) {
+            return getMappedFlowFileAttributes(context, msg, keyDecoder);
         }
     }
 }
