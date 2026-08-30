@@ -38,3 +38,19 @@ updates:
       github-actions-all:
         patterns:
           - "*"
+
+  # Base image updates for the published container. Dependabot reads the literal
+  # tag in the Dockerfile's FROM line, which is why that tag is pinned literally
+  # rather than templated from the `nifi.version` Maven property - a property
+  # reference here would be invisible to Dependabot and the pin would go stale
+  # again (it had drifted to 2.1.0 while the bundle targeted 2.10.0).
+  - package-ecosystem: docker
+    directory: "/docker-image/src/main/docker/nifi"
+    schedule:
+      interval: weekly
+    labels:
+      - dependencies
+    groups:
+      docker-all:
+        patterns:
+          - "*"
