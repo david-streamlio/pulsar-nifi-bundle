@@ -90,6 +90,34 @@ FlowFile:
 > partition a message routes to, and it makes the topic compactable by that key. If you relied on
 > the previous unkeyed behaviour, clear the `msg.key` attribute before the publish processor.
 
+## Message routing on partitioned topics
+
+*Message Routing Mode* decides where an **unkeyed** message goes on a partitioned topic:
+`RoundRobinPartition` (the default) spreads them over the partitions, `SinglePartition` keeps
+them on one partition chosen per producer. A message with a key is hashed to a partition in
+either mode, so keyed messages keep their order per key regardless of the setting.
+`CustomPartition` needs a `MessageRouter` the processors cannot configure and is rejected at
+validation. *Max Pending Messages* bounds the producer's queue of messages awaiting the
+broker's acknowledgement.
+
+> **Behaviour change since `2.9.0`:** neither property reached the producer since the publish
+> processors were refactored in 2023 — the producer always ran with the client defaults. A flow
+> that has *Message Routing Mode* set to `SinglePartition` will now really route its unkeyed
+> messages to a single partition. A flow that had `CustomPartition` selected becomes invalid and
+> has to pick one of the other two modes.
+>
+> *Max Pending Messages* now applies **to every flow, including one that never configured it**.
+> The property has always shown a default of `1000`, but the value never reached the client, which
+> ran with the count-based bound disabled. With *Async Enabled*, messages are published through
+> `sendAsync()` and count against that bound; when it is reached and *Block if Message Queue Full*
+> is off — the default — a send fails with `ProducerQueueIsFullError` and its FlowFile is routed to
+> `failure` rather than waiting for room.
+>
+> Whether a flow reaches the bound depends on how fast the broker acknowledges, so it is likelier
+> against a remote or loaded broker than in testing. If you publish large FlowFiles asynchronously,
+> either raise *Max Pending Messages*, set it to `0` to restore the previous unbounded behaviour, or
+> enable *Block if Message Queue Full* so sends wait instead of failing.
+
 ## Publishing to topics that have a schema
 
 `PublishPulsar` and `PublishPulsarRecord` create their producers with

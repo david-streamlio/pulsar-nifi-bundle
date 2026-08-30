@@ -27,6 +27,8 @@ import org.apache.nifi.annotation.lifecycle.OnStopped;
 import org.apache.nifi.annotation.lifecycle.OnUnscheduled;
 import org.apache.nifi.components.AllowableValue;
 import org.apache.nifi.components.PropertyDescriptor;
+import org.apache.nifi.components.ValidationContext;
+import org.apache.nifi.components.ValidationResult;
 import org.apache.nifi.components.Validator;
 import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.flowfile.FlowFile;
@@ -306,6 +308,26 @@ public abstract class AbstractPulsarProducerProcessor<T> extends AbstractProcess
         return PROPERTIES;
     }
 
+    @Override
+    protected Collection<ValidationResult> customValidate(final ValidationContext validationContext) {
+        final Collection<ValidationResult> results = new ArrayList<>();
+
+        // CustomPartition needs a MessageRouter implementation handed to the ProducerBuilder, and the
+        // processor offers no way to configure one: the client rejects the producer at creation time.
+        // Refusing it here fails the configuration with a reason instead of failing every trigger.
+        if (MESSAGE_ROUTING_MODE_CUSTOM_PARTITION.getValue().equals(validationContext.getProperty(MESSAGE_ROUTING_MODE).getValue())) {
+            results.add(new ValidationResult.Builder()
+                    .subject(MESSAGE_ROUTING_MODE.getDisplayName())
+                    .valid(false)
+                    .explanation("'" + MESSAGE_ROUTING_MODE_CUSTOM_PARTITION.getDisplayName() + "' needs a custom MessageRouter, "
+                            + "which this processor cannot configure; use '" + MESSAGE_ROUTING_MODE_ROUND_ROBIN_PARTITION.getDisplayName()
+                            + "' or '" + MESSAGE_ROUTING_MODE_SINGLE_PARTITION.getDisplayName() + "'")
+                    .build());
+        }
+
+        return results;
+    }
+
     private PulsarClientService pulsarClientService;
 
     private PublisherPool publisherPool;
@@ -349,6 +371,10 @@ public abstract class AbstractPulsarProducerProcessor<T> extends AbstractProcess
                 .asTimePeriod(TimeUnit.SECONDS).intValue());
         config.put("blockIfQueueFull", ctx.getProperty(BLOCK_IF_QUEUE_FULL).asBoolean());
         config.put("compressionType", CompressionType.valueOf(ctx.getProperty(COMPRESSION_TYPE).getValue()));
+        // Both were applied on the ProducerBuilder until producer creation moved to PublisherPool.loadConf();
+        // the properties stayed in the UI while the producer silently ran with the client defaults.
+        config.put("messageRoutingMode", MessageRoutingMode.valueOf(ctx.getProperty(MESSAGE_ROUTING_MODE).getValue()));
+        config.put("maxPendingMessages", ctx.getProperty(PENDING_MAX_MESSAGES).evaluateAttributeExpressions().asInteger());
 
         if (ctx.getProperty(BATCHING_ENABLED).asBoolean()) {
             config.put("batchingEnabled", Boolean.TRUE);
