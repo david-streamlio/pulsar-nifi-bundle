@@ -1,0 +1,59 @@
+name: CodeQL
+
+# Static analysis of this repository's own Java source. Dependabot and the Trivy
+# scan both look at code we depend on; nothing looked at code we wrote until this.
+#
+# Free on public repositories. Runs on pull requests so a regression is caught
+# before it lands, and weekly so that newly published CodeQL queries get applied
+# to code that has not changed.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Mondays at 08:00 UTC, an hour after the dependency scan.
+    - cron: '0 8 * * 1'
+
+permissions:
+  contents: read
+  security-events: write
+
+concurrency:
+  group: codeql-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: Analyze (Java)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: java-kotlin
+          build-mode: manual
+
+      # Explicit build rather than autobuild: this is a multi-module NAR build and
+      # autobuild does not reliably pick the right goals. Mirrors the CI workflow -
+      # skip GPG signing (no keys here) and the docker-image module (nothing to
+      # analyze in it, and it would need a Docker daemon). Tests are skipped
+      # because CodeQL only needs the main sources compiled.
+      - name: Build
+        run: mvn -B -ntp clean package -DskipTests -Dgpg.skip=true -pl '!docker-image'
+
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: /language:java-kotlin
