@@ -140,6 +140,47 @@ public class PrimitiveSchemaRoundTripIT extends AbstractPulsarIT {
         consumer.assertTransferCount(ConsumePulsarRecord.REL_PARSE_FAILURE, 0);
     }
 
+    /**
+     * The blind spot the review found, and the reason the behaviour is a property rather than an inference.
+     * <p>
+     * With a reader configured - which the README also advises, since the reader is the fallback for
+     * schema-less topics - a STRING topic carrying plain text could only fail: the reader cannot parse
+     * "hello world", and the single-field record was unreachable. Choosing 'Single-field record' decouples
+     * the two decisions.
+     */
+    @Test
+    public void plainTextIsWrappedWhenTheStrategySaysSoEvenWithAReaderConfigured() throws Exception {
+        final String topic = "persistent://public/default/string-plain-" + System.nanoTime();
+
+        try (Producer<String> producer = getClient().newProducer(Schema.STRING).topic(topic).create()) {
+            producer.send("hello world");
+            producer.send("second line");
+        }
+
+        final TestRunner consumer = topicSchemaConsumer(topic, "string-plain", new JsonTreeReader());
+        consumer.setProperty(ConsumePulsarRecord.PRIMITIVE_SCHEMA_HANDLING, "Single-field record");
+
+        assertEquals(2, consumeRecords(consumer, 2));
+        consumer.assertTransferCount(ConsumePulsarRecord.REL_PARSE_FAILURE, 0);
+        assertTrue("the text should be wrapped in the value field", successContent(consumer).contains("hello world"));
+    }
+
+    /** The default is unchanged: with a reader configured, the reader still gets first refusal. */
+    @Test
+    public void theDefaultStillDefersToAConfiguredReader() throws Exception {
+        final String topic = "persistent://public/default/string-default-" + System.nanoTime();
+
+        try (Producer<String> producer = getClient().newProducer(Schema.STRING).topic(topic).create()) {
+            for (int seq = 1; seq <= RECORDS; seq++) {
+                producer.send("{\"id\":\"sensor-" + seq + "\",\"reading\":" + seq + "}");
+            }
+        }
+
+        final TestRunner consumer = topicSchemaConsumer(topic, "string-default", new JsonTreeReader());
+        assertEquals(RECORDS, consumeRecords(consumer, RECORDS));
+        assertTrue("the reader should still have parsed the JSON", successContent(consumer).contains("\"reading\""));
+    }
+
     // ---------------------------------------------------------------- publish-side guard
 
     /**

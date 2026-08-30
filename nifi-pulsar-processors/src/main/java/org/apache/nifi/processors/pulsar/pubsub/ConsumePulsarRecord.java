@@ -113,6 +113,30 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
             .defaultValue(SCHEMA_FROM_RECORD_READER.getValue())
             .build();
 
+    static final AllowableValue PRIMITIVE_VIA_READER = new AllowableValue("Record Reader if configured",
+            "Record Reader if configured",
+            "Parse the payload with the Record Reader when one is configured, and wrap it in a single field "
+            + "only when there is none. Suits a STRING topic carrying JSON or CSV text.");
+
+    static final AllowableValue PRIMITIVE_AS_RECORD = new AllowableValue("Single-field record",
+            "Single-field record",
+            "Always wrap the value in a single field, whether a Record Reader is configured or not. Suits a "
+            + "topic whose values are genuinely scalar, and leaves the reader free to serve as the fallback "
+            + "for topics that have no schema.");
+
+    public static final PropertyDescriptor PRIMITIVE_SCHEMA_HANDLING = new PropertyDescriptor.Builder()
+            .name("PRIMITIVE_SCHEMA_HANDLING")
+            .displayName("Primitive Schema Handling")
+            .description("What to do with a topic whose schema is a primitive. Only used by the 'Topic "
+                    + "Schema' strategy. The default defers to the Record Reader when one is configured, "
+                    + "which is what a STRING topic carrying JSON text wants; choose 'Single-field record' "
+                    + "when the values really are scalar, so that configuring a reader as the schema-less "
+                    + "fallback does not change how primitive topics are read.")
+            .required(false)
+            .allowableValues(PRIMITIVE_VIA_READER, PRIMITIVE_AS_RECORD)
+            .defaultValue(PRIMITIVE_VIA_READER.getValue())
+            .build();
+
     public static final PropertyDescriptor PRIMITIVE_VALUE_FIELD = new PropertyDescriptor.Builder()
             .name("PRIMITIVE_VALUE_FIELD")
             .displayName("Primitive Value Field")
@@ -195,6 +219,7 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
     static {
         final List<PropertyDescriptor> properties = new ArrayList<>();
         properties.add(MESSAGE_SCHEMA_STRATEGY);
+        properties.add(PRIMITIVE_SCHEMA_HANDLING);
         properties.add(PRIMITIVE_VALUE_FIELD);
         properties.add(RECORD_READER);
         properties.add(RECORD_WRITER);
@@ -347,6 +372,8 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
         // cheap, and shares nothing.
         final TopicSchemaRecordDecoder topicSchemaDecoder = new TopicSchemaRecordDecoder();
         final String primitiveField = context.getProperty(PRIMITIVE_VALUE_FIELD).evaluateAttributeExpressions().getValue();
+        final boolean deferPrimitivesToReader =
+                PRIMITIVE_VIA_READER.getValue().equals(context.getProperty(PRIMITIVE_SCHEMA_HANDLING).getValue());
 
         try {
             for (Message<GenericRecord> msg : groupedMessages) {
@@ -372,11 +399,13 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
                 RecordSchema currentSchema = null;
                 Record topicSchemaRecord = null;
 
-                // A configured Record Reader wins on a primitive topic. A STRING topic carrying JSON text
-                // is a common production shape, and those flows want the payload parsed into records rather
-                // than wrapped in a single string field; with no reader there is nothing to parse with, so
-                // the single-field record is the useful answer instead of a parse failure.
-                final boolean readerWins = readerFactory != null && TopicSchemaRecordDecoder.isPrimitive(readerSchemaInfo);
+                // What a primitive topic does is chosen by Primitive Schema Handling rather than inferred
+                // from whether a reader happens to be set. A STRING topic carrying JSON text wants the
+                // reader; a genuinely scalar topic wants the single field - and because the reader is also
+                // the fallback for schema-less topics, configuring one for that reason must not silently
+                // decide this too. Deferring to the reader is the default, so nothing changes by upgrading.
+                final boolean readerWins = readerFactory != null && deferPrimitivesToReader
+                        && TopicSchemaRecordDecoder.isPrimitive(readerSchemaInfo);
 
                 if (useTopicSchema && !readerWins && TopicSchemaRecordDecoder.supports(readerSchemaInfo)) {
                     // The topic's schema decides the record's shape, so no reader is consulted at all. One

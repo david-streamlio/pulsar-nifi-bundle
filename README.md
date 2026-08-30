@@ -151,10 +151,15 @@ value per message and has no fields, so `Topic Schema` gives each message a reco
 named by **Primitive Value Field** (`value` by default). It becomes a column name downstream, so it is
 worth setting to something meaningful.
 
-**A configured *Record Reader* takes precedence on these topics.** A `STRING` topic carrying JSON text is
-a common shape, and those flows want the payload parsed into records rather than wrapped in one string
-field — so with a reader configured the payload is parsed, and the single-field record is what happens
-when there is no reader to parse with.
+**Primitive Schema Handling** decides what happens when a *Record Reader* is also configured.
+`Record Reader if configured` — the default — parses the payload with the reader, which is what a `STRING`
+topic carrying JSON or CSV text wants. `Single-field record` always wraps the value instead.
+
+The choice is a property rather than an inference from whether a reader is set, because the reader is
+*also* the fallback for topics with no schema: configuring one for that reason should not silently change
+how primitive topics are read. Under the default, a `STRING` topic carrying plain text with a
+`JsonTreeReader` configured sends every message to `parse.failure`, since the reader cannot parse it and
+the single-field record is not reachable — `Single-field record` is the setting for that flow.
 
 Publishing to a primitive topic requires a record with **exactly one field**, whose value is coerced to
 the topic's type. A record with several fields has no unambiguous mapping onto a single value, so it is
