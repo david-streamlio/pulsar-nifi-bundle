@@ -97,7 +97,7 @@
         <jackson-core.version>2.22.2</jackson-core.version>
         <junit.version>4.13.2</junit.version>
         <mockito-core.version>5.23.0</mockito-core.version>
-        <nifi.version>2.10.0</nifi.version>
+        <nifi.version>2.11.0</nifi.version>
         <protobuf3.version>4.36.0</protobuf3.version>
         <pulsar.version>4.2.4</pulsar.version>
         <slf4j-simple.version>2.0.18</slf4j-simple.version>

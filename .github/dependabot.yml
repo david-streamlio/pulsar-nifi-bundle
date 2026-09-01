@@ -58,7 +58,7 @@ updates:
       # The base image must track `nifi.version`, not lead it: the image ships a
       # NiFi runtime that loads NARs compiled against that exact NiFi version, and
       # a mismatch in EITHER direction is an API gap between the platform and its
-      # extensions. Allow patch updates (2.10.x), which are security and bugfix
+      # extensions. Allow patch updates (2.11.x), which are security and bugfix
       # releases within the same NiFi minor; block minor and major so the base
       # image only moves when someone deliberately bumps `nifi.version` and the
       # FROM line together.
