@@ -1,0 +1,115 @@
+name: Security Scan
+
+# Weekly vulnerability scan of both surfaces Dependabot cannot fully see:
+#
+#   1. the Maven dependency tree, including transitives Dependabot only reports
+#      on when an advisory names the direct dependency, and
+#   2. the built container image, whose base (apache/nifi) carries a full JRE and
+#      OS userland that no Maven scan will ever look at.
+#
+# Runs on a schedule rather than on push: the point is that this happens on a
+# cadence rather than when someone remembers to look. Results go to the Security
+# tab as SARIF, so findings accumulate somewhere reviewable instead of scrolling
+# past in a log.
+#
+# Accepted findings belong in .trivyignore with a reason and a review date - not
+# suppressed silently here.
+on:
+  schedule:
+    # Mondays at 07:00 UTC.
+    - cron: '0 7 * * 1'
+  workflow_dispatch:
+
+# Least privilege: read the code, write scan results to the Security tab.
+permissions:
+  contents: read
+  security-events: write
+
+concurrency:
+  group: security-scan-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dependencies:
+    name: Dependency scan (Trivy)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      # Two passes over the same cached database. The first records everything
+      # for the Security tab; the second decides whether the run goes red. They
+      # are split because the SARIF must upload even when the gate fails.
+      - name: Scan dependency tree (SARIF)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln
+          format: sarif
+          output: trivy-deps.sarif
+          exit-code: '0'
+
+      - name: Upload dependency findings
+        if: always()
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: trivy-deps.sarif
+          category: trivy-dependencies
+
+      # Fails the run on CVSS >= 7 equivalents, per issue #197.
+      - name: Fail on HIGH or CRITICAL
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+
+  image:
+    name: Container image scan (Trivy)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      # Full build including the docker-image module: the fabric8 plugin produces
+      # the local image `streamnative/nifi:latest` during the package phase. This
+      # is the same image the release workflow pushes to GHCR.
+      - name: Build image
+        run: mvn -B -ntp clean package -Dgpg.skip=true -DskipTests
+
+      - name: Scan image (SARIF)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: image
+          image-ref: streamnative/nifi:latest
+          scanners: vuln
+          format: sarif
+          output: trivy-image.sarif
+          # REPORT-ONLY, deliberately. A NiFi base image carries a full JRE and OS
+          # userland, so the first scans will report a long tail of upstream CVEs
+          # that no change in this repository can fix. Gating on them now would
+          # leave the job permanently red, which just teaches everyone to ignore
+          # it. Triage the baseline into .trivyignore first, then set this to '1'
+          # so regressions actually stop the run.
+          exit-code: '0'
+
+      - name: Upload image findings
+        if: always()
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: trivy-image.sarif
+          category: trivy-image

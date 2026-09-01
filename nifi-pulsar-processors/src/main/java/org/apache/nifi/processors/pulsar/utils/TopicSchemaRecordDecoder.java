@@ -227,12 +227,7 @@ public class TopicSchemaRecordDecoder {
             // MapRecord, which Jackson cannot serialize, so any JSON side with a nested record failed to
             // publish. Converting to an Avro record first and writing that gives nesting, unions and
             // logical types the same treatment they get at the top level.
-            final java.io.ByteArrayOutputStream json = new java.io.ByteArrayOutputStream();
-            try (com.fasterxml.jackson.core.JsonGenerator generator =
-                         new com.fasterxml.jackson.core.JsonFactory().createGenerator(json)) {
-                PublisherLease.writeAsJson(generator, avroSchema, avroRecord);
-            }
-            return json.toByteArray();
+            return writeAsJsonBytes(avroSchema, avroRecord);
         }
 
         final java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
@@ -242,6 +237,47 @@ public class TopicSchemaRecordDecoder {
                 .write(avroRecord, encoder);
         encoder.flush();
         return out.toByteArray();
+    }
+
+    /**
+     * Renders a record as JSON text, through the same writer the publish path uses.
+     * <p>
+     * Takes the already-parsed Avro schema rather than a {@link SchemaInfo} so that a caller holding a
+     * cached schema does not re-parse it per message - {@code Schema.Parser().parse} is the expensive
+     * part of handling a small record.
+     *
+     * @param record the record to render
+     * @param avroSchema the parsed Avro schema describing it
+     * @return the record as JSON text
+     * @throws IOException if the record cannot be represented in the schema
+     */
+    public static String toJsonText(final Record record, final org.apache.avro.Schema avroSchema)
+            throws IOException {
+        final org.apache.avro.generic.GenericRecord avroRecord;
+
+        try {
+            avroRecord = AvroTypeUtil.createAvroRecord(record, avroSchema);
+        } catch (final Exception e) {
+            throw new IOException("Unable to convert the record to " + avroSchema.getFullName(), e);
+        }
+
+        return new String(writeAsJsonBytes(avroSchema, avroRecord), StandardCharsets.UTF_8);
+    }
+
+    /**
+     * The one place a record becomes JSON. Shared by {@link #encodeStruct}, which needs the bytes to
+     * publish, and {@link #toJsonText}, which needs the text for a FlowFile attribute.
+     */
+    private static byte[] writeAsJsonBytes(final org.apache.avro.Schema avroSchema,
+            final org.apache.avro.generic.GenericRecord avroRecord) throws IOException {
+        final java.io.ByteArrayOutputStream json = new java.io.ByteArrayOutputStream();
+
+        try (com.fasterxml.jackson.core.JsonGenerator generator =
+                     new com.fasterxml.jackson.core.JsonFactory().createGenerator(json)) {
+            PublisherLease.writeAsJson(generator, avroSchema, avroRecord);
+        }
+
+        return json.toByteArray();
     }
 
     /** The schema the last decoded message was shaped by, for callers that group records into sets. */
