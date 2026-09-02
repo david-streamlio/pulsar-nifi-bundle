@@ -65,8 +65,14 @@ updates:
       #
       # Without this, Dependabot proposed apache/nifi 2.10.0 -> 2.11.0 within
       # minutes of the docker ecosystem being added, and the auto-merge workflow
-      # armed it - it only holds MAJOR bumps. Neither CI check builds the
+      # armed it - it only holds MAJOR bumps. At the time neither CI check built the
       # docker-image module, so nothing would have caught the desync.
+      #
+      # CI now asserts the FROM tag equals `nifi.version` (ci.yml, "Dockerfile base
+      # image matches nifi.version"), so such a bump fails its own PR rather than
+      # reaching main. This ignore rule is kept anyway: the check reports a desync,
+      # while the rule stops one being proposed in the first place, and a bump that
+      # cannot merge is still noise. Belt and braces, cheaply.
       - dependency-name: "apache/nifi"
         update-types:
           - version-update:semver-major

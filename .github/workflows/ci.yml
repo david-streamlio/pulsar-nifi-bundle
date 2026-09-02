@@ -35,6 +35,34 @@ jobs:
           java-version: '21'
           cache: maven
 
+      # The docker-image module is not built here (see below), so nothing else in CI
+      # ever reads the Dockerfile. That leaves the FROM tag unchecked until the release
+      # workflow builds the image - after the tag is pushed, which is too late to be a
+      # gate. The tag is pinned literally rather than templated from `nifi.version` so
+      # Dependabot can see it, which means the two only stay in step if a human moves
+      # them together; this is what notices when they do not.
+      #
+      # It asserts the desync, not that the image builds: the image shipping a NiFi
+      # runtime that differs from the one the NARs were compiled against is the actual
+      # failure, and checking it costs seconds and needs no Docker.
+      - name: Dockerfile base image matches nifi.version
+        run: |
+          set -euo pipefail
+          FROM_TAG="$(sed -n 's|^FROM apache/nifi:||p' docker-image/src/main/docker/nifi/Dockerfile)"
+          NIFI_VERSION="$(mvn -B -ntp help:evaluate -Dexpression=nifi.version -q -DforceStdout | tail -n 1 | tr -d '[:space:]')"
+
+          if [ -z "$FROM_TAG" ]; then
+            echo "::error file=docker-image/src/main/docker/nifi/Dockerfile::No 'FROM apache/nifi:<tag>' line found. If the base image was renamed, update this check too."
+            exit 1
+          fi
+
+          if [ "$FROM_TAG" != "$NIFI_VERSION" ]; then
+            echo "::error file=docker-image/src/main/docker/nifi/Dockerfile::Base image is apache/nifi:$FROM_TAG but nifi.version is $NIFI_VERSION. The image ships the runtime that loads NARs compiled against nifi.version, so a mismatch in either direction is an API gap between the platform and its extensions. Move both together."
+            exit 1
+          fi
+
+          echo "Dockerfile base image and nifi.version agree: $NIFI_VERSION"
+
       # Skip GPG signing (no keys in CI) and the docker-image module (Docker build
       # is exercised by the release workflow, not on every PR). Tests still run via
       # the `package` phase.
