@@ -42,6 +42,7 @@ import java.util.List;
 
 import org.apache.nifi.logging.ComponentLog;
 import org.apache.pulsar.client.api.Producer;
+import org.apache.pulsar.client.api.BatcherBuilder;
 import org.apache.pulsar.client.api.ProducerBuilder;
 import org.apache.pulsar.client.api.PulsarClient;
 import org.apache.pulsar.client.api.Schema;
@@ -83,6 +84,31 @@ public class PublisherPoolTest {
         }).when(builder).create();
 
         pool = new PublisherPool(mock(ComponentLog.class), Collections.emptyMap(), client);
+    }
+
+    /**
+     * The Batch Builder has to reach the producer through the builder, because it cannot reach it through
+     * the configuration map: {@code loadConf} serialises that map through JSON, and BatcherBuilder is an
+     * interface with no serialisable state, so a builder placed there is dropped without an error and the
+     * producer batches with the default one. This is the link nothing else covers - the processor's own test
+     * proves only which builder it chose, not that the pool passes it on.
+     */
+    @Test
+    public void theBatchBuilderIsSetOnTheProducerBuilder() {
+        final PublisherPool keyBased = new PublisherPool(
+                mock(ComponentLog.class), Collections.emptyMap(), client, BatcherBuilder.KEY_BASED);
+
+        keyBased.obtainPublisher("persistent://public/default/key-based");
+
+        verify(builder).batcherBuilder(BatcherBuilder.KEY_BASED);
+    }
+
+    /** No builder chosen means the client keeps its own default, not a null handed to the builder. */
+    @Test
+    public void noBatchBuilderIsSetWhenNoneWasChosen() {
+        pool.obtainPublisher("persistent://public/default/no-batcher");
+
+        verify(builder, never()).batcherBuilder(any());
     }
 
     /**

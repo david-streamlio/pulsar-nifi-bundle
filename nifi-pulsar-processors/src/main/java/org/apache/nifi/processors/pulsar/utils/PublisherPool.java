@@ -19,6 +19,8 @@ package org.apache.nifi.processors.pulsar.utils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.nifi.logging.ComponentLog;
 import org.apache.pulsar.client.api.Producer;
+import org.apache.pulsar.client.api.BatcherBuilder;
+import org.apache.pulsar.client.api.ProducerBuilder;
 import org.apache.pulsar.client.api.PulsarClient;
 import org.apache.pulsar.client.api.PulsarClientException;
 import org.apache.pulsar.client.api.Schema;
@@ -51,6 +53,15 @@ public class PublisherPool implements Closeable {
     private final Map<String, Object> pulsarProducerProperties;
     private final PulsarClient pulsarClient;
 
+    /**
+     * Set on the builder rather than passed in {@link #pulsarProducerProperties}, because
+     * {@code loadConf} cannot carry it: it serialises the configuration map through JSON, and
+     * BatcherBuilder is an interface with no serialisable state, so a builder placed in the map is
+     * dropped in silence and the producer runs with the default one. That is the same shape of bug
+     * as the two properties #180 lost. May be null, which leaves the client default in place.
+     */
+    private final BatcherBuilder batcherBuilder;
+
     /** Idle leases per topic, ready to be handed out again. */
     private final Map<String, Queue<PooledPublisherLease>> idleLeases = new ConcurrentHashMap<>();
 
@@ -60,9 +71,15 @@ public class PublisherPool implements Closeable {
     private volatile boolean closed = false;
 
     public PublisherPool(ComponentLog logger, Map<String, Object> pulsarProducerProperties, PulsarClient pulsarClient) {
+        this(logger, pulsarProducerProperties, pulsarClient, null);
+    }
+
+    public PublisherPool(ComponentLog logger, Map<String, Object> pulsarProducerProperties, PulsarClient pulsarClient,
+                         BatcherBuilder batcherBuilder) {
         this.logger = logger;
         this.pulsarProducerProperties = pulsarProducerProperties;
         this.pulsarClient = pulsarClient;
+        this.batcherBuilder = batcherBuilder;
     }
 
     /**
@@ -111,10 +128,16 @@ public class PublisherPool implements Closeable {
         // schema has been bound to the topic and reports its SchemaInfo.
         final Schema<byte[]> topicSchema = Schema.AUTO_PRODUCE_BYTES();
 
-        final Producer producer = pulsarClient.newProducer(topicSchema)
+        final ProducerBuilder<byte[]> producerBuilder = pulsarClient.newProducer(topicSchema)
                 .topic(topicName)
-                .loadConf(properties)
-                .create();
+                .loadConf(properties);
+
+        // After loadConf, so it is not overwritten by the map, and only when one was chosen.
+        if (batcherBuilder != null) {
+            producerBuilder.batcherBuilder(batcherBuilder);
+        }
+
+        final Producer producer = producerBuilder.create();
 
         final PooledPublisherLease lease = new PooledPublisherLease(producer, topicName, topicSchema);
         openLeases.add(lease);

@@ -28,6 +28,51 @@
 <p>
     This processor provides the ability to consume records from a schema-aware topic in Apache &trade; Pulsar.
 </p>
+
+<br/>
+<h3>Failure handling and redelivery</h3>
+<p>
+    A consumed message leaves this processor by exactly one route, and which one it took decides whether
+    Pulsar ever delivers it again. Acknowledgement happens only after the FlowFile carrying the message is
+    committed, so a message is never acknowledged while its content could still be discarded.
+</p>
+<table>
+    <tr><th>What happened</th><th>Route</th><th>Redelivered?</th></tr>
+    <tr><td>The message reached a FlowFile</td><td><code>success</code>, acknowledged</td><td>No</td></tr>
+    <tr><td>Its content could not be parsed</td><td><code>parse_failure</code>, acknowledged</td><td>No</td></tr>
+    <tr><td>It could not be written at all</td><td>rolled back, negatively acknowledged</td><td>Yes, promptly</td></tr>
+    <tr><td>The Pulsar client itself failed</td><td>rolled back, left unacknowledged</td><td>Yes, after <i>Acknowledgment Timeout</i></td></tr>
+</table>
+<p>
+    When the processor cannot write a message into a FlowFile - a full content repository, a permissions
+    problem, a disk fault - it rolls the session back and <b>negatively acknowledges</b> the message, asking
+    the broker to redeliver it now. Without that the message is merely unacknowledged, and the broker cannot
+    tell a consumer that has failed from one still working: it waits out <i>Acknowledgment Timeout</i>, thirty
+    seconds by default and never less than ten. <i>Negative Acknowledgment Redelivery Delay</i> controls how
+    soon redelivery happens, and defaults to Pulsar's own one minute.
+</p>
+<p>
+    When the failure is the Pulsar client itself, no negative acknowledgement is sent: the call that would
+    carry it is the call that just failed. Those messages fall back to <i>Acknowledgment Timeout</i>, which is
+    the right mechanism for a broken connection.
+</p>
+
+<br/>
+<h3>Dead letter topics</h3>
+<p>
+    Setting <i>Max Redelivery Count</i> attaches a dead letter policy. Once a message has been redelivered more
+    times than that, the broker moves it to a dead letter topic instead of delivering it again, so a message
+    the flow can never accept stops blocking the subscription and is still there to inspect.
+    <i>Dead Letter Topic</i> names the destination; leave it unset for the broker's own
+    <code>&lt;topic&gt;-&lt;subscription&gt;-DLQ</code>.
+</p>
+<p>
+    It is unset by default, so the broker redelivers indefinitely unless you ask otherwise. Two constraints
+    apply. Pulsar builds a dead letter policy only for <code>Shared</code> and <code>Key_Shared</code>
+    subscriptions, and this processor rejects the combination at validation rather than let a flow watch a
+    dead letter topic that can never receive anything. And the policy catches only messages that never
+    reached the flow: a message routed to <code>parse_failure</code> was delivered and handled, so it is acknowledged and never reaches the dead letter topic.
+</p>
 <br/>
 <h3>Support</h3>
 <p>

@@ -40,7 +40,10 @@ import org.apache.nifi.pulsar.PulsarClientService;
 import org.apache.nifi.pulsar.cache.PulsarConsumerLRUCache;
 import org.apache.pulsar.client.api.CompressionType;
 import org.apache.pulsar.client.api.MessageId;
+import org.apache.pulsar.client.api.BatcherBuilder;
+import org.apache.pulsar.client.api.HashingScheme;
 import org.apache.pulsar.client.api.MessageRoutingMode;
+import org.apache.pulsar.client.api.ProducerAccessMode;
 import org.apache.pulsar.client.api.Producer;
 import org.apache.pulsar.client.api.ProducerBuilder;
 import org.apache.pulsar.client.api.PulsarClientException;
@@ -246,6 +249,63 @@ public abstract class AbstractPulsarProducerProcessor<T> extends AbstractProcess
             .defaultValue("1000")
             .build();
 
+    /** BatcherBuilder is an interface, not an enum, so the two supported builders are named here. */
+    protected static final String BATCHER_DEFAULT = "Default";
+    protected static final String BATCHER_KEY_BASED = "Key based";
+
+    public static final PropertyDescriptor SEND_TIMEOUT = new PropertyDescriptor.Builder()
+            .name("SEND_TIMEOUT")
+            .displayName("Send Timeout")
+            .description("How long a send may take before it fails. A message that is not acknowledged by the "
+                    + "broker within this window fails, and its FlowFile is routed to failure. Set to 0 to wait "
+                    + "indefinitely, which is what you want when the flow must never drop a message and would "
+                    + "rather block. Note that a send timeout of 0 is required for Pulsar's broker-side "
+                    + "deduplication to work correctly.")
+            .addValidator(StandardValidators.TIME_PERIOD_VALIDATOR)
+            .defaultValue("30 sec")
+            .required(false)
+            .build();
+
+    public static final PropertyDescriptor ACCESS_MODE = new PropertyDescriptor.Builder()
+            .name("ACCESS_MODE")
+            .displayName("Producer Access Mode")
+            .description("Whether this producer requires exclusive access to the topic. 'Shared' is Pulsar's "
+                    + "default and lets any number of producers write to the topic. The exclusive modes are how "
+                    + "you stop two flows writing the same topic: 'Exclusive' fails at producer creation if "
+                    + "another producer already holds the topic, 'WaitForExclusive' queues until it can take "
+                    + "over, and 'ExclusiveWithFencing' evicts the existing producer and takes it.")
+            .required(false)
+            .allowableValues(ProducerAccessMode.Shared.name(), ProducerAccessMode.Exclusive.name(),
+                    ProducerAccessMode.WaitForExclusive.name(), ProducerAccessMode.ExclusiveWithFencing.name())
+            .defaultValue(ProducerAccessMode.Shared.name())
+            .build();
+
+    public static final PropertyDescriptor HASHING_SCHEME = new PropertyDescriptor.Builder()
+            .name("HASHING_SCHEME")
+            .displayName("Hashing Scheme")
+            .description("The hash used to choose a partition from a message key on a partitioned topic. This "
+                    + "must match every other producer writing the topic: two producers with different schemes "
+                    + "send the same key to different partitions, which breaks per-key ordering for anything "
+                    + "consuming it. 'JavaStringHash' is the Java client's default; 'Murmur3_32Hash' is the "
+                    + "cross-language one, and is what to use when other clients also write this topic.")
+            .required(false)
+            .allowableValues(HashingScheme.JavaStringHash.name(), HashingScheme.Murmur3_32Hash.name())
+            .defaultValue(HashingScheme.JavaStringHash.name())
+            .build();
+
+    public static final PropertyDescriptor BATCHER_BUILDER = new PropertyDescriptor.Builder()
+            .name("BATCHER_BUILDER")
+            .displayName("Batch Builder")
+            .description("How messages are grouped into batches. 'Default' fills a batch with whatever is "
+                    + "pending, interleaving keys. 'Key based' keeps messages with the same key in the same "
+                    + "batch, which is what per-key ordering on a Key_Shared subscription requires: a consumer "
+                    + "receives a whole batch, so a batch spanning several keys hands one consumer messages "
+                    + "belonging to another's key range. Only applies when Batching Enabled is true.")
+            .required(false)
+            .allowableValues(BATCHER_DEFAULT, BATCHER_KEY_BASED)
+            .defaultValue(BATCHER_DEFAULT)
+            .build();
+
     public static final PropertyDescriptor MAPPED_MESSAGE_PROPERTIES = new PropertyDescriptor.Builder()
             .name("MAPPED_MESSAGE_PROPERTIES")
             .displayName("Mapped Message Properties")
@@ -287,6 +347,10 @@ public abstract class AbstractPulsarProducerProcessor<T> extends AbstractProcess
         descriptorList.add(MESSAGE_ROUTING_MODE);
         descriptorList.add(MESSAGE_DEMARCATOR);
         descriptorList.add(PENDING_MAX_MESSAGES);
+        descriptorList.add(SEND_TIMEOUT);
+        descriptorList.add(ACCESS_MODE);
+        descriptorList.add(HASHING_SCHEME);
+        descriptorList.add(BATCHER_BUILDER);
         descriptorList.add(MAPPED_MESSAGE_PROPERTIES);
         descriptorList.add(MESSAGE_KEY);
 
@@ -360,7 +424,8 @@ public abstract class AbstractPulsarProducerProcessor<T> extends AbstractProcess
     }
 
     protected PublisherPool createPublisherPool(final ProcessContext context) {
-        return new PublisherPool(getLogger(), getPulsarProducerConfiguration(context), this.getPulsarClientService().getPulsarClient());
+        return new PublisherPool(getLogger(), getPulsarProducerConfiguration(context),
+                this.getPulsarClientService().getPulsarClient(), getBatcherBuilder(context));
     }
 
     protected Map<String, Object> getPulsarProducerConfiguration(ProcessContext ctx) {
@@ -375,6 +440,9 @@ public abstract class AbstractPulsarProducerProcessor<T> extends AbstractProcess
         // the properties stayed in the UI while the producer silently ran with the client defaults.
         config.put("messageRoutingMode", MessageRoutingMode.valueOf(ctx.getProperty(MESSAGE_ROUTING_MODE).getValue()));
         config.put("maxPendingMessages", ctx.getProperty(PENDING_MAX_MESSAGES).evaluateAttributeExpressions().asInteger());
+        config.put("sendTimeoutMs", ctx.getProperty(SEND_TIMEOUT).asTimePeriod(TimeUnit.MILLISECONDS).intValue());
+        config.put("accessMode", ProducerAccessMode.valueOf(ctx.getProperty(ACCESS_MODE).getValue()));
+        config.put("hashingScheme", HashingScheme.valueOf(ctx.getProperty(HASHING_SCHEME).getValue()));
 
         if (ctx.getProperty(BATCHING_ENABLED).asBoolean()) {
             config.put("batchingEnabled", Boolean.TRUE);
@@ -391,6 +459,24 @@ public abstract class AbstractPulsarProducerProcessor<T> extends AbstractProcess
         }
 
         return config;
+    }
+
+    /**
+     * The batch builder to set on the producer, or {@code null} to leave the client default in place.
+     *
+     * <p>This is deliberately not part of {@link #getPulsarProducerConfiguration(ProcessContext)}:
+     * {@code loadConf} serialises that map through JSON, and a BatcherBuilder does not survive the trip -
+     * it is dropped without an error and the producer batches with the default builder. Only meaningful
+     * when batching is enabled; the client ignores it otherwise.
+     */
+    protected BatcherBuilder getBatcherBuilder(final ProcessContext ctx) {
+        if (!ctx.getProperty(BATCHING_ENABLED).asBoolean()) {
+            return null;
+        }
+
+        return BATCHER_KEY_BASED.equals(ctx.getProperty(BATCHER_BUILDER).getValue())
+                ? BatcherBuilder.KEY_BASED
+                : BatcherBuilder.DEFAULT;
     }
 
     protected synchronized PulsarClientService getPulsarClientService() {

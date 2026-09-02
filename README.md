@@ -77,6 +77,50 @@ starts a new record set - and a new FlowFile - just as a change in the mapped at
 > fields, give the reader an explicit schema (*Schema Text* or a schema registry): every message
 > then resolves to the same schema and the batch stays one FlowFile.
 
+## Failure handling and redelivery
+
+A consumed message leaves the processor by exactly one of three routes, and which one it took
+decides whether Pulsar ever delivers it again.
+
+| What happened | Route | Redelivered? |
+|---|---|---|
+| The message reached a FlowFile | `success`, acknowledged | No |
+| Its content could not be parsed | `parse_failure`, acknowledged | No |
+| It could not be written at all | rolled back, **negatively acknowledged** | Yes, promptly |
+| The Pulsar client itself failed | rolled back, left unacknowledged | Yes, after *Acknowledgment Timeout* |
+
+Acknowledgement happens only after the FlowFile carrying the message is committed, so a message
+is never acknowledged while its content could still be discarded.
+
+The third row is the one to know about. When the processor cannot write a message into a FlowFile
+— a full content repository, a permissions problem, a disk fault — it rolls the session back and
+**negatively acknowledges** the message, which asks the broker to redeliver it now. Without that
+the message is merely unacknowledged, and the broker cannot tell a consumer that has failed from
+one that is still working: it waits out *Acknowledgment Timeout*, thirty seconds by default and
+never less than ten. Set *Negative Acknowledgment Redelivery Delay* to control how soon; it
+defaults to Pulsar's own one minute.
+
+A message routed to `parse_failure` is **not** redelivered. It was delivered and handled — the
+flow has its bytes and can route them anywhere, including back to a Pulsar topic — so nacking it
+would hand the same content to the flow twice.
+
+### Dead letter topics
+
+Set *Max Redelivery Count* to attach a dead letter policy. Once a message has been redelivered
+more times than that, the broker moves it to a dead letter topic instead of delivering it again,
+so a message the flow can never accept stops blocking the subscription and is still there to
+inspect. *Dead Letter Topic* names the destination; leave it unset for the broker's own
+`<topic>-<subscription>-DLQ`.
+
+It is unset by default, so the broker redelivers indefinitely unless you ask otherwise. Two
+constraints worth knowing before you reach for it:
+
+- Pulsar builds a dead letter policy only for `Shared` and `Key_Shared` subscriptions. The
+  processor rejects the combination at validation rather than let a flow watch a dead letter
+  topic that can never receive anything.
+- It catches only messages that never reached the flow. A parse failure is acknowledged, so it
+  goes to `parse_failure` and never to the dead letter topic.
+
 ## Publisher message metadata
 
 `PublishPulsar` and `PublishPulsarRecord` set the message key and message properties from the
@@ -107,6 +151,12 @@ either mode, so keyed messages keep their order per key regardless of the settin
 validation. *Max Pending Messages* bounds the producer's queue of messages awaiting the
 broker's acknowledgement.
 
+*Hashing Scheme* picks the hash used to turn a key into a partition. It has to match every other
+producer writing the topic: two producers using different schemes send the same key to different
+partitions, which silently breaks per-key ordering for anything consuming it. `JavaStringHash`
+is the Java client's default and so this bundle's; `Murmur3_32Hash` is the cross-language one, and
+is what to use when clients in other languages also write the topic.
+
 > **Behaviour change since `2.9.0`:** neither property reached the producer since the publish
 > processors were refactored in 2023 — the producer always ran with the client defaults. A flow
 > that has *Message Routing Mode* set to `SinglePartition` will now really route its unkeyed
@@ -124,6 +174,24 @@ broker's acknowledgement.
 > against a remote or loaded broker than in testing. If you publish large FlowFiles asynchronously,
 > either raise *Max Pending Messages*, set it to `0` to restore the previous unbounded behaviour, or
 > enable *Block if Message Queue Full* so sends wait instead of failing.
+
+## Producer behaviour
+
+*Send Timeout* bounds how long a single send may take. A message the broker has not acknowledged
+within it fails, and its FlowFile is routed to `failure`. It defaults to 30 seconds; set it to `0`
+to wait indefinitely, which is what a flow that must never drop a message wants — and what
+Pulsar's broker-side deduplication requires.
+
+*Producer Access Mode* is how you stop two flows writing the same topic. `Shared`, the default,
+lets any number of producers write. `Exclusive` fails at producer creation if another producer
+already holds the topic; `WaitForExclusive` queues until it can take over; `ExclusiveWithFencing`
+evicts the incumbent and takes the topic.
+
+*Batch Builder* decides how messages are grouped when *Batching Enabled* is on. `Default` fills a
+batch with whatever is pending, interleaving keys. **`Key based` is required for per-key ordering
+on a `Key_Shared` subscription**: a consumer receives a whole batch at a time, so a batch spanning
+several keys hands one consumer messages belonging to another consumer's key range. It has no
+effect when batching is off.
 
 ## Consuming from topics that have a schema
 
