@@ -28,6 +28,35 @@
 <p>
     This processor provides the ability to publish records to a schema-aware topic in Apache &trade; Pulsar.
 </p>
+
+<br/>
+<h3>Producer behaviour</h3>
+<p>
+    <i>Send Timeout</i> bounds how long a single send may take. A message the broker has not acknowledged
+    within it fails, and its FlowFile is routed to <code>failure</code>. It defaults to 30 seconds; set it to
+    <code>0</code> to wait indefinitely, which is what a flow that must never drop a message wants - and what
+    Pulsar's broker-side deduplication requires.
+</p>
+<p>
+    <i>Producer Access Mode</i> is how you stop two flows writing the same topic. <code>Shared</code>, the
+    default, lets any number of producers write. <code>Exclusive</code> fails at producer creation if another
+    producer already holds the topic, <code>WaitForExclusive</code> queues until it can take over, and
+    <code>ExclusiveWithFencing</code> evicts the incumbent and takes the topic.
+</p>
+<p>
+    <i>Hashing Scheme</i> picks the hash used to turn a message key into a partition on a partitioned topic.
+    It must match every other producer writing that topic: two producers using different schemes send the same
+    key to different partitions, which silently breaks per-key ordering for anything consuming it.
+    <code>JavaStringHash</code> is the Java client's default; <code>Murmur3_32Hash</code> is the cross-language
+    one, and is what to use when clients in other languages also write the topic.
+</p>
+<p>
+    <i>Batch Builder</i> decides how messages are grouped when <i>Batching Enabled</i> is on.
+    <code>Default</code> fills a batch with whatever is pending, interleaving keys. <b><code>Key based</code>
+    is required for per-key ordering on a <code>Key_Shared</code> subscription</b>: a consumer receives a whole
+    batch at a time, so a batch spanning several keys hands one consumer messages belonging to another
+    consumer's key range. It has no effect when batching is off.
+</p>
 <br/>
 <h3>Support</h3>
 <p>
