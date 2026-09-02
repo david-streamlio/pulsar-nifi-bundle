@@ -64,7 +64,28 @@ Mirrors apache/nifi's `support/nifi-N.x` model:
 
 - **`main`** — active development against the newest supported NiFi line and its
   chosen Pulsar major.
-- **`support/nifi-<X.Y>`** — maintenance branches for older NiFi lines.
+- **`support/nifi-N.x`** — maintenance branches, one per NiFi **major** line.
+
+> This bullet previously read `support/nifi-<X.Y>`, which contradicted the sentence
+> above it: that pattern is one branch per NiFi *minor* (`support/nifi-2.11`), where
+> apache/nifi's model — and the sentence — is one per *major* (`support/nifi-2.x`).
+> No support branch existed while the two disagreed, so nothing was built on the wrong
+> one; the branch that now exists follows the major-line model.
+
+### `support/nifi-2.x`
+
+Cut from the `v2.11.0` tag. It carries the 2.x line — NiFi 2.x, Pulsar client 4.x — for
+as long as that line is maintained.
+
+It exists because `main` is expected to diverge: the restructure in #188 changes the
+controller service interface and the processor/service split, which is a breaking change
+for existing flows and is targeted at 3.0. Once that lands, `main` is no longer releasable
+as 2.x, and this branch is where 2.x fixes and connector revisions (`2.11.0.1`, `2.11.1`,
+…) are cut from.
+
+It was cut at the release rather than when the restructure starts, because a support branch
+is cheapest to create from a tag whose contents are known good, and reconstructing one after
+`main` has moved is not.
 
 ## Release tags
 
