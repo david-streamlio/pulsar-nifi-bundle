@@ -55,10 +55,14 @@ public class PublisherPool implements Closeable {
 
     /**
      * Set on the builder rather than passed in {@link #pulsarProducerProperties}, because
-     * {@code loadConf} cannot carry it: it serialises the configuration map through JSON, and
-     * BatcherBuilder is an interface with no serialisable state, so a builder placed in the map is
-     * dropped in silence and the producer runs with the default one. That is the same shape of bug
-     * as the two properties #180 lost. May be null, which leaves the client default in place.
+     * {@code loadConf} cannot carry it. That method maps the configuration through Jackson, and
+     * {@code ProducerConfigurationData.batcherBuilder} is annotated {@code @JsonIgnore(true)} - the
+     * client excludes it deliberately, so a builder placed in the map is dropped without an error and
+     * the producer runs with the default one. Being deliberate, this will not change in a later client
+     * version, and no value of any type can reach the field that way. Verified against 4.2.4: the same
+     * map carrying hashingScheme sets that field and leaves this one at the default. That silent drop
+     * is the same shape of bug as the two properties #180 lost. May be null, which leaves the client
+     * default in place.
      */
     private final BatcherBuilder batcherBuilder;
 
