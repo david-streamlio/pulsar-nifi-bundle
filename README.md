@@ -175,6 +175,33 @@ is what to use when clients in other languages also write the topic.
 > either raise *Max Pending Messages*, set it to `0` to restore the previous unbounded behaviour, or
 > enable *Block if Message Queue Full* so sends wait instead of failing.
 
+## Choosing what to consume
+
+*Topics* and *Topics Pattern* are alternatives; exactly one must be set.
+
+A pattern matches **persistent topics only** by default, which is why a pattern that plainly
+matches a non-persistent topic can appear to do nothing. *Topics Pattern Match Mode* changes
+that — `PersistentOnly` (the default and the previous behaviour), `NonPersistentOnly`, or
+`AllTopics`. *Topics Pattern Discovery Interval* is how often the client re-evaluates the
+pattern, and so the worst-case delay before a newly created matching topic is read. Both are
+ignored when *Topics* is used.
+
+*Subscription Mode* decides whether the broker keeps a cursor. `Durable` (the default) survives
+a restart and resumes where it left off. `NonDurable` leaves no cursor: the subscription exists
+only while the consumer is connected, which is what tailing wants, and it accumulates no backlog
+on the broker while the flow is stopped.
+
+*Read Compacted* reads the compacted view of a topic — the latest value per key — instead of its
+backlog. Messages without a key are not delivered at all, and the topic must actually have
+compaction running for there to be a compacted view; without it the subscription reads the normal
+backlog.
+
+> **The two single-consumer constraints are mirror images.** A compacted read needs a *single
+> active consumer*, so Pulsar permits it only on `Exclusive` and `Failover`. A dead letter policy
+> needs *competing* consumers, so Pulsar builds one only for `Shared` and `Key_Shared`. No
+> subscription type satisfies both, and the processor rejects each on the wrong type at validation
+> rather than letting the client fail at subscribe time.
+
 ## Producer behaviour
 
 *Send Timeout* bounds how long a single send may take. A message the broker has not acknowledged

@@ -55,7 +55,9 @@ import org.apache.pulsar.client.api.Message;
 import org.apache.pulsar.client.api.PulsarClientException;
 import org.apache.pulsar.client.api.Schema;
 import org.apache.pulsar.common.schema.SchemaInfo;
+import org.apache.pulsar.client.api.RegexSubscriptionMode;
 import org.apache.pulsar.client.api.SubscriptionInitialPosition;
+import org.apache.pulsar.client.api.SubscriptionMode;
 import org.apache.pulsar.client.api.SubscriptionType;
 import org.apache.pulsar.client.api.schema.GenericRecord;
 
@@ -199,6 +201,60 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
                     + "configured timeout will be replayed. This value needs to be greater than 10 seconds.")
             .addValidator(StandardValidators.TIME_PERIOD_VALIDATOR)
             .defaultValue("30 sec")
+            .required(false)
+            .build();
+
+    public static final PropertyDescriptor READ_COMPACTED = new PropertyDescriptor.Builder()
+            .name("READ_COMPACTED")
+            .displayName("Read Compacted")
+            .description("Read the compacted view of the topic - the latest value for each key - rather than "
+                    + "its full backlog. Only the most recent message per key is delivered, and messages with "
+                    + "no key are not delivered at all. The topic must have compaction running for there to be "
+                    + "a compacted view to read; without it the subscription reads the normal backlog. Pulsar "
+                    + "permits this only on a persistent topic with a single active consumer, so the "
+                    + "Subscription Type must be Exclusive or Failover.")
+            .required(false)
+            .allowableValues("true", "false")
+            .defaultValue("false")
+            .build();
+
+    public static final PropertyDescriptor SUBSCRIPTION_MODE = new PropertyDescriptor.Builder()
+            .name("SUBSCRIPTION_MODE")
+            .displayName("Subscription Mode")
+            .description("Whether the subscription's cursor is persisted by the broker. 'Durable' keeps a "
+                    + "cursor, so the subscription survives a restart and resumes where it left off - which is "
+                    + "what a flow that must not miss messages needs. 'NonDurable' leaves no cursor behind: the "
+                    + "subscription exists only while the consumer is connected and is forgotten afterwards, "
+                    + "which is what tailing a topic wants, and it does not accumulate a backlog on the broker "
+                    + "when the flow is stopped.")
+            .required(false)
+            .allowableValues(SubscriptionMode.Durable.name(), SubscriptionMode.NonDurable.name())
+            .defaultValue(SubscriptionMode.Durable.name())
+            .build();
+
+    public static final PropertyDescriptor REGEX_SUBSCRIPTION_MODE = new PropertyDescriptor.Builder()
+            .name("REGEX_SUBSCRIPTION_MODE")
+            .displayName("Topics Pattern Match Mode")
+            .description("Which topics a Topics Pattern is allowed to match: persistent only, non-persistent "
+                    + "only, or all. This only applies when Topics Pattern is used, and its default is why a "
+                    + "pattern that plainly matches a non-persistent topic silently does not consume from it - "
+                    + "the default has always been persistent-only, and there was previously no way to say "
+                    + "otherwise. Ignored when Topics is used instead.")
+            .required(false)
+            .allowableValues(RegexSubscriptionMode.PersistentOnly.name(),
+                    RegexSubscriptionMode.NonPersistentOnly.name(), RegexSubscriptionMode.AllTopics.name())
+            .defaultValue(RegexSubscriptionMode.PersistentOnly.name())
+            .build();
+
+    public static final PropertyDescriptor PATTERN_AUTO_DISCOVERY_PERIOD = new PropertyDescriptor.Builder()
+            .name("PATTERN_AUTO_DISCOVERY_PERIOD")
+            .displayName("Topics Pattern Discovery Interval")
+            .description("How often the client re-evaluates a Topics Pattern to pick up topics created since "
+                    + "it subscribed. A topic that starts matching is not consumed until the next sweep, so "
+                    + "this is the worst-case delay before a newly created topic is read. Only applies when "
+                    + "Topics Pattern is used; ignored when Topics is used instead.")
+            .addValidator(StandardValidators.TIME_PERIOD_VALIDATOR)
+            .defaultValue("60 sec")
             .required(false)
             .build();
 
@@ -408,6 +464,10 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
         descriptorList.add(PRIORITY_LEVEL);
         descriptorList.add(RECEIVER_QUEUE_SIZE);
         descriptorList.add(SUBSCRIPTION_TYPE);
+        descriptorList.add(SUBSCRIPTION_MODE);
+        descriptorList.add(READ_COMPACTED);
+        descriptorList.add(REGEX_SUBSCRIPTION_MODE);
+        descriptorList.add(PATTERN_AUTO_DISCOVERY_PERIOD);
         descriptorList.add(CONSUMER_BATCH_SIZE);
         descriptorList.add(MESSAGE_DEMARCATOR);
         descriptorList.add(MAPPED_FLOWFILE_ATTRIBUTES);
@@ -469,6 +529,18 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
             results.add(new ValidationResult.Builder().valid(false).subject(MAX_REDELIVER_COUNT.getDisplayName())
                 .explanation("a dead letter policy is supported only on Shared and Key_Shared subscriptions, but "
                     + "the Subscription Type is " + subscriptionType).build());
+        }
+
+        // The client refuses this at subscribe time - "Read compacted can only be used with exclusive or
+        // failover persistent subscriptions" - so without this the processor validates cleanly and then
+        // fails every time it is scheduled. The constraint is the mirror of the dead letter policy's: a
+        // compacted read needs a single active consumer, a dead letter policy needs competing ones, so the
+        // two can never be enabled together.
+        if (validationContext.getProperty(READ_COMPACTED).asBoolean()
+                && (SHARED.getValue().equals(subscriptionType) || KEY_SHARED.getValue().equals(subscriptionType))) {
+            results.add(new ValidationResult.Builder().valid(false).subject(READ_COMPACTED.getDisplayName())
+                .explanation("a compacted read needs a single active consumer, so it is supported only on "
+                    + "Exclusive and Failover subscriptions, but the Subscription Type is " + subscriptionType).build());
         }
 
         if (validationContext.getProperty(DEAD_LETTER_TOPIC).isSet() && !deadLetterEnabled) {
@@ -649,6 +721,14 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
                 .priorityLevel(context.getProperty(PRIORITY_LEVEL).asInteger())
                 .receiverQueueSize(context.getProperty(RECEIVER_QUEUE_SIZE).asInteger())
                 .subscriptionType(SubscriptionType.valueOf(context.getProperty(SUBSCRIPTION_TYPE).getValue()))
+                .subscriptionMode(SubscriptionMode.valueOf(context.getProperty(SUBSCRIPTION_MODE).getValue()))
+                .readCompacted(context.getProperty(READ_COMPACTED).asBoolean())
+                // Both are read by the client only when a pattern was given, so they are set unconditionally
+                // rather than guarded: a topic-list subscription ignores them, and mirroring that condition
+                // here would be a second place to keep in step with the topics/pattern choice above.
+                .subscriptionTopicsMode(RegexSubscriptionMode.valueOf(context.getProperty(REGEX_SUBSCRIPTION_MODE).getValue()))
+                .patternAutoDiscoveryPeriod(context.getProperty(PATTERN_AUTO_DISCOVERY_PERIOD)
+                        .asTimePeriod(TimeUnit.SECONDS).intValue(), TimeUnit.SECONDS)
                 .replicateSubscriptionState(context.getProperty(REPLICATE_SUBSCRIPTION_STATE).asBoolean());
     }
 

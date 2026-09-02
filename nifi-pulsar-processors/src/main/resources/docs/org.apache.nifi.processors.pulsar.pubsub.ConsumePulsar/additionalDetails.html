@@ -30,6 +30,38 @@
 </p>
 
 
+
+<br/>
+<h3>Choosing what to consume</h3>
+<p>
+    <i>Topics</i> and <i>Topics Pattern</i> are alternatives; exactly one must be set.
+</p>
+<p>
+    A pattern matches <b>persistent topics only</b> by default, which is why a pattern that plainly matches a
+    non-persistent topic can appear to do nothing. <i>Topics Pattern Match Mode</i> changes that -
+    <code>PersistentOnly</code> (the default, and the previous behaviour), <code>NonPersistentOnly</code>, or
+    <code>AllTopics</code>. <i>Topics Pattern Discovery Interval</i> is how often the client re-evaluates the
+    pattern, and so the worst-case delay before a newly created matching topic is read. Both are ignored when
+    <i>Topics</i> is used.
+</p>
+<p>
+    <i>Subscription Mode</i> decides whether the broker keeps a cursor. <code>Durable</code>, the default,
+    survives a restart and resumes where it left off. <code>NonDurable</code> leaves no cursor behind: the
+    subscription exists only while the consumer is connected, which is what tailing a topic wants, and it
+    accumulates no backlog on the broker while the flow is stopped.
+</p>
+<p>
+    <i>Read Compacted</i> reads the compacted view of a topic - the latest value for each key - instead of its
+    backlog. Messages without a key are not delivered at all, and the topic must actually have compaction
+    running for there to be a compacted view to read; without one the subscription reads the normal backlog.
+</p>
+<p>
+    <b>The two single-consumer constraints are mirror images.</b> A compacted read needs a <i>single active
+    consumer</i>, so Pulsar permits it only on <code>Exclusive</code> and <code>Failover</code>. A dead letter
+    policy needs <i>competing</i> consumers, so Pulsar builds one only for <code>Shared</code> and
+    <code>Key_Shared</code>. No subscription type satisfies both, and this processor rejects each on the wrong
+    type at validation rather than letting the client fail at subscribe time.
+</p>
 <br/>
 <h3>Failure handling and redelivery</h3>
 <p>
