@@ -465,9 +465,10 @@ public abstract class AbstractPulsarProducerProcessor<T> extends AbstractProcess
      * The batch builder to set on the producer, or {@code null} to leave the client default in place.
      *
      * <p>This is deliberately not part of {@link #getPulsarProducerConfiguration(ProcessContext)}:
-     * {@code loadConf} serialises that map through JSON, and a BatcherBuilder does not survive the trip -
-     * it is dropped without an error and the producer batches with the default builder. Only meaningful
-     * when batching is enabled; the client ignores it otherwise.
+     * {@code loadConf} maps that configuration through Jackson, and
+     * {@code ProducerConfigurationData.batcherBuilder} carries {@code @JsonIgnore(true)}, so the client
+     * excludes it by design: an entry in the map is dropped without an error and the producer batches
+     * with the default builder. Only meaningful when batching is enabled; the client ignores it otherwise.
      */
     protected BatcherBuilder getBatcherBuilder(final ProcessContext ctx) {
         if (!ctx.getProperty(BATCHING_ENABLED).asBoolean()) {

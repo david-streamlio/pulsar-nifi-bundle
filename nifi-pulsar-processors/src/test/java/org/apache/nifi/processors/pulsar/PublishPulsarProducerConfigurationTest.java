@@ -43,9 +43,10 @@ import org.junit.Test;
  * shown in the UI for two years while the producer ran with the client defaults.
  * <p>
  * These tests assert against the {@link ProducerConfigurationData} that {@code loadConf} actually produces,
- * not against the map. The distinction matters: {@code loadConf} serialises the map through JSON, so a value
- * of a type that does not survive that trip is dropped in silence. {@code batcherBuilder} is exactly such a
- * value, which is why it is set on the builder instead and asserted separately.
+ * not against the map. The distinction matters: {@code loadConf} maps the configuration through Jackson, so
+ * a field the client marks {@code @JsonIgnore} is dropped in silence however the map is written.
+ * {@code ProducerConfigurationData.batcherBuilder} is exactly such a field, which is why Batch Builder is set
+ * on the builder instead and asserted separately.
  */
 public class PublishPulsarProducerConfigurationTest extends AbstractPulsarProcessorTest<byte[]> {
 

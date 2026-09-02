@@ -88,9 +88,9 @@ public class PublisherPoolTest {
 
     /**
      * The Batch Builder has to reach the producer through the builder, because it cannot reach it through
-     * the configuration map: {@code loadConf} serialises that map through JSON, and BatcherBuilder is an
-     * interface with no serialisable state, so a builder placed there is dropped without an error and the
-     * producer batches with the default one. This is the link nothing else covers - the processor's own test
+     * the configuration map: {@code loadConf} maps the configuration through Jackson, and
+     * {@code ProducerConfigurationData.batcherBuilder} is annotated {@code @JsonIgnore(true)}, so a builder
+     * placed there is dropped without an error and the producer batches with the default one. This is the link nothing else covers - the processor's own test
      * proves only which builder it chose, not that the pool passes it on.
      */
     @Test
