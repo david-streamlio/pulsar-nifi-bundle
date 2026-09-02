@@ -590,11 +590,12 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
 
             dropUnroutedFailures(session, parseFailures, demarcator, uncommitted);
         } catch (IOException e) {
-            // nothing has been acknowledged, so the broker redelivers the whole batch
+            // nothing has been acknowledged, and the messages are negatively acknowledged so the broker
+            // redelivers the whole batch without waiting out the Acknowledgment Timeout
             getLogger().error("Unable to write the received messages to a FlowFile; they will be redelivered", e);
             IOUtils.closeQuietly(writer);
             IOUtils.closeQuietly(rawOut);
-            session.rollback();
+            rollbackAndRedeliver(session, consumer, uncommitted);
             return;
         }
 

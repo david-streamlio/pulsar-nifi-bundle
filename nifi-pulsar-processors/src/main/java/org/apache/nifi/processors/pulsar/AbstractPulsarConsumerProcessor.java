@@ -48,6 +48,7 @@ import org.apache.nifi.processors.pulsar.utils.PropertyMappingUtils;
 import org.apache.nifi.pulsar.PulsarClientService;
 import org.apache.nifi.pulsar.cache.PulsarConsumerLRUCache;
 import org.apache.pulsar.client.api.Consumer;
+import org.apache.pulsar.client.api.DeadLetterPolicy;
 import org.apache.pulsar.client.api.ConsumerBuilder;
 import org.apache.pulsar.client.api.ConsumerCryptoFailureAction;
 import org.apache.pulsar.client.api.Message;
@@ -198,6 +199,42 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
                     + "configured timeout will be replayed. This value needs to be greater than 10 seconds.")
             .addValidator(StandardValidators.TIME_PERIOD_VALIDATOR)
             .defaultValue("30 sec")
+            .required(false)
+            .build();
+
+    public static final PropertyDescriptor NEGATIVE_ACK_REDELIVERY_DELAY = new PropertyDescriptor.Builder()
+            .name("NEGATIVE_ACK_REDELIVERY_DELAY")
+            .displayName("Negative Acknowledgment Redelivery Delay")
+            .description("How long the broker waits before redelivering a message this processor could not hand "
+                    + "to the flow. A message whose FlowFile could not be written is now negatively acknowledged "
+                    + "rather than left to expire, so its redelivery is governed by this property. The "
+                    + "Acknowledgment Timeout remains the ceiling for a message that was never acted on at all.")
+            .addValidator(StandardValidators.TIME_PERIOD_VALIDATOR)
+            .defaultValue("1 min")
+            .required(false)
+            .build();
+
+    public static final PropertyDescriptor MAX_REDELIVER_COUNT = new PropertyDescriptor.Builder()
+            .name("MAX_REDELIVER_COUNT")
+            .displayName("Max Redelivery Count")
+            .description("Enables a dead letter policy: once a message has been redelivered this many times the "
+                    + "broker moves it to the dead letter topic instead of delivering it again. Leave unset to "
+                    + "let the broker redeliver indefinitely, which is the previous behaviour. This governs only "
+                    + "messages the processor could not deliver into the flow at all - a message that reached a "
+                    + "FlowFile and was then routed to a failure relationship has been acknowledged, and never "
+                    + "reaches the dead letter topic. Pulsar supports a dead letter policy only on Shared and "
+                    + "Key_Shared subscriptions.")
+            .addValidator(StandardValidators.POSITIVE_INTEGER_VALIDATOR)
+            .required(false)
+            .build();
+
+    public static final PropertyDescriptor DEAD_LETTER_TOPIC = new PropertyDescriptor.Builder()
+            .name("DEAD_LETTER_TOPIC")
+            .displayName("Dead Letter Topic")
+            .description("The topic messages are moved to once they exceed Max Redelivery Count. Defaults to the "
+                    + "broker's own naming, '<topic>-<subscription>-DLQ'. Has no effect unless Max Redelivery "
+                    + "Count is set.")
+            .addValidator(StandardValidators.NON_BLANK_VALIDATOR)
             .required(false)
             .build();
 
@@ -360,7 +397,9 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
         descriptorList.add(ASYNC_ENABLED);
         descriptorList.add(MAX_ASYNC_REQUESTS);
         descriptorList.add(ACK_TIMEOUT);
-        descriptorList.add(MAX_PENDING_CHUNKED_MESSAGE);
+        descriptorList.add(NEGATIVE_ACK_REDELIVERY_DELAY);
+        descriptorList.add(MAX_REDELIVER_COUNT);
+        descriptorList.add(DEAD_LETTER_TOPIC);
         descriptorList.add(AUTO_ACK_OLDEST_CHUNKED_ON_QUEUE_FULL);
         descriptorList.add(EXPIRE_TIME_OF_INCOMPLETE_CHUNKED_MESSAGE);
         descriptorList.add(MAX_PENDING_CHUNKED_MESSAGE);
@@ -416,6 +455,25 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
         if (validationContext.getProperty(ACK_TIMEOUT).asTimePeriod(TimeUnit.SECONDS) < 10) {
            results.add(new ValidationResult.Builder().valid(false).explanation(
                "Acknowledgment Timeout needs to be greater than 10 seconds.").build());
+        }
+
+        final boolean deadLetterEnabled = validationContext.getProperty(MAX_REDELIVER_COUNT).isSet();
+        final String subscriptionType = validationContext.getProperty(SUBSCRIPTION_TYPE).getValue();
+
+        // The client builds a dead letter policy only for Shared and Key_Shared subscriptions. On the other
+        // two the consumer is accepted and simply never dead-letters anything, so a flow would sit waiting on
+        // a dead letter topic that can never receive a message. Reject it here instead, as CustomPartition is
+        // rejected on the producer side, rather than let the configuration look like it took effect.
+        if (deadLetterEnabled && !SHARED.getValue().equals(subscriptionType)
+                && !KEY_SHARED.getValue().equals(subscriptionType)) {
+            results.add(new ValidationResult.Builder().valid(false).subject(MAX_REDELIVER_COUNT.getDisplayName())
+                .explanation("a dead letter policy is supported only on Shared and Key_Shared subscriptions, but "
+                    + "the Subscription Type is " + subscriptionType).build());
+        }
+
+        if (validationContext.getProperty(DEAD_LETTER_TOPIC).isSet() && !deadLetterEnabled) {
+            results.add(new ValidationResult.Builder().valid(false).subject(DEAD_LETTER_TOPIC.getDisplayName())
+                .explanation("Dead Letter Topic has no effect unless Max Redelivery Count is set").build());
         }
 
         return results;
@@ -563,12 +621,27 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
             builder = builder.consumerName(context.getProperty(CONSUMER_NAME).getValue());
         }
 
+        // Only built when Max Redelivery Count is set: the policy's redeliver count has no "unlimited"
+        // value, so attaching one unconditionally would impose a ceiling no flow asked for.
+        if (context.getProperty(MAX_REDELIVER_COUNT).isSet()) {
+            final DeadLetterPolicy.DeadLetterPolicyBuilder deadLetterPolicy = DeadLetterPolicy.builder()
+                    .maxRedeliverCount(context.getProperty(MAX_REDELIVER_COUNT).asInteger());
+
+            if (context.getProperty(DEAD_LETTER_TOPIC).isSet()) {
+                deadLetterPolicy.deadLetterTopic(context.getProperty(DEAD_LETTER_TOPIC).getValue());
+            }
+
+            builder = builder.deadLetterPolicy(deadLetterPolicy.build());
+        }
+
         return builder.subscriptionName(context.getProperty(SUBSCRIPTION_NAME).getValue())
                 .subscriptionInitialPosition(SubscriptionInitialPosition.valueOf(context.getProperty(SUBSCRIPTION_INITIAL_POSITION).getValue()))
                 .autoUpdatePartitions(context.getProperty(AUTO_UPDATE_PARTITIONS).asBoolean())
                 .autoUpdatePartitionsInterval(context.getProperty(AUTO_UPDATE_PARTITION_INTERVAL)
                         .asTimePeriod(TimeUnit.SECONDS).intValue(), TimeUnit.SECONDS)
                 .ackTimeout(context.getProperty(ACK_TIMEOUT).asTimePeriod(TimeUnit.MILLISECONDS).intValue(), TimeUnit.MILLISECONDS)
+                .negativeAckRedeliveryDelay(context.getProperty(NEGATIVE_ACK_REDELIVERY_DELAY)
+                        .asTimePeriod(TimeUnit.MICROSECONDS), TimeUnit.MICROSECONDS)
                 .autoAckOldestChunkedMessageOnQueueFull(context.getProperty(AUTO_ACK_OLDEST_CHUNKED_ON_QUEUE_FULL).asBoolean())
                 .expireTimeOfIncompleteChunkedMessage(context.getProperty(EXPIRE_TIME_OF_INCOMPLETE_CHUNKED_MESSAGE)
                         .asTimePeriod(TimeUnit.SECONDS), TimeUnit.SECONDS)
@@ -674,6 +747,38 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
         messages.clear();
 
         session.commitAsync(() -> acknowledge(consumer, committed, shared, async));
+    }
+
+    /**
+     * Rolls the session back and negatively acknowledges the messages it carried, so the broker redelivers
+     * them once the Negative Acknowledgment Redelivery Delay elapses.
+     *
+     * <p>Rolling back alone leaves the messages merely unacknowledged, and the broker cannot tell a consumer
+     * that has failed from one that is still working: it waits out the Acknowledgment Timeout - thirty seconds
+     * by default and never less than ten, by validation - before redelivering. Nothing was ever lost, but the
+     * flow stalled for that long on every write error. The negative acknowledgement says which of the two it
+     * is.
+     *
+     * @param session  the session to roll back
+     * @param consumer the consumer the messages were received from
+     * @param messages the messages carried by the rolled-back session; cleared on return
+     */
+    protected void rollbackAndRedeliver(final ProcessSession session, final Consumer<GenericRecord> consumer,
+                                        final List<Message<GenericRecord>> messages) {
+        session.rollback();
+
+        for (final Message<GenericRecord> message : messages) {
+            try {
+                consumer.negativeAcknowledge(message);
+            } catch (final RuntimeException e) {
+                // The message is unacknowledged either way, so the Acknowledgment Timeout still redelivers it;
+                // only the promptness is lost. Not worth failing a trigger whose session is already rolled back.
+                getLogger().warn("Unable to negatively acknowledge a message whose session was rolled back; it "
+                        + "will be redelivered when the Acknowledgment Timeout expires", e);
+            }
+        }
+
+        messages.clear();
     }
 
     private void acknowledge(final Consumer<GenericRecord> consumer, final List<Message<GenericRecord>> messages,

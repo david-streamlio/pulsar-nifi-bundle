@@ -173,10 +173,11 @@ public class ConsumePulsar extends AbstractPulsarConsumerProcessor<byte[]> {
                             }
                              
                         } catch (final IOException ioEx) {
-                            // nothing has been acknowledged, so the broker redelivers the whole batch
+                            // nothing has been acknowledged, and the messages are negatively acknowledged so the
+                            // broker redelivers the whole batch without waiting out the Acknowledgment Timeout
                             getLogger().error("Unable to write the received messages to a FlowFile; they will be redelivered", ioEx);
                             IOUtils.closeQuietly(out);
-                            session.rollback();
+                            rollbackAndRedeliver(session, consumer, uncommitted);
                             return;
                         }
                     }
@@ -289,10 +290,11 @@ public class ConsumePulsar extends AbstractPulsarConsumerProcessor<byte[]> {
                     }
                     
                 } catch (final IOException ioEx) {
-                    // nothing has been acknowledged, so the broker redelivers the whole batch
+                    // nothing has been acknowledged, and the messages are negatively acknowledged so the broker
+                    // redelivers the whole batch without waiting out the Acknowledgment Timeout
                     getLogger().error("Unable to write the received messages to a FlowFile; they will be redelivered", ioEx);
                     IOUtils.closeQuietly(out);
-                    session.rollback();
+                    rollbackAndRedeliver(session, consumer, uncommitted);
                     return;
                 }
             }
@@ -317,6 +319,9 @@ public class ConsumePulsar extends AbstractPulsarConsumerProcessor<byte[]> {
             commitAndAcknowledge(session, consumer, uncommitted, shared, false);
 
         } catch (PulsarClientException e) {
+            // Deliberately not negatively acknowledged: this is the client itself failing, so the call that
+            // would carry the negative acknowledgement is the call that just failed. The Acknowledgment
+            // Timeout is the right fallback here, and is what redelivers these messages.
             getLogger().error("Error communicating with Apache Pulsar", e);
             context.yield();
             session.rollback();
