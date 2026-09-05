@@ -185,7 +185,18 @@ Pulsar's broker-side deduplication requires.
 *Producer Access Mode* is how you stop two flows writing the same topic. `Shared`, the default,
 lets any number of producers write. `Exclusive` fails at producer creation if another producer
 already holds the topic; `WaitForExclusive` queues until it can take over; `ExclusiveWithFencing`
-evicts the incumbent and takes the topic.
+evicts the incumbent and takes the topic. Under any of the three the processor keeps **one
+producer per topic**, whatever its Concurrent Tasks: a task that needs a topic whose producer is
+busy waits for it instead of opening a second one, so the exclusivity is held against other flows
+and never turned against the processor itself.
+
+> **Behaviour change since `2.11.0`:** in `2.11.0` the publisher pool opened one producer per
+> concurrently held lease, so `PublishPulsarRecord` with more than one Concurrent Task collided
+> with its own producers under the exclusive modes: with `Exclusive` part of the FlowFiles went to
+> `failure` ("Topic has an existing exclusive producer" — its own), with `ExclusiveWithFencing`
+> the producers fenced each other, and with `WaitForExclusive` the second task blocked inside
+> `onTrigger` for good. Those flows now publish everything through the topic's single producer.
+> `Shared` is unchanged: concurrent tasks still get concurrent producers.
 
 *Batch Builder* decides how messages are grouped when *Batching Enabled* is on. `Default` fills a
 batch with whatever is pending, interleaving keys. **`Key based` is required for per-key ordering

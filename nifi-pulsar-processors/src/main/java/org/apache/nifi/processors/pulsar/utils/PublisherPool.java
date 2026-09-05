@@ -20,6 +20,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.nifi.logging.ComponentLog;
 import org.apache.pulsar.client.api.Producer;
 import org.apache.pulsar.client.api.BatcherBuilder;
+import org.apache.pulsar.client.api.ProducerAccessMode;
 import org.apache.pulsar.client.api.ProducerBuilder;
 import org.apache.pulsar.client.api.PulsarClient;
 import org.apache.pulsar.client.api.PulsarClientException;
@@ -33,6 +34,7 @@ import java.util.Queue;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -46,6 +48,12 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * Before this the idle queue was never written to, so every {@code obtainPublisher()} created a new producer, a lease's
  * {@code close()} removed it from an always-empty queue instead of closing it, and {@link #close()} drained that same
  * empty queue: every producer this bundle opened, and its broker connection, was leaked.
+ * <p>
+ * Under an exclusive {@code accessMode} the pool holds <b>one</b> producer per topic instead: a caller whose topic already
+ * has its lease in use waits for that lease to come back rather than creating a second producer. A second producer on a
+ * topic whose first one is exclusive is what the broker refuses ({@code Exclusive}), what fences the first one
+ * ({@code ExclusiveWithFencing}) or what waits for a producer that never closes ({@code WaitForExclusive}), so a
+ * processor with more than one concurrent task was colliding with its own pool (#219).
  */
 public class PublisherPool implements Closeable {
 
@@ -72,6 +80,15 @@ public class PublisherPool implements Closeable {
     /** Every lease created by this pool whose producer is still open, idle or in use. */
     private final Set<PooledPublisherLease> openLeases = ConcurrentHashMap.newKeySet();
 
+    /** Whether {@code accessMode} in the producer configuration is one of the exclusive modes. */
+    private final boolean exclusiveAccess;
+
+    /**
+     * One permit per topic when the access mode is exclusive, held from {@link #obtainPublisher(String)} until the
+     * lease is closed. Fair, so waiting tasks are served in the order they asked.
+     */
+    private final Map<String, Semaphore> topicPermits = new ConcurrentHashMap<>();
+
     private volatile boolean closed = false;
 
     public PublisherPool(ComponentLog logger, Map<String, Object> pulsarProducerProperties, PulsarClient pulsarClient) {
@@ -84,13 +101,25 @@ public class PublisherPool implements Closeable {
         this.pulsarProducerProperties = pulsarProducerProperties;
         this.pulsarClient = pulsarClient;
         this.batcherBuilder = batcherBuilder;
+        this.exclusiveAccess = isExclusive(pulsarProducerProperties.get("accessMode"));
     }
 
     /**
-     * Returns a lease for the topic: an idle one if available, otherwise a newly created producer.
+     * The processor puts the {@link ProducerAccessMode} itself into the map; a configuration that does not
+     * mention the mode gets the client default, {@code Shared}.
+     */
+    private static boolean isExclusive(final Object accessMode) {
+        return accessMode != null && !ProducerAccessMode.Shared.name().equals(String.valueOf(accessMode));
+    }
+
+    /**
+     * Returns a lease for the topic: an idle one if available, otherwise a newly created producer. Under an
+     * exclusive access mode the topic has a single lease, and a caller who finds it in use waits until it is
+     * returned rather than getting a second producer.
      *
      * @param topicName the topic to publish to
-     * @return the lease, or {@code null} when the topic is blank or the producer cannot be created
+     * @return the lease, or {@code null} when the topic is blank, the producer cannot be created, or the thread
+     *         was interrupted while waiting for an exclusive topic's lease
      * @throws IllegalStateException if the pool has been closed
      */
     public PublisherLease obtainPublisher(String topicName) {
@@ -102,16 +131,36 @@ public class PublisherPool implements Closeable {
             return null;
         }
 
-        final PooledPublisherLease idle = idleLeasesFor(topicName).poll();
-        if (idle != null) {
-            return idle;
+        final Semaphore permit = exclusiveAccess ? topicPermits.computeIfAbsent(topicName, t -> new Semaphore(1, true)) : null;
+        if (permit != null) {
+            // Exclusive access means one producer on the topic, and the pool honours that from the inside: the
+            // second task wanting this topic waits for its lease to be returned instead of creating a producer the
+            // broker would refuse, fence the first one with, or hold waiting for a producer that never closes. The
+            // wait is on a sibling task's trigger, which the lease's own send timeout bounds.
+            try {
+                permit.acquire();
+            } catch (final InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return null;
+            }
         }
 
         try {
-            return createLease(topicName);
+            final PooledPublisherLease idle = idleLeasesFor(topicName).poll();
+            final PooledPublisherLease lease = idle != null ? idle : createLease(topicName);
+            lease.leased.set(true);
+            return lease;
         } catch (PulsarClientException pcEx) {
             logger.error("Unable to create producer", pcEx);
+            if (permit != null) {
+                permit.release();
+            }
             return null;
+        } catch (final RuntimeException e) {
+            if (permit != null) {
+                permit.release();
+            }
+            throw e;
         }
     }
 
@@ -195,6 +244,9 @@ public class PublisherPool implements Closeable {
         private final String topicName;
         private final AtomicBoolean producerClosed = new AtomicBoolean(false);
 
+        /** True while handed out by {@link #obtainPublisher(String)}; a close on a lease that is not out is ignored. */
+        private final AtomicBoolean leased = new AtomicBoolean(false);
+
         private PooledPublisherLease(final Producer producer, final String topicName,
                                      final Schema<byte[]> topicSchema) {
             super(producer, logger, topicSchema);
@@ -203,11 +255,21 @@ public class PublisherPool implements Closeable {
 
         @Override
         public void close() {
+            if (!leased.compareAndSet(true, false)) {
+                // closed twice: returning it again would put the same producer in the idle queue twice and, under
+                // exclusive access, hand the topic to two tasks at once
+                return;
+            }
+
             if (PublisherPool.this.isClosed()) {
                 closeProducer();
             } else {
                 // return the producer to the pool; PublisherPool.close() closes it later because it stays in openLeases
                 idleLeasesFor(topicName).offer(this);
+            }
+
+            if (exclusiveAccess) {
+                topicPermits.get(topicName).release();
             }
         }
 
