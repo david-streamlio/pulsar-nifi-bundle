@@ -97,8 +97,19 @@ The third row is the one to know about. When the processor cannot write a messag
 **negatively acknowledges** the message, which asks the broker to redeliver it now. Without that
 the message is merely unacknowledged, and the broker cannot tell a consumer that has failed from
 one that is still working: it waits out *Acknowledgment Timeout*, thirty seconds by default and
-never less than ten. Set *Negative Acknowledgment Redelivery Delay* to control how soon; it
-defaults to Pulsar's own one minute.
+never less than ten. *Negative Acknowledgment Redelivery Delay* controls how soon the redelivery
+comes; it defaults to one second, and cannot be set longer than *Acknowledgment Timeout*. The
+reason for that rule: once a message is negatively acknowledged the client stops tracking it for
+the timeout, so the delay is the **only** thing that redelivers it — a delay longer than the timeout
+would make a write failure wait longer than a plain rollback did.
+
+> **Behaviour change since `2.11.0`:** in `2.11.0` the delay defaulted to Pulsar's own one minute,
+> so with *Acknowledgment Timeout* at its 30-second default a message the processor could not write
+> came back after **60 s — twice as long as before negative acknowledgement existed**, not sooner.
+> The default is now one second, so a flow that never set the property redelivers after a write
+> failure in about a second instead of a minute. A flow that had set the property to a value above
+> its *Acknowledgment Timeout* is now invalid and has to lower one or raise the other. To keep the
+> old gap on purpose, set the delay explicitly to a value no longer than the timeout.
 
 A message routed to `parse_failure` is **not** redelivered. It was delivered and handled — the
 flow has its bytes and can route them anywhere, including back to a Pulsar topic — so nacking it
