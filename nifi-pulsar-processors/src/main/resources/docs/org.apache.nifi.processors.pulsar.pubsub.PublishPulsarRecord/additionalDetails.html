@@ -57,6 +57,14 @@
     batch at a time, so a batch spanning several keys hands one consumer messages belonging to another
     consumer's key range. It has no effect when batching is off.
 </p>
+<p>
+    <i>Ordering Key Field</i> names the record field whose value becomes Pulsar's ordering key of the record's
+    message, independently of <i>Message Key Field</i>. The message key decides the partition and is what topic
+    compaction keeps the latest value for; the ordering key decides which consumer of a <code>Key_Shared</code>
+    subscription receives the message and takes precedence over the message key there. A record whose field is
+    null or empty is sent without an ordering key, and with the property blank none is ever set, so Pulsar falls
+    back to the message key as before.
+</p>
 <br/>
 <h3>Support</h3>
 <p>

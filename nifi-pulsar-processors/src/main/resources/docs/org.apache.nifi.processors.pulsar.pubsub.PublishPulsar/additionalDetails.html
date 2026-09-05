@@ -57,6 +57,14 @@
     batch at a time, so a batch spanning several keys hands one consumer messages belonging to another
     consumer's key range. It has no effect when batching is off.
 </p>
+<p>
+    <i>Ordering Key</i> sets Pulsar's ordering key on every message of the FlowFile, independently of
+    <i>Message Key</i>. The message key decides the partition and is what topic compaction keeps the latest
+    value for; the ordering key decides which consumer of a <code>Key_Shared</code> subscription receives the
+    message and takes precedence over the message key there. Left blank, no ordering key is set and Pulsar falls
+    back to the message key, as before. Set it when the unit you route and compact by (a tenant, a device) is not
+    the unit you need ordered delivery for (a session, a transaction).
+</p>
 <br/>
 <h3>Support</h3>
 <p>

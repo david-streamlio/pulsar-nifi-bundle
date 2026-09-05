@@ -84,6 +84,7 @@ public class PublishPulsar extends AbstractPulsarProducerProcessor<byte[]> {
 
                     lease.publish(flowFile, in,
                             getMessageKey(context, flowFile),
+                            getOrderingKey(context, flowFile),
                             getMappedMessageProperties(context, flowFile),
                             getDemarcatorBytes(context, flowFile), asyncFlag);
 
