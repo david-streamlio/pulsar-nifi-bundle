@@ -189,6 +189,16 @@ public class PublisherLease implements Closeable {
 
     public void publish(final FlowFile flowFile, final InputStream flowFileContent, final String messageKey,
                         Map<String, String> messageProperties, final byte[] demarcatorBytes, boolean async) throws IOException {
+        publish(flowFile, flowFileContent, messageKey, null, messageProperties, demarcatorBytes, async);
+    }
+
+    /**
+     * @param orderingKey Pulsar's ordering key for every message of the FlowFile, or {@code null} to set none, in
+     *                    which case the broker falls back to the message key
+     */
+    public void publish(final FlowFile flowFile, final InputStream flowFileContent, final String messageKey,
+                        final byte[] orderingKey, Map<String, String> messageProperties, final byte[] demarcatorBytes,
+                        boolean async) throws IOException {
 
         byte[] messageContent;
         List<CompletableFuture<MessageId>> futureList = new ArrayList<>();
@@ -197,16 +207,16 @@ public class PublisherLease implements Closeable {
             messageContent = new byte[(int) flowFile.getSize()];
             StreamUtils.fillBuffer(flowFileContent, messageContent);
             futureList.add(async ?
-                    sendAsync(producer, messageKey, messageProperties, messageContent) :
-                    send(producer, messageKey, messageProperties, messageContent));
+                    sendAsync(producer, messageKey, orderingKey, messageProperties, messageContent) :
+                    send(producer, messageKey, orderingKey, messageProperties, messageContent));
 
         } else {
             try (final StreamDemarcator demarcator = new StreamDemarcator(flowFileContent, demarcatorBytes, Integer.MAX_VALUE)) {
 
                 while ((messageContent = demarcator.nextToken()) != null) {
                     futureList.add(async ?
-                            sendAsync(producer, messageKey, messageProperties, messageContent) :
-                            send(producer, messageKey, messageProperties, messageContent));
+                            sendAsync(producer, messageKey, orderingKey, messageProperties, messageContent) :
+                            send(producer, messageKey, orderingKey, messageProperties, messageContent));
 
                     if (futureList.size() > 99) {
                         producer.flush();
@@ -248,6 +258,18 @@ public class PublisherLease implements Closeable {
                         final RecordSchema schema, final String messageKeyField, Map<String, String> messageProperties,
                         boolean async, boolean useTopicSchema, final String keyValueKeyField,
                         final String keyValueValueField) throws IOException {
+        publish(flowFile, recordSet, writerFactory, schema, messageKeyField, null, messageProperties, async, useTopicSchema,
+                keyValueKeyField, keyValueValueField);
+    }
+
+    /**
+     * @param orderingKeyField the record field whose value becomes the message's ordering key, or {@code null} to set
+     *                         none; a record whose field is null or empty gets no ordering key either
+     */
+    public void publish(final FlowFile flowFile, final RecordSet recordSet, final RecordSetWriterFactory writerFactory,
+                        final RecordSchema schema, final String messageKeyField, final String orderingKeyField,
+                        Map<String, String> messageProperties, boolean async, boolean useTopicSchema,
+                        final String keyValueKeyField, final String keyValueValueField) throws IOException {
 
         final TopicSchema resolvedSchema = useTopicSchema ? getTopicSchema() : null;
 
@@ -288,6 +310,8 @@ public class PublisherLease implements Closeable {
 
                 final byte[] messageContent;
                 final String messageKey;
+                final byte[] orderingKey = orderingKeyField == null || orderingKeyField.isEmpty()
+                        ? null : getOrderingKey(record.getValue(orderingKeyField));
 
                 if (keyValueSchema != null) {
                     final KeyValueTopicSchema.EncodedKeyValue encoded =
@@ -310,8 +334,8 @@ public class PublisherLease implements Closeable {
                         }
 
                         futureList.add(async
-                                ? sendAsyncWithKeyBytes(producer, encoded.getMessageKey(), messageProperties, messageContent)
-                                : sendWithKeyBytes(producer, encoded.getMessageKey(), messageProperties, messageContent));
+                                ? sendAsyncWithKeyBytes(producer, encoded.getMessageKey(), orderingKey, messageProperties, messageContent)
+                                : sendWithKeyBytes(producer, encoded.getMessageKey(), orderingKey, messageProperties, messageContent));
 
                         if (futureList.size() > 100) {
                             producer.flush();
@@ -340,8 +364,8 @@ public class PublisherLease implements Closeable {
                 messageKey = getMessageKey(flowFile, writerFactory, record.getValue(messageKeyField));
 
                 futureList.add(async ?
-                        sendAsync(producer, messageKey, messageProperties, messageContent) :
-                        send(producer, messageKey, messageProperties, messageContent));
+                        sendAsync(producer, messageKey, orderingKey, messageProperties, messageContent) :
+                        send(producer, messageKey, orderingKey, messageProperties, messageContent));
 
                 if (futureList.size() > 100) {
                     producer.flush();
@@ -580,11 +604,38 @@ public class PublisherLease implements Closeable {
         return producer.newMessage().properties(properties).keyBytes(keyBytes).value(value).sendAsync();
     }
 
+    /**
+     * The variants taking an ordering key hand a message without one to the original methods, so a subclass that
+     * overrides those (tests do, to control the futures) keeps seeing every message that has no ordering key.
+     */
+    protected CompletableFuture<MessageId> sendAsyncWithKeyBytes(Producer producer, byte[] keyBytes, byte[] orderingKey,
+                                                                 Map<String, String> properties, byte[] value) {
+        if (orderingKey == null) {
+            return sendAsyncWithKeyBytes(producer, keyBytes, properties, value);
+        }
+        return producer.newMessage().properties(properties).keyBytes(keyBytes).orderingKey(orderingKey).value(value).sendAsync();
+    }
+
     protected CompletableFuture<MessageId> sendWithKeyBytes(Producer producer, byte[] keyBytes, Map<String, String> properties, byte[] value)
             throws PulsarClientException {
         try {
             return CompletableFuture.completedFuture(
                     producer.newMessage().properties(properties).keyBytes(keyBytes).value(value).send());
+        } catch (final PulsarClientException e) {
+            final CompletableFuture<MessageId> failed = new CompletableFuture<>();
+            failed.completeExceptionally(e);
+            return failed;
+        }
+    }
+
+    protected CompletableFuture<MessageId> sendWithKeyBytes(Producer producer, byte[] keyBytes, byte[] orderingKey,
+                                                            Map<String, String> properties, byte[] value) throws PulsarClientException {
+        if (orderingKey == null) {
+            return sendWithKeyBytes(producer, keyBytes, properties, value);
+        }
+        try {
+            return CompletableFuture.completedFuture(
+                    producer.newMessage().properties(properties).keyBytes(keyBytes).orderingKey(orderingKey).value(value).send());
         } catch (final PulsarClientException e) {
             final CompletableFuture<MessageId> failed = new CompletableFuture<>();
             failed.completeExceptionally(e);
@@ -602,6 +653,37 @@ public class PublisherLease implements Closeable {
     }
 
     /**
+     * Sets the ordering key when there is one. Left unset, the broker falls back to the message key, which is what
+     * every message carried before the ordering key could be given separately (#196).
+     */
+    protected CompletableFuture<MessageId> sendAsync(Producer producer, String key, byte[] orderingKey, Map<String, String> properties, byte[] value) {
+        if (orderingKey == null) {
+            return sendAsync(producer, key, properties, value);
+        }
+        TypedMessageBuilder tmb = producer.newMessage().properties(properties).orderingKey(orderingKey).value(value);
+
+        if (key != null) {
+            tmb = tmb.key(key);
+        }
+        return tmb.sendAsync();
+    }
+
+    /**
+     * The ordering key a record field yields: bytes as they are, anything else as its UTF-8 string form, and no
+     * key at all for a null or empty value.
+     */
+    private static byte[] getOrderingKey(final Object fieldValue) {
+        if (fieldValue == null) {
+            return null;
+        }
+        if (fieldValue instanceof byte[]) {
+            return ((byte[]) fieldValue).length == 0 ? null : (byte[]) fieldValue;
+        }
+        final String asString = fieldValue.toString();
+        return asString.isEmpty() ? null : asString.getBytes(StandardCharsets.UTF_8);
+    }
+
+    /**
      * Sends one message and waits for it, on the calling thread.
      * <p>
      * This used to wrap the blocking send in {@code CompletableFuture.supplyAsync()}, handing every message
@@ -616,6 +698,25 @@ public class PublisherLease implements Closeable {
      */
     protected CompletableFuture<MessageId> send(Producer producer, String key, Map<String, String> properties, byte[] value) {
         TypedMessageBuilder tmb = producer.newMessage().properties(properties).value(value);
+
+        if (key != null) {
+            tmb = tmb.key(key);
+        }
+
+        try {
+            return CompletableFuture.completedFuture(tmb.send());
+        } catch (final PulsarClientException e) {
+            final CompletableFuture<MessageId> failed = new CompletableFuture<>();
+            failed.completeExceptionally(e);
+            return failed;
+        }
+    }
+
+    protected CompletableFuture<MessageId> send(Producer producer, String key, byte[] orderingKey, Map<String, String> properties, byte[] value) {
+        if (orderingKey == null) {
+            return send(producer, key, properties, value);
+        }
+        TypedMessageBuilder tmb = producer.newMessage().properties(properties).orderingKey(orderingKey).value(value);
 
         if (key != null) {
             tmb = tmb.key(key);
