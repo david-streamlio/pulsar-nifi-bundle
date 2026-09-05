@@ -259,6 +259,7 @@ public class MockPulsarClientService<T> extends AbstractControllerService implem
             when(mockProducer.isConnected()).thenReturn(true);
             when(mockProducer.newMessage()).thenReturn(mockTypedMessageBuilder);
             when(mockTypedMessageBuilder.key(anyString())).thenReturn(mockTypedMessageBuilder);
+            when(mockTypedMessageBuilder.orderingKey(any(byte[].class))).thenReturn(mockTypedMessageBuilder);
             when(mockTypedMessageBuilder.properties((Map<String, String>) any(Map.class))).thenReturn(mockTypedMessageBuilder);
             when(mockTypedMessageBuilder.value((T) any(byte[].class))).thenReturn(mockTypedMessageBuilder);
             when(mockTypedMessageBuilder.send()).thenReturn(mockMessageId);

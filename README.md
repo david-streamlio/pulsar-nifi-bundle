@@ -129,9 +129,20 @@ FlowFile:
 | Message field | Comes from |
 |---|---|
 | key | the *Message Key* property; if that is not set, the FlowFile attribute `msg.key` |
+| ordering key | the *Ordering Key* property; nothing is set when it is blank |
 | properties | the attributes named by *Mapped Message Properties* (`<property>[=<attribute>]`) |
 
-`PublishPulsarRecord` takes the key from the record field named by *Message Key Field* instead.
+`PublishPulsarRecord` takes the key from the record field named by *Message Key Field* instead, and
+the ordering key from the field named by *Ordering Key Field*.
+
+The two keys serve different concerns. The **message key** decides which partition a message is
+routed to and is the key topic compaction keeps the latest value for. The **ordering key** decides
+which consumer of a `Key_Shared` subscription receives the message, and takes precedence over the
+message key there. With no ordering key set Pulsar falls back to the message key, so the two are the
+same value — which is what every flow got before *Ordering Key* existed, and still gets when it is
+left blank. Set it when the unit you route and compact by is not the unit you need ordered delivery
+for: route and compact by tenant, order per session. Pair it with *Batch Builder* = `Key based` if
+batching is on, or a batch spanning several keys is dispatched as one unit.
 
 > **Behaviour change since `2.9.0`:** the *Message Key* property has always documented the
 > `msg.key` fallback, but it was never implemented — `getMessageKey()` read the property and

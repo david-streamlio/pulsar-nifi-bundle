@@ -16,6 +16,10 @@
  */
 package org.apache.nifi.processors.pulsar.pubsub;
 
+import java.io.InputStream;
+
+import org.apache.nifi.flowfile.FlowFile;
+
 import org.apache.nifi.processors.pulsar.AbstractPulsarProcessorTest;
 import org.apache.nifi.processors.pulsar.AbstractPulsarProducerProcessor;
 import org.apache.nifi.processors.pulsar.utils.PublisherLease;
@@ -274,7 +278,7 @@ public class PublishPulsarLeaseReuseTest extends AbstractPulsarProcessorTest<byt
         
         // Verify the lease was obtained and used
         verify(mockPublisherPool, times(1)).obtainPublisher("test-topic");
-        verify(mockLease1, times(1)).publish(any(), any(), any(), any(), any(), anyBoolean());
+        verify(mockLease1, times(1)).publish(any(FlowFile.class), any(InputStream.class), any(), any(), any(), any(), anyBoolean());
         
         // Verify FlowFile was transferred successfully
         runner.assertAllFlowFilesTransferred(AbstractPulsarProducerProcessor.REL_SUCCESS, 1);
@@ -299,7 +303,7 @@ public class PublishPulsarLeaseReuseTest extends AbstractPulsarProcessorTest<byt
 
         // Verify the lease was obtained only once and reused
         verify(mockPublisherPool, times(1)).obtainPublisher("test-topic");
-        verify(mockLease1, times(3)).publish(any(), any(), any(), any(), any(), anyBoolean());
+        verify(mockLease1, times(3)).publish(any(FlowFile.class), any(InputStream.class), any(), any(), any(), any(), anyBoolean());
         verify(mockLease1, never()).close(); // Should not be closed during processing
         
         // Verify all FlowFiles were transferred successfully
