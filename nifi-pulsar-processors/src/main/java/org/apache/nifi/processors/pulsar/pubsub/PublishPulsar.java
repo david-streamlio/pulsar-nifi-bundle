@@ -37,6 +37,7 @@ import org.apache.nifi.processor.exception.ProcessException;
 import org.apache.nifi.processors.pulsar.AbstractPulsarProducerProcessor;
 import org.apache.nifi.processors.pulsar.utils.PublishPulsarUtils;
 import org.apache.nifi.processors.pulsar.utils.PublisherLease;
+import org.apache.nifi.processors.pulsar.utils.PublisherUnavailableException;
 
 @SeeAlso({ConsumePulsar.class, ConsumePulsarRecord.class, PublishPulsarRecord.class})
 @Tags({"Apache", "Pulsar", "Put", "Send", "Message", "PubSub"})
@@ -72,7 +73,13 @@ public class PublishPulsar extends AbstractPulsarProducerProcessor<byte[]> {
             final String topicName = context.getProperty(TOPIC).evaluateAttributeExpressions(flowFile).getValue();
             final boolean asyncFlag = (context.getProperty(ASYNC_ENABLED).isSet() && context.getProperty(ASYNC_ENABLED).asBoolean());
 
-            PublisherLease lease = obtainPublisherLease(topicName);
+            final PublisherLease lease;
+            try {
+                lease = obtainPublisherLease(topicName);
+            } catch (final PublisherUnavailableException e) {
+                returnToQueueAndYield(context, session, flowFile, itr, e);
+                return;
+            }
 
             if (lease == null) {
                 getLogger().error("Unable to publish to topic {}", new Object[] {topicName});

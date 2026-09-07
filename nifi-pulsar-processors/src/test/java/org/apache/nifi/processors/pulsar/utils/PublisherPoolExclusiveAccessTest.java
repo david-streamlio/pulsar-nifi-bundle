@@ -21,6 +21,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.RETURNS_SELF;
@@ -30,6 +31,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.time.Duration;
 import java.util.Collections;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -168,6 +170,83 @@ public class PublisherPoolExclusiveAccessTest {
         again.close();
         assertSame(lease, waiting.get(5, TimeUnit.SECONDS));
         verify(builder, times(1)).create();
+    }
+
+    /**
+     * The permit is per topic, not per spelling. {@code exclusive} and {@code persistent://public/default/exclusive}
+     * are one topic to the broker, and with Expression Language deriving the topic from an attribute both spellings
+     * in one flow is ordinary; two permits would give the topic two producers, which is #219 again.
+     */
+    @Test
+    public void twoSpellingsOfOneTopicShareItsOnlyProducer() throws Exception {
+        final PublisherPool pool = poolWith(ProducerAccessMode.Exclusive);
+
+        final PublisherLease held = pool.obtainPublisher("exclusive");
+        final CompletableFuture<PublisherLease> waiting = CompletableFuture.supplyAsync(
+                () -> pool.obtainPublisher("persistent://public/default/exclusive"), otherTask);
+        Thread.sleep(300);
+        assertFalse("the fully-qualified spelling got its own producer while the short spelling's was in use",
+                waiting.isDone());
+        verify(builder, times(1)).create();
+
+        held.close();
+        assertSame("the waiting spelling receives the lease the other spelling returned", held, waiting.get(5, TimeUnit.SECONDS));
+        verify(builder, times(1)).create();
+    }
+
+    /** The same normalisation feeds the idle queues, so a Shared pool reuses across spellings too. */
+    @Test
+    public void anIdleProducerIsReusedUnderEitherSpelling() throws Exception {
+        final PublisherPool pool = poolWith(ProducerAccessMode.Shared);
+
+        final PublisherLease first = pool.obtainPublisher("persistent://public/default/exclusive");
+        first.close();
+
+        assertSame(first, pool.obtainPublisher("exclusive"));
+        verify(builder, times(1)).create();
+    }
+
+    /**
+     * The wait for a held producer is bounded. It is a wait on another task's trigger, which with Send Timeout 0
+     * can take forever; an unbounded wait parks a flow thread in onTrigger with an uncommitted session, and
+     * stopping the processor does not free it. When the wait runs out the caller gets an exception it can turn
+     * into "back to the queue", not a null it would turn into "failure".
+     */
+    @Test(timeout = 10_000)
+    public void aTaskDoesNotWaitForeverForAHeldProducer() throws Exception {
+        final PublisherPool pool = new PublisherPool(mock(ComponentLog.class), Map.of("accessMode", ProducerAccessMode.Exclusive),
+                client, null, Duration.ofMillis(200));
+
+        final PublisherLease held = pool.obtainPublisher(TOPIC);
+        final long before = System.nanoTime();
+        try {
+            pool.obtainPublisher(TOPIC);
+            fail("a second task was handed a lease while the topic's producer was in use");
+        } catch (final PublisherUnavailableException expected) {
+            final long waitedMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - before);
+            assertTrue("gave up after " + waitedMillis + " ms, before the wait elapsed", waitedMillis >= 200);
+            assertTrue("kept waiting for " + waitedMillis + " ms, well past the 200 ms wait", waitedMillis < 2000);
+        }
+        verify(builder, times(1)).create();
+
+        // giving up did not consume the permit: once the holder is done, the topic is available again
+        held.close();
+        assertSame(held, pool.obtainPublisher(TOPIC));
+    }
+
+    /** Interruption while waiting is the same outcome for the caller, and the interrupt is kept for whoever set it. */
+    @Test(timeout = 10_000)
+    public void interruptionWhileWaitingIsReportedAndPreserved() throws Exception {
+        final PublisherPool pool = poolWith(ProducerAccessMode.Exclusive);
+        pool.obtainPublisher(TOPIC);
+
+        Thread.currentThread().interrupt();
+        try {
+            pool.obtainPublisher(TOPIC);
+            fail("an interrupted task was handed a lease");
+        } catch (final PublisherUnavailableException expected) {
+            assertTrue("the interrupt flag was swallowed", Thread.interrupted());
+        }
     }
 
     /** A producer the client refuses to create must not leave the topic locked for the next caller. */
