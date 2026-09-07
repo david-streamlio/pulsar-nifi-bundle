@@ -49,10 +49,12 @@
     the broker to redeliver it now. Without that the message is merely unacknowledged, and the broker cannot
     tell a consumer that has failed from one still working: it waits out <i>Acknowledgment Timeout</i>, thirty
     seconds by default and never less than ten. <i>Negative Acknowledgment Redelivery Delay</i> controls how
-    soon redelivery happens. It defaults to one second and cannot be longer than <i>Acknowledgment Timeout</i>:
+    soon redelivery happens. It defaults to five seconds and should stay under <i>Acknowledgment Timeout</i>:
     once a message is negatively acknowledged the client stops tracking it for the timeout, so this delay is
-    the only thing that redelivers it, and a longer delay would make a write failure wait longer than a plain
-    rollback did.
+    the only thing that redelivers it, and a longer delay makes a write failure wait longer than a plain
+    rollback did. A longer delay is accepted - it can be a deliberate backoff - but is logged as a warning when
+    the processor starts. Every redelivery also counts against <i>Max Redelivery Count</i>, so a shorter delay
+    reaches the dead letter topic sooner; raise the count if a transient failure must be survived.
 </p>
 <p>
     When the failure is the Pulsar client itself, no negative acknowledgement is sent: the call that would

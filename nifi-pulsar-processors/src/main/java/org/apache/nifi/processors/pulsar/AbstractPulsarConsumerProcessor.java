@@ -209,11 +209,13 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
                     + "to the flow. A message whose FlowFile could not be written is negatively acknowledged "
                     + "rather than left to expire, and from that moment this delay is the only thing that "
                     + "redelivers it: a negatively acknowledged message is no longer subject to the Acknowledgment "
-                    + "Timeout. The delay therefore cannot be longer than the Acknowledgment Timeout, and defaults "
-                    + "to well under it. The Acknowledgment Timeout remains the ceiling for a message that was "
-                    + "never acted on at all.")
+                    + "Timeout. The default is therefore kept under the shortest Acknowledgment Timeout allowed, "
+                    + "and a delay longer than the Acknowledgment Timeout is logged as a warning when the processor "
+                    + "starts. Each redelivery also counts against Max Redelivery Count, so a shorter delay reaches "
+                    + "the dead letter topic sooner. The Acknowledgment Timeout remains the ceiling for a message "
+                    + "that was never acted on at all.")
             .addValidator(StandardValidators.TIME_PERIOD_VALIDATOR)
-            .defaultValue("1 sec")
+            .defaultValue("5 sec")
             .required(false)
             .build();
 
@@ -460,20 +462,6 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
                "Acknowledgment Timeout needs to be greater than 10 seconds.").build());
         }
 
-        // Once a message is negatively acknowledged the client stops tracking it for the Acknowledgment Timeout,
-        // so the redelivery delay is the only thing that brings it back. A delay longer than the timeout would
-        // make a message the processor could not write wait longer than a plain rollback did (#218).
-        final long ackTimeoutMillis = validationContext.getProperty(ACK_TIMEOUT).asTimePeriod(TimeUnit.MILLISECONDS);
-        final long negativeAckDelayMillis = validationContext.getProperty(NEGATIVE_ACK_REDELIVERY_DELAY)
-                .asTimePeriod(TimeUnit.MILLISECONDS);
-        if (negativeAckDelayMillis > ackTimeoutMillis) {
-            results.add(new ValidationResult.Builder().valid(false).subject(NEGATIVE_ACK_REDELIVERY_DELAY.getDisplayName())
-                .explanation("a negatively acknowledged message is redelivered by this delay alone, so it cannot be "
-                    + "longer than the Acknowledgment Timeout (" + validationContext.getProperty(ACK_TIMEOUT).getValue()
-                    + "); a longer delay would make a message that could not be written wait longer than before")
-                .build());
-        }
-
         final boolean deadLetterEnabled = validationContext.getProperty(MAX_REDELIVER_COUNT).isSet();
         final String subscriptionType = validationContext.getProperty(SUBSCRIPTION_TYPE).getValue();
 
@@ -498,6 +486,8 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
 
     @OnScheduled
     public void init(ProcessContext context) {
+        warnIfNegativeAckDelayExceedsAckTimeout(context);
+
         // Record the size only. Replacing the cache here would abandon the consumers the previous one
         // holds without closing them, and the broker then refuses the replacement consumer on an
         // Exclusive subscription with "Exclusive consumer is already connected". The cache is built
@@ -512,6 +502,24 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
         }
 
         setPulsarClientService(context.getProperty(PULSAR_CLIENT_SERVICE).asControllerService(PulsarClientService.class));
+    }
+
+    /**
+     * Once a message is negatively acknowledged the client stops tracking it for the Acknowledgment Timeout, so
+     * the redelivery delay is the only thing that brings it back. A delay longer than the timeout therefore makes
+     * a message the processor could not write wait longer than a plain rollback did (#218). That can be a
+     * deliberate backoff, so it is allowed - but it is worth a warning, because nothing else connects the two.
+     */
+    private void warnIfNegativeAckDelayExceedsAckTimeout(final ProcessContext context) {
+        final long ackTimeoutMillis = context.getProperty(ACK_TIMEOUT).asTimePeriod(TimeUnit.MILLISECONDS);
+        final long negativeAckDelayMillis = context.getProperty(NEGATIVE_ACK_REDELIVERY_DELAY).asTimePeriod(TimeUnit.MILLISECONDS);
+        if (negativeAckDelayMillis > ackTimeoutMillis) {
+            getLogger().warn("{} ({}) is longer than {} ({}). A negatively acknowledged message is redelivered by that "
+                    + "delay alone, so a message this processor cannot write will wait longer than it would have with "
+                    + "no negative acknowledgement at all. Lower the delay unless the longer wait is intended.",
+                    NEGATIVE_ACK_REDELIVERY_DELAY.getDisplayName(), context.getProperty(NEGATIVE_ACK_REDELIVERY_DELAY).getValue(),
+                    ACK_TIMEOUT.getDisplayName(), context.getProperty(ACK_TIMEOUT).getValue());
+        }
     }
 
     @OnUnscheduled

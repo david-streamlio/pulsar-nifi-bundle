@@ -16,6 +16,7 @@
  */
 package org.apache.nifi.processors.pulsar.pubsub;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 import java.util.concurrent.TimeUnit;
@@ -24,6 +25,7 @@ import org.apache.nifi.processors.pulsar.AbstractPulsarConsumerProcessor;
 import org.apache.nifi.processors.pulsar.AbstractPulsarProcessorTest;
 import org.apache.nifi.reporting.InitializationException;
 import org.apache.nifi.util.FormatUtils;
+import org.apache.nifi.util.LogMessage;
 import org.apache.nifi.util.TestRunners;
 import org.apache.pulsar.client.api.schema.GenericRecord;
 import org.junit.Before;
@@ -38,7 +40,8 @@ import org.junit.Test;
  * Two things follow, and both are pinned here. The default delay has to be shorter than the shortest
  * <i>Acknowledgment Timeout</i> the validator accepts, or a default flow waits longer after a write failure
  * than it did before negative acknowledgement existed (#218). And a configured delay longer than the timeout
- * is rejected, so a tuned flow cannot reintroduce the same inversion.
+ * is allowed - it may be a deliberate backoff, and rejecting it would stop an upgraded flow from starting - but
+ * it is called out with a warning when the processor is scheduled, so the inversion is at least visible.
  */
 public class ConsumePulsarNegativeAckDelayTest extends AbstractPulsarProcessorTest<GenericRecord> {
 
@@ -96,14 +99,33 @@ public class ConsumePulsarNegativeAckDelayTest extends AbstractPulsarProcessorTe
 
     /**
      * Longer than the timeout is the inversion: the timeout no longer applies to a nacked message, so this
-     * configuration makes a write failure wait longer than a plain rollback would have.
+     * configuration makes a write failure wait longer than a plain rollback would have. It stays valid - a flow
+     * that set it on 2.11.0 must still start after an upgrade, and a long delay is a legitimate poison-message
+     * backoff - but the processor says so when it is scheduled.
      */
     @Test
-    public void aDelayLongerThanTheAcknowledgmentTimeoutIsRejected() {
+    public void aDelayLongerThanTheAcknowledgmentTimeoutIsValidButWarnsWhenScheduled() {
         runner.setProperty(AbstractPulsarConsumerProcessor.ACK_TIMEOUT, "30 sec");
         runner.setProperty(AbstractPulsarConsumerProcessor.NEGATIVE_ACK_REDELIVERY_DELAY, "1 min");
 
-        runner.assertNotValid();
+        runner.assertValid();
+        runner.run(1, false, true);
+
+        final LogMessage warning = theSingleWarning();
+        assertTrue("the warning does not name both properties: " + warning.getMsg(),
+                warning.getMsg().contains("Negative Acknowledgment Redelivery Delay")
+                        && warning.getMsg().contains("Acknowledgment Timeout"));
+    }
+
+    /** No warning for the configurations the rule accepts, or it would be noise on every start. */
+    @Test
+    public void noWarningWhenTheDelayIsWithinTheAcknowledgmentTimeout() {
+        runner.setProperty(AbstractPulsarConsumerProcessor.ACK_TIMEOUT, "30 sec");
+        runner.setProperty(AbstractPulsarConsumerProcessor.NEGATIVE_ACK_REDELIVERY_DELAY, "30 sec");
+
+        runner.run(1, false, true);
+
+        assertEquals(0, runner.getLogger().getWarnMessages().size());
     }
 
     /** The rule compares durations, not the strings: "30 sec" and "30000 millis" are the same timeout. */
@@ -112,6 +134,14 @@ public class ConsumePulsarNegativeAckDelayTest extends AbstractPulsarProcessorTe
         runner.setProperty(AbstractPulsarConsumerProcessor.ACK_TIMEOUT, "30000 millis");
         runner.setProperty(AbstractPulsarConsumerProcessor.NEGATIVE_ACK_REDELIVERY_DELAY, "31 sec");
 
-        runner.assertNotValid();
+        runner.run(1, false, true);
+
+        theSingleWarning();
+    }
+
+    private LogMessage theSingleWarning() {
+        assertEquals("expected exactly one warning about the delay, got " + runner.getLogger().getWarnMessages(),
+                1, runner.getLogger().getWarnMessages().size());
+        return runner.getLogger().getWarnMessages().get(0);
     }
 }

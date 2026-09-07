@@ -65,10 +65,12 @@ public class ConsumePulsarDeadLetterIT extends AbstractPulsarIT {
         runner.setProperty(AbstractPulsarConsumerProcessor.MESSAGE_DEMARCATOR, "\n");
         runner.setProperty(AbstractPulsarConsumerProcessor.SUBSCRIPTION_INITIAL_POSITION, "Earliest");
         runner.setProperty(AbstractPulsarConsumerProcessor.CONSUMER_BATCH_SIZE, "1");
-        // Negative Acknowledgment Redelivery Delay is deliberately left at its default: the redelivery
-        // test is about what a flow that never set it gets, so the default is the value under test.
-        // The floor the validator allows. The point of the redelivery test is that it completes well
-        // inside this, which is the only thing that could have redelivered the message before.
+        // Negative Acknowledgment Redelivery Delay is deliberately not set here. The redelivery test is about
+        // what a flow that never set it gets, so there the default is the value under test; the dead letter
+        // test sets it explicitly, because its pace depends on the delay and not on whatever the default is.
+
+        // Acknowledgment Timeout at the floor the validator allows. The point of the redelivery test is that
+        // it completes well inside this, which is the only thing that could have redelivered the message before.
         runner.setProperty(AbstractPulsarConsumerProcessor.ACK_TIMEOUT, "10 sec");
     }
 
@@ -127,6 +129,9 @@ public class ConsumePulsarDeadLetterIT extends AbstractPulsarIT {
         runner.setProperty(AbstractPulsarConsumerProcessor.SUBSCRIPTION_NAME, "dlq-sub");
         runner.setProperty(AbstractPulsarConsumerProcessor.MAX_REDELIVER_COUNT, "2");
         runner.setProperty(AbstractPulsarConsumerProcessor.DEAD_LETTER_TOPIC, deadLetterTopic);
+        // Explicit, because this test is not about the default: each redelivery has to happen inside the
+        // receive window of the polling loop below, whatever the default is set to.
+        runner.setProperty(AbstractPulsarConsumerProcessor.NEGATIVE_ACK_REDELIVERY_DELAY, "1 sec");
 
         // Subscribe to the dead letter topic before anything is published to it, so the message cannot be
         // missed by a subscription that starts at the latest position.
@@ -158,20 +163,35 @@ public class ConsumePulsarDeadLetterIT extends AbstractPulsarIT {
         }
     }
 
+    /** What the processor logs when a received message could not be written and was rolled back and nacked. */
+    private static final String WRITE_FAILED = "Unable to write the received messages";
+
     /**
      * Triggers the processor with a session that cannot be written until the message is received and refused,
      * so the returned instant is when it was negatively acknowledged - not when the test happened to run.
+     * <p>
+     * "Refused" is a new write-failure error logged by one of these passes. The logger's error list is
+     * cumulative for the whole test and other errors are possible - a client hiccup during the initialising
+     * pass is logged and swallowed - so an unspecific "any error" check could return before the message was
+     * ever received, and the test would then pass without a negative acknowledgement having happened.
      */
     private long failWriteOfNextMessage() throws InterruptedException {
+        final long writeFailuresBefore = writeFailuresLogged();
         final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
         while (System.nanoTime() < deadline) {
             ((ConsumePulsar) runner.getProcessor()).onTrigger(runner.getProcessContext(), failingSession());
-            if (!runner.getLogger().getErrorMessages().isEmpty()) {
+            if (writeFailuresLogged() > writeFailuresBefore) {
                 return System.nanoTime();
             }
             Thread.sleep(100);
         }
         throw new AssertionError("the message never reached the pass whose write fails");
+    }
+
+    private long writeFailuresLogged() {
+        return runner.getLogger().getErrorMessages().stream()
+                .filter(message -> message.getMsg().contains(WRITE_FAILED))
+                .count();
     }
 
     private static String topic(final String name) {
