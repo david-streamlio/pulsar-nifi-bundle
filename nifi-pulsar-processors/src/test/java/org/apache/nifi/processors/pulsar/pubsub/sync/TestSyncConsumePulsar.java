@@ -49,7 +49,7 @@ public class TestSyncConsumePulsar extends TestConsumePulsar {
         List<MockFlowFile> flowFiles = runner.getFlowFilesForRelationship(ConsumePulsar.REL_SUCCESS);
         assertEquals(0, flowFiles.size());
 
-        verify(mockClientService.getMockConsumer(), atLeast(1)).acknowledgeCumulative(mockMessage);
+        verify(mockClientService.getMockConsumer(), atLeast(1)).acknowledge(mockMessage);
     }
 
     @Test
@@ -85,7 +85,7 @@ public class TestSyncConsumePulsar extends TestConsumePulsar {
         List<MockFlowFile> flowFiles = runner.getFlowFilesForRelationship(ConsumePulsar.REL_SUCCESS);
         assertEquals(0, flowFiles.size());
 
-        verify(mockClientService.getMockConsumer(), atLeast(1)).acknowledgeCumulative(mockMessage);
+        verify(mockClientService.getMockConsumer(), atLeast(1)).acknowledge(mockMessage);
     }
 
     @Test

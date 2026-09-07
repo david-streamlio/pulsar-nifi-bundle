@@ -47,7 +47,7 @@ public class TestAsyncConsumePulsar extends TestConsumePulsar {
         List<MockFlowFile> flowFiles = runner.getFlowFilesForRelationship(ConsumePulsar.REL_SUCCESS);
         assertEquals(0, flowFiles.size());
 
-        verify(mockClientService.getMockConsumer(), times(0)).acknowledgeCumulativeAsync(mockMessage);
+        verify(mockClientService.getMockConsumer(), times(0)).acknowledgeAsync(mockMessage);
     }
 
     @Test

@@ -32,7 +32,9 @@ import org.mockito.junit.MockitoJUnit;
 import org.mockito.junit.MockitoRule;
 
 import static org.junit.Assert.assertEquals;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -181,24 +183,24 @@ public class TestConsumePulsar extends AbstractPulsarProcessorTest<byte[]> {
         
         flowFiles.get(0).assertContentEquals(sb.toString());
 
-        boolean shared = isSharedSubType(subType);
-        
-        // Verify that every message was acknowledged
+        // Verify that every message was acknowledged, one by one, whatever the subscription type (#223)
         verify(mockClientService.getMockConsumer(), times(batchSize)).receive(0, TimeUnit.SECONDS);
-        
-        if (shared) {
-        	if (async) {
-        		verify(mockClientService.getMockConsumer(), times(batchSize)).acknowledgeAsync(mockMessage);
-        	} else {
-        		verify(mockClientService.getMockConsumer(), times(batchSize)).acknowledge(mockMessage);
-        	}
+        verifyAcknowledgedIndividually(batchSize, async);
+    }
+
+    /**
+     * Acknowledgement is per message on every subscription type: a cumulative acknowledgement would take along
+     * whatever else sits before the batch on the subscription - a concurrent task's messages, or this task's own
+     * negatively acknowledged ones waiting for redelivery (#223).
+     */
+    protected void verifyAcknowledgedIndividually(final int messages, final boolean async) throws PulsarClientException {
+        if (async) {
+            verify(mockClientService.getMockConsumer(), times(messages)).acknowledgeAsync(mockMessage);
         } else {
-        	if (async) {
-                verify(mockClientService.getMockConsumer(), times(1)).acknowledgeCumulativeAsync(mockMessage);        		
-        	} else {
-                verify(mockClientService.getMockConsumer(), times(1)).acknowledgeCumulative(mockMessage);        		
-        	}
+            verify(mockClientService.getMockConsumer(), times(messages)).acknowledge(mockMessage);
         }
+        verify(mockClientService.getMockConsumer(), never()).acknowledgeCumulative(any(Message.class));
+        verify(mockClientService.getMockConsumer(), never()).acknowledgeCumulativeAsync(any(Message.class));
     }
 
     protected void sendMessages(String msg, String topic, String sub, boolean async, int iterations) throws PulsarClientException {
@@ -228,22 +230,8 @@ public class TestConsumePulsar extends AbstractPulsarProcessorTest<byte[]> {
 
         verify(mockClientService.getMockConsumer(), times(iterations)).receive(0, TimeUnit.SECONDS);
 
-        boolean shared = isSharedSubType(subType);
-        
-        // Verify that every message was acknowledged
-        if (shared) {
-        	if (async) {
-        		verify(mockClientService.getMockConsumer(), times(iterations)).acknowledgeAsync(mockMessage);
-        	} else {
-        		verify (mockClientService.getMockConsumer(), times(iterations)).acknowledge(mockMessage);
-        	}
-        } else {
-        	if (async) {
-        		verify(mockClientService.getMockConsumer(), times(iterations)).acknowledgeCumulativeAsync(mockMessage);
-        	} else {
-        		verify(mockClientService.getMockConsumer(), times(iterations)).acknowledgeCumulative(mockMessage);
-        	}
-        }        
+        // Verify that every message was acknowledged, one by one, whatever the subscription type (#223)
+        verifyAcknowledgedIndividually(iterations, async);
     }
 
     protected void doMappedAttributesTest() throws PulsarClientException {

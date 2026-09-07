@@ -92,7 +92,27 @@ decides whether Pulsar ever delivers it again.
 | The Pulsar client itself failed | rolled back, left unacknowledged | Yes, after *Acknowledgment Timeout* |
 
 Acknowledgement happens only after the FlowFile carrying the message is committed, so a message
-is never acknowledged while its content could still be discarded.
+is never acknowledged while its content could still be discarded. It is also **per message, on every
+subscription type**: each acknowledgement names exactly the messages the committed FlowFile carried,
+and nothing else. The Pulsar client groups the acknowledgements of a batch into one command, so this
+costs no extra round trips.
+
+> **Behaviour change since `2.11.0`:** on an `Exclusive` or `Failover` subscription the processors
+> used to acknowledge a batch **cumulatively**, up to its last message. A cumulative acknowledgement
+> covers everything before that message on the subscription, not only the batch — including a
+> message the same task had just failed to write and negatively acknowledged, which was waiting for
+> redelivery, and a message a concurrent task was still holding. Those were acknowledged by a batch
+> they were not part of and never came back: a write failure followed by continued traffic lost the
+> failed message on a non-Shared subscription, with one task or several. Acknowledgement is now
+> individual on every subscription type; nothing about a flow's configuration needs to change. On the
+> broker the subscription keeps a set of individually acknowledged positions instead of a single
+> mark-delete position until the gaps close, which is bookkeeping rather than traffic.
+
+*Concurrent Tasks* and the subscription type are otherwise independent: every task of one processor
+receives from the **same** consumer — that is what keeps a second task from being refused with
+"Exclusive consumer is already connected" — so several tasks on an `Exclusive` or `Failover`
+subscription share one stream and work as one consumer with more writers. Use `Shared` or
+`Key_Shared` when you want more than one *consumer* on the subscription.
 
 The third row is the one to know about. When the processor cannot write a message into a FlowFile
 — a full content repository, a permissions problem, a disk fault — it rolls the session back and

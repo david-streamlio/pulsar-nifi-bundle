@@ -386,7 +386,6 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
         int writtenRecords = 0;
 
         // Cumulative acks are NOT permitted on Shared subscriptions
-        final boolean shared = isSharedSubscription(context);
 
         final boolean useTopicSchema = usesTopicSchema(context.getProperty(MESSAGE_SCHEMA_STRATEGY).getValue());
 
@@ -498,7 +497,7 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
                     }
 
                     dropUnroutedFailures(session, parseFailures, demarcator, uncommitted);
-                    commitAndAcknowledge(session, consumer, uncommitted, shared, async);
+                    commitAndAcknowledge(session, consumer, uncommitted, async);
 
                     writtenRecords = 0;
                     lastAttributes = null;
@@ -599,8 +598,8 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
             return;
         }
 
-        // Commits, then acknowledges: cumulatively for non-shared subscriptions, one message at a time otherwise.
-        commitAndAcknowledge(session, consumer, uncommitted, shared, async);
+        // Commits, then acknowledges each message.
+        commitAndAcknowledge(session, consumer, uncommitted, async);
     }
 
     /**

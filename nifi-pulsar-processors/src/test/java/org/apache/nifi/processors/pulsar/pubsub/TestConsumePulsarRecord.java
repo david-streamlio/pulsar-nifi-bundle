@@ -20,7 +20,9 @@ import static org.apache.nifi.processors.pulsar.pubsub.ConsumePulsarRecord.RECOR
 import static org.apache.nifi.processors.pulsar.pubsub.ConsumePulsarRecord.RECORD_WRITER;
 
 import static org.junit.Assert.assertEquals;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -170,23 +172,15 @@ public class TestConsumePulsarRecord extends AbstractPulsarProcessorTest<byte[]>
 
         verify(mockClientService.getMockConsumer(), times(iterations * batchSize)).receive(0, TimeUnit.SECONDS);
 
-        boolean shared = isSharedSubType(subType);
-        
-        if (shared) {
-        	if (async) {
-        		verify(mockClientService.getMockConsumer(), times(iterations * batchSize)).acknowledgeAsync(mockMessage);
-        	} else {
-        		verify(mockClientService.getMockConsumer(), times(iterations * batchSize)).acknowledge(mockMessage);
-        	}
+        // every message acknowledged one by one, whatever the subscription type (#223)
+        if (async) {
+            verify(mockClientService.getMockConsumer(), times(iterations * batchSize)).acknowledgeAsync(mockMessage);
+        } else {
+            verify(mockClientService.getMockConsumer(), times(iterations * batchSize)).acknowledge(mockMessage);
         }
-        else {
-        	if (async) {
-        		verify(mockClientService.getMockConsumer(), times(iterations)).acknowledgeCumulativeAsync(mockMessage);
-        	} else {
-        		verify(mockClientService.getMockConsumer(), times(iterations)).acknowledgeCumulative(mockMessage);
-        	}
-        }
-        
+        verify(mockClientService.getMockConsumer(), never()).acknowledgeCumulative(any(Message.class));
+        verify(mockClientService.getMockConsumer(), never()).acknowledgeCumulativeAsync(any(Message.class));
+
         return flowFiles;
     }
 
