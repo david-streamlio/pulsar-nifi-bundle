@@ -147,11 +147,14 @@ FlowFile:
 | Message field | Comes from |
 |---|---|
 | key | the *Message Key* property; if that is not set, the FlowFile attribute `msg.key` |
-| ordering key | the *Ordering Key* property; nothing is set when it is blank |
+| ordering key | the *Ordering Key* property (`PublishPulsar` only); nothing is set when it is blank |
 | properties | the attributes named by *Mapped Message Properties* (`<property>[=<attribute>]`) |
 
 `PublishPulsarRecord` takes the key from the record field named by *Message Key Field* instead, and
-the ordering key from the field named by *Ordering Key Field*.
+the ordering key from the field named by *Ordering Key Field*; it has no FlowFile-level *Ordering
+Key*. Both fields are converted the same way — text as UTF-8, an Avro `bytes` field as its bytes, a
+nested record as the Record Writer writes it — so naming one field under both properties gives the
+same key twice, and a blank value means no ordering key.
 
 The two keys serve different concerns. The **message key** decides which partition a message is
 routed to and is the key topic compaction keeps the latest value for. The **ordering key** decides

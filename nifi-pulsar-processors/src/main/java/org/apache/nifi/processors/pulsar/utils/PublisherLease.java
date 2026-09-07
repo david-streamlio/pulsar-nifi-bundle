@@ -19,6 +19,7 @@ package org.apache.nifi.processors.pulsar.utils;
 import com.fasterxml.jackson.core.JsonFactory;
 import com.fasterxml.jackson.core.JsonGenerator;
 import org.apache.commons.compress.utils.IOUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.nifi.avro.AvroTypeUtil;
 import org.apache.avro.generic.GenericData;
 import org.apache.avro.generic.GenericDatumWriter;
@@ -311,7 +312,7 @@ public class PublisherLease implements Closeable {
                 final byte[] messageContent;
                 final String messageKey;
                 final byte[] orderingKey = orderingKeyField == null || orderingKeyField.isEmpty()
-                        ? null : getOrderingKey(record.getValue(orderingKeyField));
+                        ? null : getOrderingKey(flowFile, writerFactory, record.getValue(orderingKeyField));
 
                 if (keyValueSchema != null) {
                     final KeyValueTopicSchema.EncodedKeyValue encoded =
@@ -669,18 +670,18 @@ public class PublisherLease implements Closeable {
     }
 
     /**
-     * The ordering key a record field yields: bytes as they are, anything else as its UTF-8 string form, and no
-     * key at all for a null or empty value.
+     * The ordering key a record field yields, converted exactly as {@link #getMessageKey} converts the message key
+     * field - so the same field named by either property gives the same bytes. Null, blank text and empty byte
+     * arrays mean no ordering key.
      */
-    private static byte[] getOrderingKey(final Object fieldValue) {
-        if (fieldValue == null) {
+    private byte[] getOrderingKey(final FlowFile flowFile, final RecordSetWriterFactory writerFactory,
+                                  final Object fieldValue) throws IOException, SchemaNotFoundException {
+        if (fieldValue instanceof CharSequence && StringUtils.isBlank((CharSequence) fieldValue)) {
+            // blank is "no ordering key", as it is for PublishPulsar's Ordering Key property
             return null;
         }
-        if (fieldValue instanceof byte[]) {
-            return ((byte[]) fieldValue).length == 0 ? null : (byte[]) fieldValue;
-        }
-        final String asString = fieldValue.toString();
-        return asString.isEmpty() ? null : asString.getBytes(StandardCharsets.UTF_8);
+        final byte[] key = keyBytes(flowFile, writerFactory, fieldValue);
+        return key == null || key.length == 0 ? null : key;
     }
 
     /**
@@ -733,21 +734,32 @@ public class PublisherLease implements Closeable {
 
     private String getMessageKey(final FlowFile flowFile, final RecordSetWriterFactory writerFactory,
                                  final Object keyValue) throws IOException, SchemaNotFoundException {
-        final byte[] messageKey;
+        final byte[] messageKey = keyBytes(flowFile, writerFactory, keyValue);
+        return (messageKey == null) ? null : new String(messageKey);
+    }
+
+    /**
+     * The bytes a record field contributes as a key. Shared by the message key and the ordering key, so a field
+     * of any type means the same thing under either property: bytes as they are, an array of boxed bytes unboxed,
+     * a nested record serialised with the FlowFile's writer, anything else as its UTF-8 string.
+     */
+    private byte[] keyBytes(final FlowFile flowFile, final RecordSetWriterFactory writerFactory,
+                            final Object keyValue) throws IOException, SchemaNotFoundException {
         if (keyValue == null) {
-            messageKey = null;
+            return null;
         } else if (keyValue instanceof byte[]) {
-            messageKey = (byte[]) keyValue;
-        } else if (keyValue instanceof Byte[]) {
+            return (byte[]) keyValue;
+        } else if (keyValue instanceof Object[] && isBoxedBytes((Object[]) keyValue)) {
             // This case exists because in our Record API we currently don't have a BYTES type, we use an Array of type
-            // Byte, which creates a Byte[] instead of a byte[]. We should address this in the future, but we should
-            // account for the log here.
-            final Byte[] bytes = (Byte[]) keyValue;
+            // Byte. Depending on the reader that is a Byte[] or - from AvroTypeUtil, which is what an AvroReader hands
+            // us for an Avro "bytes" field - an Object[] whose elements are Bytes. Either way toString() would be an
+            // identity hash, different for every record, so unbox to the content.
+            final Object[] bytes = (Object[]) keyValue;
             final byte[] bytesPrimitive = new byte[bytes.length];
             for (int i = 0; i < bytes.length; i++) {
-                bytesPrimitive[i] = bytes[i];
+                bytesPrimitive[i] = (Byte) bytes[i];
             }
-            messageKey = bytesPrimitive;
+            return bytesPrimitive;
         } else if (keyValue instanceof Record) {
             final Record keyRecord = (Record) keyValue;
             try (final ByteArrayOutputStream os = new ByteArrayOutputStream(1024)) {
@@ -755,13 +767,24 @@ public class PublisherLease implements Closeable {
                     writerKey.write(keyRecord);
                     writerKey.flush();
                 }
-                messageKey = os.toByteArray();
+                return os.toByteArray();
             }
         } else {
-            final String keyString = keyValue.toString();
-            messageKey = keyString.getBytes(StandardCharsets.UTF_8);
+            return keyValue.toString().getBytes(StandardCharsets.UTF_8);
         }
-        return (messageKey == null) ? null : new String(messageKey);
+    }
+
+    /** True for an array whose every element is a {@link Byte} - a byte string in the Record API's clothing. */
+    private static boolean isBoxedBytes(final Object[] array) {
+        if (array instanceof Byte[]) {
+            return true;
+        }
+        for (final Object element : array) {
+            if (!(element instanceof Byte)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     @Override

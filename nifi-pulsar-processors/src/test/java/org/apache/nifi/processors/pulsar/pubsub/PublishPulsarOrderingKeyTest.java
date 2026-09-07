@@ -18,14 +18,25 @@ package org.apache.nifi.processors.pulsar.pubsub;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
+import java.io.ByteArrayOutputStream;
+import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+
+import org.apache.avro.Schema;
+import org.apache.avro.file.DataFileWriter;
+import org.apache.avro.generic.GenericData;
+import org.apache.avro.generic.GenericDatumWriter;
+import org.apache.avro.generic.GenericRecord;
+import org.apache.nifi.avro.AvroReader;
 
 import org.apache.nifi.processors.pulsar.AbstractPulsarProcessorTest;
 import org.apache.nifi.processors.pulsar.AbstractPulsarProducerProcessor;
@@ -79,6 +90,51 @@ public class PublishPulsarOrderingKeyTest extends AbstractPulsarProcessorTest<by
         runner.setProperty(AbstractPulsarProducerProcessor.ASYNC_ENABLED, "false");
     }
 
+    private static final Schema AVRO_SCHEMA = new Schema.Parser().parse("{\"type\":\"record\",\"name\":\"Reading\",\"fields\":["
+            + "{\"name\":\"tenant\",\"type\":\"string\"},"
+            + "{\"name\":\"session\",\"type\":\"bytes\"},"
+            + "{\"name\":\"label\",\"type\":\"string\"},"
+            + "{\"name\":\"reading\",\"type\":\"int\"}]}");
+
+    /**
+     * An Avro reader, because that is where a {@code Byte[]} comes from: NiFi's {@code AvroTypeUtil} turns an Avro
+     * {@code bytes} field into a {@code Byte[]}, not a {@code byte[]}.
+     */
+    private void publishPulsarRecordRunnerWithAvroInput() throws InitializationException {
+        runner = TestRunners.newTestRunner(PublishPulsarRecord.class);
+
+        final AvroReader reader = new AvroReader();
+        runner.addControllerService("record-reader", reader);
+        runner.enableControllerService(reader);
+
+        final MockRecordWriter writer = new MockRecordWriter("tenant, session, label, reading");
+        runner.addControllerService("record-writer", writer);
+        runner.enableControllerService(writer);
+
+        runner.setProperty(PublishPulsarRecord.RECORD_READER, "record-reader");
+        runner.setProperty(PublishPulsarRecord.RECORD_WRITER, "record-writer");
+        addPulsarClientService();
+        runner.setProperty(AbstractPulsarProducerProcessor.TOPIC, TOPIC);
+        runner.setProperty(AbstractPulsarProducerProcessor.ASYNC_ENABLED, "false");
+    }
+
+    /** An Avro data file with one record per (session, label) pair; every record has the same tenant and reading. */
+    private static byte[] avroRecords(final Object[]... sessionAndLabel) throws Exception {
+        final ByteArrayOutputStream out = new ByteArrayOutputStream();
+        try (DataFileWriter<GenericRecord> writer = new DataFileWriter<>(new GenericDatumWriter<>(AVRO_SCHEMA))) {
+            writer.create(AVRO_SCHEMA, out);
+            for (final Object[] pair : sessionAndLabel) {
+                final GenericRecord record = new GenericData.Record(AVRO_SCHEMA);
+                record.put("tenant", "acme");
+                record.put("session", ByteBuffer.wrap(((String) pair[0]).getBytes(UTF_8)));
+                record.put("label", pair[1]);
+                record.put("reading", 1);
+                writer.append(record);
+            }
+        }
+        return out.toByteArray();
+    }
+
     private TypedMessageBuilder<byte[]> builder() {
         return mockClientService.getMockTypedMessageBuilder();
     }
@@ -95,7 +151,7 @@ public class PublishPulsarOrderingKeyTest extends AbstractPulsarProcessorTest<by
     public void publishPulsarPutsTheOrderingKeyOnTheMessage() throws Exception {
         publishPulsarRunner();
         runner.setProperty(AbstractPulsarProducerProcessor.MESSAGE_KEY, "tenant-a");
-        runner.setProperty(AbstractPulsarProducerProcessor.ORDERING_KEY, "session-7");
+        runner.setProperty(PublishPulsar.ORDERING_KEY, "session-7");
 
         runner.enqueue("payload".getBytes(UTF_8));
         runner.run();
@@ -108,7 +164,7 @@ public class PublishPulsarOrderingKeyTest extends AbstractPulsarProcessorTest<by
     @Test
     public void publishPulsarEvaluatesTheOrderingKeyAgainstFlowFileAttributes() throws Exception {
         publishPulsarRunner();
-        runner.setProperty(AbstractPulsarProducerProcessor.ORDERING_KEY, "${session.id}");
+        runner.setProperty(PublishPulsar.ORDERING_KEY, "${session.id}");
 
         runner.enqueue("payload".getBytes(UTF_8), Map.of("session.id", "s-42"));
         runner.run();
@@ -122,7 +178,7 @@ public class PublishPulsarOrderingKeyTest extends AbstractPulsarProcessorTest<by
     public void publishPulsarAppliesTheOrderingKeyToEveryDemarcatedMessage() throws Exception {
         publishPulsarRunner();
         runner.setProperty(AbstractPulsarProducerProcessor.MESSAGE_DEMARCATOR, "\n");
-        runner.setProperty(AbstractPulsarProducerProcessor.ORDERING_KEY, "session-7");
+        runner.setProperty(PublishPulsar.ORDERING_KEY, "session-7");
 
         runner.enqueue("one\ntwo\nthree".getBytes(UTF_8));
         runner.run();
@@ -148,7 +204,7 @@ public class PublishPulsarOrderingKeyTest extends AbstractPulsarProcessorTest<by
     @Test
     public void publishPulsarSetsNoOrderingKeyWhenTheExpressionIsEmpty() throws Exception {
         publishPulsarRunner();
-        runner.setProperty(AbstractPulsarProducerProcessor.ORDERING_KEY, "${missing.attribute}");
+        runner.setProperty(PublishPulsar.ORDERING_KEY, "${missing.attribute}");
 
         runner.enqueue("payload".getBytes(UTF_8));
         runner.run();
@@ -185,6 +241,51 @@ public class PublishPulsarOrderingKeyTest extends AbstractPulsarProcessorTest<by
 
         runner.assertAllFlowFilesTransferred(PublishPulsarRecord.REL_SUCCESS, 1);
         assertEquals(List.of("s-1"), orderingKeysSent(1));
+    }
+
+    /**
+     * The whole point of an ordering key is that every message carrying the same value lands on the same consumer.
+     * A {@code Byte[]} - what an Avro {@code bytes} field arrives as - must therefore be unboxed to its content, as
+     * the message key already is; {@code toString()} on it is an identity hash that differs for every message.
+     */
+    @Test
+    public void publishPulsarRecordUnboxesAnAvroBytesFieldLikeTheMessageKeyDoes() throws Exception {
+        publishPulsarRecordRunnerWithAvroInput();
+        runner.setProperty(PublishPulsarRecord.MESSAGE_KEY_FIELD, "session");
+        runner.setProperty(PublishPulsarRecord.ORDERING_KEY_FIELD, "session");
+
+        runner.enqueue(avroRecords(new Object[] {"s-1", "first"}, new Object[] {"s-1", "second"}, new Object[] {"s-2", "third"}));
+        runner.run();
+
+        runner.assertAllFlowFilesTransferred(PublishPulsarRecord.REL_SUCCESS, 1);
+        verify(builder(), times(2)).key("s-1");
+        verify(builder(), times(1)).key("s-2");
+        assertEquals("the ordering key must be the field's content, identical for the two s-1 records",
+                Arrays.asList("s-1", "s-1", "s-2"), orderingKeysSent(3));
+    }
+
+    /** Blank means no ordering key on both processors: PublishPulsar's property already said so via isBlank. */
+    @Test
+    public void publishPulsarRecordTreatsABlankFieldAsNoOrderingKey() throws Exception {
+        publishPulsarRecordRunnerWithAvroInput();
+        runner.setProperty(PublishPulsarRecord.ORDERING_KEY_FIELD, "label");
+
+        runner.enqueue(avroRecords(new Object[] {"s-1", "   "}, new Object[] {"s-1", "keyed"}));
+        runner.run();
+
+        runner.assertAllFlowFilesTransferred(PublishPulsarRecord.REL_SUCCESS, 1);
+        assertEquals(List.of("keyed"), orderingKeysSent(1));
+    }
+
+    /**
+     * Only PublishPulsar reads <i>Ordering Key</i>; PublishPulsarRecord takes its ordering key per record from
+     * <i>Ordering Key Field</i>. A property the processor never reads must not appear in its UI.
+     */
+    @Test
+    public void onlyPublishPulsarOffersTheFlowFileLevelOrderingKey() {
+        assertTrue(new PublishPulsar().getPropertyDescriptors().contains(PublishPulsar.ORDERING_KEY));
+        assertFalse(new PublishPulsarRecord().getPropertyDescriptors().contains(PublishPulsar.ORDERING_KEY));
+        assertTrue(new PublishPulsarRecord().getPropertyDescriptors().contains(PublishPulsarRecord.ORDERING_KEY_FIELD));
     }
 
     @Test

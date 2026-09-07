@@ -18,10 +18,13 @@ package org.apache.nifi.processors.pulsar.pubsub;
 
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 
 import org.apache.commons.compress.utils.IOUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.nifi.annotation.behavior.InputRequirement;
 import org.apache.nifi.annotation.behavior.SupportsBatching;
 import org.apache.nifi.annotation.behavior.TriggerWhenEmpty;
@@ -30,10 +33,13 @@ import org.apache.nifi.annotation.documentation.CapabilityDescription;
 import org.apache.nifi.annotation.documentation.SeeAlso;
 import org.apache.nifi.annotation.documentation.Tags;
 import org.apache.nifi.annotation.lifecycle.OnUnscheduled;
+import org.apache.nifi.components.PropertyDescriptor;
+import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSession;
 import org.apache.nifi.processor.exception.ProcessException;
+import org.apache.nifi.processor.util.StandardValidators;
 import org.apache.nifi.processors.pulsar.AbstractPulsarProducerProcessor;
 import org.apache.nifi.processors.pulsar.utils.PublishPulsarUtils;
 import org.apache.nifi.processors.pulsar.utils.PublisherLease;
@@ -51,8 +57,50 @@ import org.apache.nifi.processors.pulsar.utils.PublisherUnavailableException;
 @SupportsBatching
 public class PublishPulsar extends AbstractPulsarProducerProcessor<byte[]> {
 
+    /**
+     * Lives here rather than on the base class because only this processor reads it: {@link PublishPulsarRecord}
+     * takes its ordering key per record, from <i>Ordering Key Field</i>, and a FlowFile-level property it never
+     * consulted would sit in its UI promising something it does not do.
+     */
+    public static final PropertyDescriptor ORDERING_KEY = new PropertyDescriptor.Builder()
+            .name("ORDERING_KEY")
+            .displayName("Ordering Key")
+            .description("Pulsar's ordering key for the message, set independently of the Message Key. The message "
+                    + "key routes the message to a partition and drives topic compaction; the ordering key decides "
+                    + "which consumer of a Key_Shared subscription receives the message and takes precedence over the "
+                    + "message key there. Set it when the unit you compact or route by (a tenant, a device) is not the "
+                    + "unit you need ordered delivery for (a session, a transaction). When not specified no ordering "
+                    + "key is set and Pulsar falls back to the message key, as before.")
+            .required(false)
+            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
+            .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
+            .build();
+
+    private static final List<PropertyDescriptor> PROPERTIES;
+
+    static {
+        final List<PropertyDescriptor> properties = new ArrayList<>(AbstractPulsarProducerProcessor.PROPERTIES);
+        properties.add(ORDERING_KEY);
+        PROPERTIES = Collections.unmodifiableList(properties);
+    }
+
     // Current lease to reuse for consecutive FlowFiles with the same topic
     private volatile PublisherLease currentLease = null;
+
+    @Override
+    protected List<PropertyDescriptor> getSupportedPropertyDescriptors() {
+        return PROPERTIES;
+    }
+
+    /**
+     * The ordering key for the FlowFile's messages, or {@code null} when the property is unset or evaluates to
+     * nothing - in which case no ordering key is set and Pulsar's own fallback to the message key applies.
+     */
+    protected byte[] getOrderingKey(ProcessContext context, final FlowFile flowFile) {
+        final String orderingKey = context.getProperty(ORDERING_KEY).evaluateAttributeExpressions(flowFile).getValue();
+        return StringUtils.isBlank(orderingKey) ? null : orderingKey.getBytes(StandardCharsets.UTF_8);
+    }
+
 
     @Override
     public void onTrigger(ProcessContext context, ProcessSession session) throws ProcessException {

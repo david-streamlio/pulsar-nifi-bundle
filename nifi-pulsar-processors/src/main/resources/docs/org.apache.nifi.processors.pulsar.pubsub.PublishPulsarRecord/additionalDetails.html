@@ -70,8 +70,12 @@
     message, independently of <i>Message Key Field</i>. The message key decides the partition and is what topic
     compaction keeps the latest value for; the ordering key decides which consumer of a <code>Key_Shared</code>
     subscription receives the message and takes precedence over the message key there. A record whose field is
-    null or empty is sent without an ordering key, and with the property blank none is ever set, so Pulsar falls
-    back to the message key as before.
+    null or blank is sent without an ordering key, and with the property blank none is ever set, so Pulsar falls
+    back to the message key as before. The field is converted exactly as <i>Message Key Field</i> is - text as
+    UTF-8, an Avro <code>bytes</code> field as its bytes, a nested record as the Record Writer writes it - so the
+    same field named under both properties gives the same key. This processor has no FlowFile-level
+    <i>Ordering Key</i>; that property belongs to <code>PublishPulsar</code>, whose messages have no records to
+    take it from.
 </p>
 <br/>
 <h3>Support</h3>

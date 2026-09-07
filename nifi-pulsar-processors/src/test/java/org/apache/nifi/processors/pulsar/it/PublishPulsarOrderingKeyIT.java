@@ -37,6 +37,7 @@ import org.apache.nifi.serialization.record.RecordFieldType;
 import org.apache.nifi.util.TestRunner;
 import org.apache.nifi.util.TestRunners;
 import org.apache.pulsar.client.api.Consumer;
+import org.apache.pulsar.client.api.ConsumerBuilder;
 import org.apache.pulsar.client.api.Message;
 import org.apache.pulsar.client.api.Schema;
 import org.apache.pulsar.client.api.SubscriptionInitialPosition;
@@ -99,7 +100,7 @@ public class PublishPulsarOrderingKeyIT extends AbstractPulsarIT {
         final TestRunner runner = publishPulsar();
         runner.setProperty(AbstractPulsarProducerProcessor.TOPIC, topic);
         runner.setProperty(AbstractPulsarProducerProcessor.MESSAGE_KEY, "tenant-a");
-        runner.setProperty(AbstractPulsarProducerProcessor.ORDERING_KEY, "${session}");
+        runner.setProperty(PublishPulsar.ORDERING_KEY, "${session}");
 
         try (Consumer<byte[]> consumer = subscribe(topic, "plain-check", SubscriptionType.Exclusive)) {
             runner.enqueue("payload".getBytes(UTF_8), java.util.Map.of("session", "session-7"));
@@ -146,6 +147,7 @@ public class PublishPulsarOrderingKeyIT extends AbstractPulsarIT {
         control.setProperty(AbstractPulsarProducerProcessor.TOPIC, controlTopic);
         control.setProperty(AbstractPulsarProducerProcessor.MESSAGE_KEY, "${key}");
         final Distribution spread = publishToTwoKeySharedConsumers(control, controlTopic, false);
+        assertEquals("control: every message must have arrived", MESSAGES, spread.first + spread.second);
         assertTrue("control: " + MESSAGES + " distinct message keys with no ordering key should reach both "
                 + "consumers, but landed " + spread, spread.first > 0 && spread.second > 0);
 
@@ -154,7 +156,7 @@ public class PublishPulsarOrderingKeyIT extends AbstractPulsarIT {
         final TestRunner runner = publishPulsar();
         runner.setProperty(AbstractPulsarProducerProcessor.TOPIC, topic);
         runner.setProperty(AbstractPulsarProducerProcessor.MESSAGE_KEY, "${key}");
-        runner.setProperty(AbstractPulsarProducerProcessor.ORDERING_KEY, "session-1");
+        runner.setProperty(PublishPulsar.ORDERING_KEY, "session-1");
         final Distribution together = publishToTwoKeySharedConsumers(runner, topic, true);
         assertTrue("one ordering key must keep every message on one consumer, but they landed " + together,
                 together.first == 0 || together.second == 0);
@@ -188,12 +190,25 @@ public class PublishPulsarOrderingKeyIT extends AbstractPulsarIT {
 
     private Consumer<byte[]> subscribe(final String topic, final String subscription, final SubscriptionType type)
             throws Exception {
-        return getClient().newConsumer(Schema.BYTES)
+        return subscribe(topic, subscription, type, null);
+    }
+
+    /**
+     * A consumer with a fixed name where it matters: Key_Shared places consumers on its hash ring by consumer
+     * name, so with auto-generated names the split of a fixed set of keys over two consumers would differ from
+     * run to run. Named, it is the same split every time.
+     */
+    private Consumer<byte[]> subscribe(final String topic, final String subscription, final SubscriptionType type,
+                                       final String consumerName) throws Exception {
+        final ConsumerBuilder<byte[]> builder = getClient().newConsumer(Schema.BYTES)
                 .topic(topic)
                 .subscriptionName(subscription)
                 .subscriptionType(type)
-                .subscriptionInitialPosition(SubscriptionInitialPosition.Earliest)
-                .subscribe();
+                .subscriptionInitialPosition(SubscriptionInitialPosition.Earliest);
+        if (consumerName != null) {
+            builder.consumerName(consumerName);
+        }
+        return builder.subscribe();
     }
 
     private static final class Distribution {
@@ -213,8 +228,8 @@ public class PublishPulsarOrderingKeyIT extends AbstractPulsarIT {
      */
     private Distribution publishToTwoKeySharedConsumers(final TestRunner runner, final String topic,
                                                         final boolean expectOrderingKey) throws Exception {
-        try (Consumer<byte[]> first = subscribe(topic, "key-shared", SubscriptionType.Key_Shared);
-             Consumer<byte[]> second = subscribe(topic, "key-shared", SubscriptionType.Key_Shared)) {
+        try (Consumer<byte[]> first = subscribe(topic, "key-shared", SubscriptionType.Key_Shared, "first");
+             Consumer<byte[]> second = subscribe(topic, "key-shared", SubscriptionType.Key_Shared, "second")) {
 
             for (int n = 0; n < MESSAGES; n++) {
                 runner.enqueue(String.valueOf(n).getBytes(UTF_8), java.util.Map.of("key", "device-" + n));
@@ -223,7 +238,8 @@ public class PublishPulsarOrderingKeyIT extends AbstractPulsarIT {
             runner.assertAllFlowFilesTransferred(PublishPulsar.REL_SUCCESS, MESSAGES);
 
             // Everything is published by now, so each consumer is drained in turn until it has been quiet for
-            // a second; the outer loop only repeats if the broker was still dispatching.
+            // a second; the outer loop only repeats if the broker was still dispatching. The callers assert the
+            // total, so a slow broker fails loudly rather than yielding a verdict on a partial sample.
             final Distribution distribution = new Distribution();
             final List<Integer> firstOrder = new ArrayList<>();
             final List<Integer> secondOrder = new ArrayList<>();
