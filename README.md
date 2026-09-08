@@ -156,6 +156,13 @@ Key*. Both fields are converted the same way — text as UTF-8, an Avro `bytes` 
 nested record as the Record Writer writes it — so naming one field under both properties gives the
 same key twice, and a blank value means no ordering key.
 
+> **Behaviour change since `2.11.0`:** *Message Key Field* naming an Avro `bytes` field used to
+> publish the **identity hash of the array** (`[Ljava.lang.Object;@5cf57368`) as the key — a
+> different value for every record, so records that shared a key were spread over partitions at
+> random and nothing was ever compacted away (#226). The key is now the field's bytes. A flow that
+> keys by an Avro `bytes` field will see its messages start landing on the partition their key
+> hashes to, and a compacted topic fed that way will start keeping one message per key.
+
 The two keys serve different concerns. The **message key** decides which partition a message is
 routed to and is the key topic compaction keeps the latest value for. The **ordering key** decides
 which consumer of a `Key_Shared` subscription receives the message, and takes precedence over the
