@@ -196,11 +196,28 @@ backlog. Messages without a key are not delivered at all, and the topic must act
 compaction running for there to be a compacted view; without it the subscription reads the normal
 backlog.
 
+*Read Compacted* has two requirements, and the client states both: *"Read compacted can only be used
+with exclusive or failover **persistent** subscriptions"*.
+
+- **A single active consumer** — so `Exclusive` or `Failover`.
+- **The persistent domain** — only a persistent topic has a compacted view. A `non-persistent://`
+  topic is rejected at validation, as is a *Topics Pattern* whose *Match Mode* admits non-persistent
+  topics. That second case matters because the client cannot catch it: with a pattern its topic list
+  is empty, so its own domain check passes vacuously and any non-persistent topic the pattern matches
+  is served as a live stream — the flow would read a full stream while its configuration says it is
+  reading the latest value per key, with nothing reporting it.
+
 > **The two single-consumer constraints are mirror images.** A compacted read needs a *single
 > active consumer*, so Pulsar permits it only on `Exclusive` and `Failover`. A dead letter policy
 > needs *competing* consumers, so Pulsar builds one only for `Shared` and `Key_Shared`. No
 > subscription type satisfies both, and the processor rejects each on the wrong type at validation
 > rather than letting the client fail at subscribe time.
+
+> **Concurrent Tasks and non-Shared subscriptions.** Because *Read Compacted* requires `Exclusive` or
+> `Failover`, flows using it are on a subscription type where *Concurrent Tasks* > 1 is not currently
+> safe: one task's cumulative acknowledgement can acknowledge messages another task still holds. See
+> [#223](https://github.com/david-streamlio/pulsar-nifi-bundle/issues/223). Run these flows with a
+> single task until that is resolved.
 
 ## Producer behaviour
 

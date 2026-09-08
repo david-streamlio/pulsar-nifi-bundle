@@ -115,6 +115,84 @@ public class ConsumePulsarTopicPropertiesTest extends AbstractPulsarProcessorTes
         }
     }
 
+    /**
+     * The client's precondition has two halves and its message states both: "exclusive or failover
+     * PERSISTENT subscriptions". Enforcing only the subscription type leaves the exact failure this
+     * validation exists to prevent - valid on the canvas, throwing on every schedule.
+     */
+    @Test
+    public void readCompactedIsRejectedOnANonPersistentTopic() {
+        runner.setProperty(AbstractPulsarConsumerProcessor.TOPICS, "non-persistent://public/default/live");
+        runner.setProperty(AbstractPulsarConsumerProcessor.SUBSCRIPTION_TYPE, "Exclusive");
+        runner.setProperty(AbstractPulsarConsumerProcessor.READ_COMPACTED, "true");
+
+        runner.assertNotValid();
+    }
+
+    /** One non-persistent topic in a list is enough: the client requires every topic to be persistent. */
+    @Test
+    public void readCompactedIsRejectedWhenAnyTopicInTheListIsNonPersistent() {
+        runner.setProperty(AbstractPulsarConsumerProcessor.TOPICS,
+                "persistent://public/default/a,non-persistent://public/default/b");
+        runner.setProperty(AbstractPulsarConsumerProcessor.SUBSCRIPTION_TYPE, "Exclusive");
+        runner.setProperty(AbstractPulsarConsumerProcessor.READ_COMPACTED, "true");
+
+        runner.assertNotValid();
+    }
+
+    /** A bare topic name is in the persistent domain by default, so it stays valid. */
+    @Test
+    public void readCompactedIsValidOnAnUnqualifiedTopicName() {
+        runner.setProperty(AbstractPulsarConsumerProcessor.TOPICS, "my-topic");
+        runner.setProperty(AbstractPulsarConsumerProcessor.SUBSCRIPTION_TYPE, "Exclusive");
+        runner.setProperty(AbstractPulsarConsumerProcessor.READ_COMPACTED, "true");
+
+        runner.assertValid();
+    }
+
+    /**
+     * The case the client cannot catch. With a pattern its topic list is empty, so its persistent-domain
+     * check passes vacuously and any non-persistent topic the pattern matches is subscribed and served as a
+     * live stream - the flow reads a full stream while its configuration says compacted, with no error.
+     */
+    @Test
+    public void readCompactedIsRejectedWithAPatternThatCanMatchNonPersistentTopics() {
+        runner.removeProperty(AbstractPulsarConsumerProcessor.TOPICS);
+        runner.setProperty(AbstractPulsarConsumerProcessor.TOPICS_PATTERN, "persistent://public/default/tp-.*");
+        runner.setProperty(AbstractPulsarConsumerProcessor.SUBSCRIPTION_TYPE, "Exclusive");
+        runner.setProperty(AbstractPulsarConsumerProcessor.READ_COMPACTED, "true");
+
+        for (final String mode : new String[] {"NonPersistentOnly", "AllTopics"}) {
+            runner.setProperty(AbstractPulsarConsumerProcessor.REGEX_SUBSCRIPTION_MODE, mode);
+            runner.assertNotValid();
+        }
+
+        runner.setProperty(AbstractPulsarConsumerProcessor.REGEX_SUBSCRIPTION_MODE, "PersistentOnly");
+        runner.assertValid();
+    }
+
+    /** A pattern in the non-persistent domain matches nothing compactable, whatever the match mode. */
+    @Test
+    public void readCompactedIsRejectedWithANonPersistentPattern() {
+        runner.removeProperty(AbstractPulsarConsumerProcessor.TOPICS);
+        runner.setProperty(AbstractPulsarConsumerProcessor.TOPICS_PATTERN, "non-persistent://public/default/tp-.*");
+        runner.setProperty(AbstractPulsarConsumerProcessor.SUBSCRIPTION_TYPE, "Exclusive");
+        runner.setProperty(AbstractPulsarConsumerProcessor.REGEX_SUBSCRIPTION_MODE, "PersistentOnly");
+        runner.setProperty(AbstractPulsarConsumerProcessor.READ_COMPACTED, "true");
+
+        runner.assertNotValid();
+    }
+
+    /** None of the new domain rules may fire when the compacted read is off. */
+    @Test
+    public void aNonPersistentTopicIsValidWhenReadCompactedIsOff() {
+        runner.setProperty(AbstractPulsarConsumerProcessor.TOPICS, "non-persistent://public/default/live");
+        runner.setProperty(AbstractPulsarConsumerProcessor.SUBSCRIPTION_TYPE, "Exclusive");
+        runner.setProperty(AbstractPulsarConsumerProcessor.READ_COMPACTED, "false");
+
+        runner.assertValid();
+    }
+
     @Test
     public void aNonDurableSubscriptionIsValid() {
         runner.setProperty(AbstractPulsarConsumerProcessor.SUBSCRIPTION_TYPE, "Exclusive");

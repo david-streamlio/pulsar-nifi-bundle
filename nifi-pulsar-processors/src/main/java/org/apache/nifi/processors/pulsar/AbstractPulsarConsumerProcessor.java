@@ -64,6 +64,9 @@ import org.apache.pulsar.client.api.schema.GenericRecord;
 public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcessor {
     protected static final String PULSAR_MESSAGE_KEY = "__KEY__";
 
+    /** Pulsar's non-persistent topic domain. A compacted view exists only in the persistent domain. */
+    protected static final String NON_PERSISTENT_PREFIX = "non-persistent://";
+
     protected static final AllowableValue EXCLUSIVE = new AllowableValue("Exclusive", "Exclusive", "There can be only 1 consumer on the same topic with the same subscription name");
     protected static final AllowableValue KEY_SHARED = new AllowableValue("Key_Shared", "Key_Shared", "Multiple consumers will be able to use the same subscription name and messages "
     		+ "but only 1 consumer will receive the messages for a given message key.");
@@ -531,16 +534,56 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
                     + "the Subscription Type is " + subscriptionType).build());
         }
 
-        // The client refuses this at subscribe time - "Read compacted can only be used with exclusive or
-        // failover persistent subscriptions" - so without this the processor validates cleanly and then
-        // fails every time it is scheduled. The constraint is the mirror of the dead letter policy's: a
-        // compacted read needs a single active consumer, a dead letter policy needs competing ones, so the
-        // two can never be enabled together.
-        if (validationContext.getProperty(READ_COMPACTED).asBoolean()
-                && (SHARED.getValue().equals(subscriptionType) || KEY_SHARED.getValue().equals(subscriptionType))) {
-            results.add(new ValidationResult.Builder().valid(false).subject(READ_COMPACTED.getDisplayName())
-                .explanation("a compacted read needs a single active consumer, so it is supported only on "
-                    + "Exclusive and Failover subscriptions, but the Subscription Type is " + subscriptionType).build());
+        // The client's precondition has TWO halves, and the message it throws states both: "Read compacted
+        // can only be used with exclusive or failover PERSISTENT subscriptions". PulsarClientImpl checks the
+        // subscription type and that every topic is in the persistent domain. Enforcing only the first half
+        // leaves exactly the failure this validation exists to prevent - valid on the canvas, then throwing
+        // on every schedule - for a non-persistent topic.
+        if (validationContext.getProperty(READ_COMPACTED).asBoolean()) {
+            // Half one: a compacted read needs a single active consumer. This is the mirror of the dead
+            // letter policy's constraint, which needs competing consumers, so the two can never both be on.
+            if (SHARED.getValue().equals(subscriptionType) || KEY_SHARED.getValue().equals(subscriptionType)) {
+                results.add(new ValidationResult.Builder().valid(false).subject(READ_COMPACTED.getDisplayName())
+                    .explanation("a compacted read needs a single active consumer, so it is supported only on "
+                        + "Exclusive and Failover subscriptions, but the Subscription Type is " + subscriptionType).build());
+            }
+
+            // Half two: only a persistent topic has a compacted view. A non-persistent topic is refused
+            // outright when named directly, and - worse - is accepted and silently served uncompacted when
+            // it arrives through a pattern, because the client's check reads the topic list, which a pattern
+            // subscription leaves empty.
+            if (validationContext.getProperty(TOPICS).isSet()) {
+                for (final String topic : validationContext.getProperty(TOPICS).getValue().split("[, ]")) {
+                    // An expression cannot be resolved here, so it is left to the client to refuse.
+                    if (topic.trim().startsWith(NON_PERSISTENT_PREFIX)) {
+                        results.add(new ValidationResult.Builder().valid(false).subject(READ_COMPACTED.getDisplayName())
+                            .explanation("only a persistent topic has a compacted view, but Topics names the "
+                                + "non-persistent topic " + topic.trim()).build());
+                        break;
+                    }
+                }
+            } else if (validationContext.getProperty(TOPICS_PATTERN).isSet()) {
+                final String pattern = validationContext.getProperty(TOPICS_PATTERN).getValue();
+                final String matchMode = validationContext.getProperty(REGEX_SUBSCRIPTION_MODE).getValue();
+
+                // The client cannot catch this one: with a pattern its topic list is empty, so its
+                // persistent-domain check passes vacuously and the non-persistent topics the pattern matches
+                // are subscribed and served as a live stream. The flow then reads a full stream while its
+                // configuration says it is reading the latest value per key, and nothing reports it.
+                if (!RegexSubscriptionMode.PersistentOnly.name().equals(matchMode)) {
+                    results.add(new ValidationResult.Builder().valid(false).subject(READ_COMPACTED.getDisplayName())
+                        .explanation("a Topics Pattern that can match non-persistent topics cannot be read "
+                            + "compacted - those topics would be served uncompacted with no error - so Topics "
+                            + "Pattern Match Mode must be " + RegexSubscriptionMode.PersistentOnly.name()
+                            + ", not " + matchMode).build());
+                }
+
+                if (pattern != null && pattern.trim().startsWith(NON_PERSISTENT_PREFIX)) {
+                    results.add(new ValidationResult.Builder().valid(false).subject(READ_COMPACTED.getDisplayName())
+                        .explanation("only a persistent topic has a compacted view, but Topics Pattern matches "
+                            + "the non-persistent domain").build());
+                }
+            }
         }
 
         if (validationContext.getProperty(DEAD_LETTER_TOPIC).isSet() && !deadLetterEnabled) {
