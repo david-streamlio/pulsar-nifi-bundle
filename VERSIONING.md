@@ -99,6 +99,7 @@ truth — nothing needs to be committed beforehand.
 
 | Bundle version | NiFi | Pulsar client | Java |
 |---|---|---|---|
+| `2.11.0.1` | 2.11.0 | 4.2.4 | 21 |
 | `2.11.0` | 2.11.0 | 4.2.4 | 21 |
 | `2.10.0` | 2.10.0 | 4.2.4 | 21 |
 | `2.9.0` | 2.9.0 | 4.2.2 | 21 |
