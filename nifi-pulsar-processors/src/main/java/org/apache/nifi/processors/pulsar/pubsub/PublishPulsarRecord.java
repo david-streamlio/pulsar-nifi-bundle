@@ -37,6 +37,7 @@ import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.processors.pulsar.utils.KeyValueTopicSchema;
 import org.apache.nifi.processors.pulsar.utils.PublishPulsarUtils;
 import org.apache.nifi.processors.pulsar.utils.PublisherLease;
+import org.apache.nifi.processors.pulsar.utils.PublisherUnavailableException;
 import org.apache.nifi.schema.access.SchemaNotFoundException;
 import org.apache.nifi.serialization.MalformedRecordException;
 import org.apache.nifi.serialization.RecordReader;
@@ -165,7 +166,13 @@ public class PublishPulsarRecord extends AbstractPulsarProducerProcessor<byte[]>
             final String topicName = context.getProperty(TOPIC).evaluateAttributeExpressions(flowFile).getValue();
             final boolean asyncFlag = (context.getProperty(ASYNC_ENABLED).isSet() && context.getProperty(ASYNC_ENABLED).asBoolean());
 
-            PublisherLease lease = getPublisherPool().obtainPublisher(topicName);
+            final PublisherLease lease;
+            try {
+                lease = getPublisherPool().obtainPublisher(topicName);
+            } catch (final PublisherUnavailableException e) {
+                returnToQueueAndYield(context, session, flowFile, itr, e);
+                return;
+            }
 
             if (lease == null) {
                 getLogger().error("Unable to publish to topic {}", new Object[] {topicName});
