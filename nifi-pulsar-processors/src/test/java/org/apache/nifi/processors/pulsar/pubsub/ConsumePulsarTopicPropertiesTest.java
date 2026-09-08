@@ -17,10 +17,12 @@
 package org.apache.nifi.processors.pulsar.pubsub;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 import org.apache.nifi.processors.pulsar.AbstractPulsarConsumerProcessor;
 import org.apache.nifi.processors.pulsar.AbstractPulsarProcessorTest;
 import org.apache.nifi.reporting.InitializationException;
+import org.apache.nifi.util.MockProcessContext;
 import org.apache.nifi.util.TestRunners;
 import org.apache.pulsar.client.api.schema.GenericRecord;
 import org.junit.Before;
@@ -104,6 +106,24 @@ public class ConsumePulsarTopicPropertiesTest extends AbstractPulsarProcessorTes
         // Exclusive satisfies the compacted read and breaks the dead letter policy
         runner.setProperty(AbstractPulsarConsumerProcessor.SUBSCRIPTION_TYPE, "Exclusive");
         runner.assertNotValid();
+    }
+
+    /**
+     * ...and the reason is stated once, rather than each half pointing at the subscription type the other
+     * half forbids. Switching type in response to one message just produces the other, so a user following
+     * the guidance goes in a circle - the messages are the only place they look.
+     */
+    @Test
+    public void theConflictBetweenThemIsReportedAsOneReason() {
+        runner.setProperty(AbstractPulsarConsumerProcessor.READ_COMPACTED, "true");
+        runner.setProperty(AbstractPulsarConsumerProcessor.MAX_REDELIVER_COUNT, "5");
+        runner.setProperty(AbstractPulsarConsumerProcessor.SUBSCRIPTION_TYPE, "Shared");
+
+        assertTrue("the conflict should be reported as its own reason, naming both properties",
+                ((MockProcessContext) runner.getProcessContext()).validate().stream()
+                        .filter(result -> !result.isValid())
+                        .anyMatch(result -> result.getExplanation()
+                                .contains("cannot both be set")));
     }
 
     /** Turning it off must not carry the constraint with it. */

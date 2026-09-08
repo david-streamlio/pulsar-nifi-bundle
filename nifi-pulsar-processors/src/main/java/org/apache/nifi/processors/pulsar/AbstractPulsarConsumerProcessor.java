@@ -541,6 +541,18 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
         // subscription type and that every topic is in the persistent domain. Enforcing only the first half
         // leaves exactly the failure this validation exists to prevent - valid on the canvas, then throwing
         // on every schedule - for a non-persistent topic.
+        // Said once, because each half on its own sends the user in a circle: on Shared the compacted read
+        // complains and points at Exclusive, on Exclusive the dead letter policy complains and points back
+        // at Shared. The docs state that no subscription type satisfies both; the validation messages are
+        // the only place the user actually looks.
+        if (validationContext.getProperty(READ_COMPACTED).asBoolean() && deadLetterEnabled) {
+            results.add(new ValidationResult.Builder().valid(false).subject(READ_COMPACTED.getDisplayName())
+                .explanation("Read Compacted and Max Redelivery Count cannot both be set: a compacted read "
+                    + "needs a single active consumer (Exclusive or Failover) and a dead letter policy needs "
+                    + "competing consumers (Shared or Key_Shared), so no Subscription Type satisfies both")
+                .build());
+        }
+
         if (validationContext.getProperty(READ_COMPACTED).asBoolean()) {
             // Half one: a compacted read needs a single active consumer. This is the mirror of the dead
             // letter policy's constraint, which needs competing consumers, so the two can never both be on.
@@ -598,6 +610,11 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
             final long millis = validationContext.getProperty(PATTERN_AUTO_DISCOVERY_PERIOD)
                     .asTimePeriod(TimeUnit.MILLISECONDS);
 
+            // Stricter than the sibling time properties (Auto Update Partition Interval, Expire Time of
+            // Incomplete Chunked Message), which truncate the same way and accept a fraction in silence.
+            // That inconsistency is real, but the fix for it is to tighten those, not to loosen this one -
+            // and tightening them would invalidate flows that are running today, so it belongs in its own
+            // change. Tracked as #225.
             if (millis < 1000L || millis % 1000L != 0L) {
                 results.add(new ValidationResult.Builder().valid(false)
                     .subject(PATTERN_AUTO_DISCOVERY_PERIOD.getDisplayName())
@@ -621,6 +638,20 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
         // works. On an idle topic it delivers nothing at all, because the compacted view is the topic's
         // history and a subscription at the tail has none of it, which is indistinguishable from a broken
         // flow. Said once per start, where it is seen, rather than never.
+        // Validation reads the raw property, so an expression hides a non-persistent topic from it. Here the
+        // expression has been resolved, which makes this the first point the real topic is knowable - and
+        // the last before the client throws on every schedule.
+        if (context.getProperty(READ_COMPACTED).asBoolean() && context.getProperty(TOPICS).isSet()) {
+            for (final String topic : context.getProperty(TOPICS).evaluateAttributeExpressions().getValue().split("[, ]")) {
+                if (topic.trim().startsWith(NON_PERSISTENT_PREFIX)) {
+                    getLogger().warn("Read Compacted is enabled but Topics resolves to the non-persistent "
+                            + "topic {}: only a persistent topic has a compacted view, and the client will "
+                            + "refuse this subscription.", topic.trim());
+                    break;
+                }
+            }
+        }
+
         if (context.getProperty(READ_COMPACTED).asBoolean()
                 && OFFSET_LATEST.getValue().equals(context.getProperty(SUBSCRIPTION_INITIAL_POSITION).getValue())) {
             getLogger().warn("Read Compacted is enabled with Subscription Initial Position {}: the compacted "

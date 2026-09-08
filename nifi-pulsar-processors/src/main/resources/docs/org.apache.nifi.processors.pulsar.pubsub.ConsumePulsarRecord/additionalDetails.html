@@ -59,8 +59,9 @@
     used with exclusive or failover <b>persistent</b> subscriptions"</i>. It needs a <b>single active
     consumer</b> - <code>Exclusive</code> or <code>Failover</code> - and it needs the <b>persistent
     domain</b>, because only a persistent topic has a compacted view. A <code>non-persistent://</code> topic
-    is rejected at validation, as is a <i>Topics Pattern</i> whose <i>Match Mode</i> admits non-persistent
-    topics. A <code>non-persistent://</code> prefix on the <i>pattern itself</i> is not rejected, because it
+    named literally in <i>Topics</i> is rejected at validation, as is a <i>Topics Pattern</i> whose
+    <i>Match Mode</i> admits non-persistent topics. A topic supplied by an expression cannot be checked
+    until the expression resolves, so that case is warned about at startup instead. A <code>non-persistent://</code> prefix on the <i>pattern itself</i> is not rejected, because it
     is inert - the client strips the scheme from the pattern and from every candidate topic, so the domain
     comes from <i>Match Mode</i> alone. That second case matters because the client cannot catch it: with a pattern its topic list is
     empty, so its own domain check passes vacuously and any non-persistent topic the pattern matches is

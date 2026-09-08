@@ -121,8 +121,13 @@ public class ConsumePulsarTopicPropertiesIT extends AbstractPulsarIT {
         runner.setProperty(AbstractPulsarConsumerProcessor.READ_COMPACTED, "true");
         runner.assertValid();
 
+        // One initializing run, then poll without re-initializing: run(1, false, true) re-runs @OnScheduled
+        // on every iteration with no matching @OnStopped, which leaks a thread pool per poll once
+        // Async Enabled is on. The sibling test above already does it this way.
+        runner.run(1, false, true);
+
         await("the compacted view to be delivered", () -> {
-            runner.run(1, false, true);
+            runner.run(1, false, false);
             return !runner.getFlowFilesForRelationship(ConsumePulsar.REL_SUCCESS).isEmpty();
         });
 
