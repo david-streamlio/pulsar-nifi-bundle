@@ -16,6 +16,8 @@
  */
 package org.apache.nifi.processors.pulsar.pubsub;
 
+import static org.junit.Assert.assertEquals;
+
 import org.apache.nifi.processors.pulsar.AbstractPulsarConsumerProcessor;
 import org.apache.nifi.processors.pulsar.AbstractPulsarProcessorTest;
 import org.apache.nifi.reporting.InitializationException;
@@ -189,14 +191,16 @@ public class ConsumePulsarTopicPropertiesTest extends AbstractPulsarProcessorTes
     }
 
     /**
-     * The interval is passed to the client in whole seconds and the client clamps 0 to 1, so a sub-second
-     * value becomes a topic lookup every second rather than the interval that was asked for - silently.
+     * The value reaches the client as whole seconds, so any fraction is silently discarded - not only a
+     * sub-second value. Rejecting only the sub-second case would leave the same silent rounding one step up.
      */
     @Test
-    public void aSubSecondDiscoveryIntervalIsRejected() {
+    public void aDiscoveryIntervalThatIsNotWholeSecondsIsRejected() {
+        runner.removeProperty(AbstractPulsarConsumerProcessor.TOPICS);
+        runner.setProperty(AbstractPulsarConsumerProcessor.TOPICS_PATTERN, "persistent://public/default/tp-.*");
         runner.setProperty(AbstractPulsarConsumerProcessor.SUBSCRIPTION_TYPE, "Shared");
 
-        for (final String interval : new String[] {"500 millis", "0 sec"}) {
+        for (final String interval : new String[] {"500 millis", "0 sec", "1500 millis", "2500 millis"}) {
             runner.setProperty(AbstractPulsarConsumerProcessor.PATTERN_AUTO_DISCOVERY_PERIOD, interval);
             runner.assertNotValid();
         }
@@ -204,20 +208,78 @@ public class ConsumePulsarTopicPropertiesTest extends AbstractPulsarProcessorTes
 
     @Test
     public void aWholeSecondDiscoveryIntervalIsValid() {
+        runner.removeProperty(AbstractPulsarConsumerProcessor.TOPICS);
+        runner.setProperty(AbstractPulsarConsumerProcessor.TOPICS_PATTERN, "persistent://public/default/tp-.*");
         runner.setProperty(AbstractPulsarConsumerProcessor.SUBSCRIPTION_TYPE, "Shared");
-        runner.setProperty(AbstractPulsarConsumerProcessor.PATTERN_AUTO_DISCOVERY_PERIOD, "1 sec");
+
+        for (final String interval : new String[] {"1 sec", "60 sec", "2 min"}) {
+            runner.setProperty(AbstractPulsarConsumerProcessor.PATTERN_AUTO_DISCOVERY_PERIOD, interval);
+            runner.assertValid();
+        }
+    }
+
+    /**
+     * The property is inert with a topic list - the client reads it only on the pattern path - so failing a
+     * topic-list flow over its value would reject a configuration it has no effect on. The inertness is
+     * documented on the property and asserted for a valid value in
+     * {@link #theTopicsPatternPropertiesAreInertWithATopicList()}; this pins it for an invalid one.
+     */
+    @Test
+    public void aBadDiscoveryIntervalIsIgnoredWithATopicList() {
+        runner.setProperty(AbstractPulsarConsumerProcessor.SUBSCRIPTION_TYPE, "Shared");
+        runner.setProperty(AbstractPulsarConsumerProcessor.PATTERN_AUTO_DISCOVERY_PERIOD, "500 millis");
 
         runner.assertValid();
     }
 
-    /** None of the new domain rules may fire when the compacted read is off. */
+    /**
+     * Read Compacted with the default Subscription Initial Position of Latest warns rather than failing
+     * validation. On a live topic it does deliver - new messages arrive and are read compacted - so it is
+     * unusual, not invalid, and rejecting it would fail a working flow. On an idle topic it delivers
+     * nothing, because the compacted view is the topic's history and a subscription at the tail has none of
+     * it, which is indistinguishable from a broken flow. Hence a warning, once per start.
+     */
     @Test
-    public void aNonPersistentTopicIsValidWhenReadCompactedIsOff() {
-        runner.setProperty(AbstractPulsarConsumerProcessor.TOPICS, "non-persistent://public/default/live");
+    public void readCompactedAtTheLatestPositionWarnsRatherThanFailingValidation() throws Exception {
+        runner.setProperty(AbstractPulsarConsumerProcessor.SUBSCRIPTION_TYPE, "Exclusive");
+        runner.setProperty(AbstractPulsarConsumerProcessor.READ_COMPACTED, "true");
+        // Subscription Initial Position is left at its default, which is Latest.
+
+        runner.assertValid();
+        runner.run(1, false, true);
+
+        assertEquals("exactly one warning is expected at scheduling", 1,
+                runner.getLogger().getWarnMessages().stream()
+                        .filter(m -> m.getMsg().contains("Read Compacted is enabled"))
+                        .count());
+    }
+
+    @Test
+    public void readCompactedAtTheEarliestPositionDoesNotWarn() throws Exception {
+        runner.setProperty(AbstractPulsarConsumerProcessor.SUBSCRIPTION_TYPE, "Exclusive");
+        runner.setProperty(AbstractPulsarConsumerProcessor.READ_COMPACTED, "true");
+        runner.setProperty(AbstractPulsarConsumerProcessor.SUBSCRIPTION_INITIAL_POSITION, "Earliest");
+
+        runner.run(1, false, true);
+
+        assertEquals("no warning is expected when the position can see the compacted view", 0,
+                runner.getLogger().getWarnMessages().stream()
+                        .filter(m -> m.getMsg().contains("Read Compacted is enabled"))
+                        .count());
+    }
+
+    /** The warning is about the combination, so it must not fire when the compacted read is off. */
+    @Test
+    public void theLatestPositionAloneDoesNotWarn() throws Exception {
         runner.setProperty(AbstractPulsarConsumerProcessor.SUBSCRIPTION_TYPE, "Exclusive");
         runner.setProperty(AbstractPulsarConsumerProcessor.READ_COMPACTED, "false");
 
-        runner.assertValid();
+        runner.run(1, false, true);
+
+        assertEquals("no warning is expected without Read Compacted", 0,
+                runner.getLogger().getWarnMessages().stream()
+                        .filter(m -> m.getMsg().contains("Read Compacted is enabled"))
+                        .count());
     }
 
     @Test

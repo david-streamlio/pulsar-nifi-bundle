@@ -587,14 +587,23 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
             }
         }
 
-        // asTimePeriod truncates to whole seconds, and the client clamps 0 to 1 with Math.max(1, period).
-        // So "500 millis" becomes a broker topic lookup every second - not what was asked for, and silent.
-        if (validationContext.getProperty(PATTERN_AUTO_DISCOVERY_PERIOD)
-                .asTimePeriod(TimeUnit.MILLISECONDS) < 1000L) {
-            results.add(new ValidationResult.Builder().valid(false)
-                .subject(PATTERN_AUTO_DISCOVERY_PERIOD.getDisplayName())
-                .explanation("the discovery interval is whole seconds; anything under 1 second would be "
-                    + "silently rounded to a topic lookup every second").build());
+        // Only when a pattern is actually in use: the client reads this property nowhere else, so failing a
+        // topic-list flow over it would reject a configuration the property has no effect on - which is what
+        // the inertness documented on the property, and asserted in the tests, means.
+        if (validationContext.getProperty(TOPICS_PATTERN).isSet()) {
+            // The value reaches the client as whole seconds - asTimePeriod truncates and the client then
+            // clamps 0 to 1 - so any fraction of a second is silently discarded, not just a sub-second
+            // value: "1500 millis" would run as a one-second sweep and "500 millis" as one per second.
+            // Rejecting only the sub-second case would leave the same silent rounding one step up.
+            final long millis = validationContext.getProperty(PATTERN_AUTO_DISCOVERY_PERIOD)
+                    .asTimePeriod(TimeUnit.MILLISECONDS);
+
+            if (millis < 1000L || millis % 1000L != 0L) {
+                results.add(new ValidationResult.Builder().valid(false)
+                    .subject(PATTERN_AUTO_DISCOVERY_PERIOD.getDisplayName())
+                    .explanation("the client takes this as whole seconds, so it must be a whole number of "
+                        + "seconds and at least 1; anything else is silently rounded down").build());
+            }
         }
 
         if (validationContext.getProperty(DEAD_LETTER_TOPIC).isSet() && !deadLetterEnabled) {
@@ -607,6 +616,19 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
 
     @OnScheduled
     public void init(ProcessContext context) {
+        // Not a validation error: on a live topic this configuration does deliver - new messages arrive and
+        // are read compacted - so it is unusual rather than invalid, and rejecting it would fail a flow that
+        // works. On an idle topic it delivers nothing at all, because the compacted view is the topic's
+        // history and a subscription at the tail has none of it, which is indistinguishable from a broken
+        // flow. Said once per start, where it is seen, rather than never.
+        if (context.getProperty(READ_COMPACTED).asBoolean()
+                && OFFSET_LATEST.getValue().equals(context.getProperty(SUBSCRIPTION_INITIAL_POSITION).getValue())) {
+            getLogger().warn("Read Compacted is enabled with Subscription Initial Position {}: the compacted "
+                    + "view is this topic's history, and a new subscription starting at the tail will not see "
+                    + "any of it. Set Subscription Initial Position to {} to read the compacted view.",
+                    OFFSET_LATEST.getValue(), OFFSET_EARLIEST.getValue());
+        }
+
         // Record the size only. Replacing the cache here would abandon the consumers the previous one
         // holds without closing them, and the broker then refuses the replacement consumer on an
         // Exclusive subscription with "Exclusive consumer is already connected". The cache is built
