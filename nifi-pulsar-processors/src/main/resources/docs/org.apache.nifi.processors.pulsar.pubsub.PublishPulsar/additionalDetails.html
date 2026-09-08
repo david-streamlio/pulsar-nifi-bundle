@@ -41,7 +41,15 @@
     <i>Producer Access Mode</i> is how you stop two flows writing the same topic. <code>Shared</code>, the
     default, lets any number of producers write. <code>Exclusive</code> fails at producer creation if another
     producer already holds the topic, <code>WaitForExclusive</code> queues until it can take over, and
-    <code>ExclusiveWithFencing</code> evicts the incumbent and takes the topic.
+    <code>ExclusiveWithFencing</code> evicts the incumbent and takes the topic. Under any of the three the
+    processor keeps one producer per topic whatever its Concurrent Tasks: a task that needs a topic whose
+    producer is busy waits for it instead of opening a second one, so the exclusivity is held against other
+    flows and never turned against the processor itself. The topic is the topic as the broker sees it -
+    <code>my-topic</code> and <code>persistent://public/default/my-topic</code> share one producer. The wait
+    is bounded to five seconds, because the task holding the producer may be inside a send that <i>Send
+    Timeout</i> <code>0</code> lets run indefinitely; when it runs out, the FlowFiles of that trigger go back
+    to the incoming queue rather than to <code>failure</code> - nothing was attempted for them - the processor
+    logs a warning and yields, and they are retried on a later trigger.
 </p>
 <p>
     <i>Hashing Scheme</i> picks the hash used to turn a message key into a partition on a partitioned topic.

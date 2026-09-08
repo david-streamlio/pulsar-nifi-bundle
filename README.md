@@ -202,7 +202,25 @@ Pulsar's broker-side deduplication requires.
 *Producer Access Mode* is how you stop two flows writing the same topic. `Shared`, the default,
 lets any number of producers write. `Exclusive` fails at producer creation if another producer
 already holds the topic; `WaitForExclusive` queues until it can take over; `ExclusiveWithFencing`
-evicts the incumbent and takes the topic.
+evicts the incumbent and takes the topic. Under any of the three the processor keeps **one
+producer per topic**, whatever its Concurrent Tasks: a task that needs a topic whose producer is
+busy waits for it instead of opening a second one, so the exclusivity is held against other flows
+and never turned against the processor itself. The topic is the topic as the broker sees it, so
+`my-topic` and `persistent://public/default/my-topic` share one producer. The wait is bounded — five
+seconds — because the task holding the producer may be inside a send that *Send Timeout* `0` lets
+run indefinitely; when it runs out, the FlowFiles of that trigger go **back to the incoming queue**,
+not to `failure`, the processor logs a warning and yields, and they are retried on a later trigger.
+Nothing was attempted for them, so nothing was refused.
+
+> **Behaviour change since `2.11.0`:** in `2.11.0` the publisher pool opened one producer per
+> concurrently held lease, so `PublishPulsarRecord` with more than one Concurrent Task collided
+> with its own producers under the exclusive modes: with `Exclusive` part of the FlowFiles went to
+> `failure` ("Topic has an existing exclusive producer" — its own), with `ExclusiveWithFencing`
+> the producers fenced each other, and with `WaitForExclusive` the second task blocked inside
+> `onTrigger` for good. Those flows now publish everything through the topic's single producer,
+> and a task that cannot get it within five seconds returns its FlowFiles to the queue and yields
+> rather than failing them or waiting without limit. `Shared` is unchanged: concurrent tasks still
+> get concurrent producers.
 
 *Batch Builder* decides how messages are grouped when *Batching Enabled* is on. `Default` fills a
 batch with whatever is pending, interleaving keys. **`Key based` is required for per-key ordering

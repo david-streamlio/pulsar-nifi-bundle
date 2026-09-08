@@ -36,6 +36,7 @@ import org.apache.nifi.processor.*;
 import org.apache.nifi.processor.util.StandardValidators;
 import org.apache.nifi.processors.pulsar.utils.PropertyMappingUtils;
 import org.apache.nifi.processors.pulsar.utils.PublisherPool;
+import org.apache.nifi.processors.pulsar.utils.PublisherUnavailableException;
 import org.apache.nifi.pulsar.PulsarClientService;
 import org.apache.nifi.pulsar.cache.PulsarConsumerLRUCache;
 import org.apache.pulsar.client.api.CompressionType;
@@ -494,6 +495,25 @@ public abstract class AbstractPulsarProducerProcessor<T> extends AbstractProcess
 
     protected synchronized void setPublisherPool(PublisherPool pool) {
         this.publisherPool = pool;
+    }
+
+    /**
+     * The topic's only producer is with another task and did not come back within the pool's wait, so nothing was
+     * attempted for this FlowFile - or for the rest of the batch, which needs the same lease or one just as busy.
+     * They go back to the queue they came from, not to {@code failure}: a FlowFile routed to failure was tried and
+     * refused, and these were not. The yield keeps the next trigger from spinning on the same held producer.
+     */
+    protected void returnToQueueAndYield(final ProcessContext context, final ProcessSession session,
+                                         final FlowFile flowFile, final Iterator<FlowFile> rest,
+                                         final PublisherUnavailableException cause) {
+        int returned = 1;
+        session.transfer(flowFile);
+        while (rest.hasNext()) {
+            session.transfer(rest.next());
+            returned++;
+        }
+        getLogger().warn("{}; {} FlowFile(s) returned to the queue to be retried", cause.getMessage(), returned);
+        context.yield();
     }
 
     protected byte[] getDemarcatorBytes(ProcessContext context, final FlowFile flowFile) {
