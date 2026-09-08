@@ -17,7 +17,8 @@ The bundle version tracks the NiFi platform version it is built for; each releas
 line targets one Pulsar client major. See [VERSIONING.md](VERSIONING.md) for the
 full scheme, branching model, and release process.
 
-Release notes live in [`docs/release-notes/`](docs/release-notes/). `2.11.0` is a
+Release notes live in [`docs/release-notes/`](docs/release-notes/); the notes for the next
+revision on the current line accumulate in [`2.11.0.1`](docs/release-notes/2.11.0.1.md). `2.11.0` is a
 platform bump — see [its notes](docs/release-notes/2.11.0.md). If you are coming from
 `2.9.0` or earlier, read [the `2.10.0` notes](docs/release-notes/2.10.0.md) too: that
 release carries several behaviour changes.
@@ -97,8 +98,24 @@ The third row is the one to know about. When the processor cannot write a messag
 **negatively acknowledges** the message, which asks the broker to redeliver it now. Without that
 the message is merely unacknowledged, and the broker cannot tell a consumer that has failed from
 one that is still working: it waits out *Acknowledgment Timeout*, thirty seconds by default and
-never less than ten. Set *Negative Acknowledgment Redelivery Delay* to control how soon; it
-defaults to Pulsar's own one minute.
+never less than ten. *Negative Acknowledgment Redelivery Delay* controls how soon the redelivery
+comes; it defaults to five seconds. Keep it under *Acknowledgment Timeout*: once a message is
+negatively acknowledged the client stops tracking it for the timeout, so the delay is the **only**
+thing that redelivers it, and a longer delay makes a write failure wait longer than a plain rollback
+did. A longer delay is still accepted — it can be a deliberate backoff — but the processor logs a
+warning when it starts. Every redelivery also counts against *Max Redelivery Count*, so the delay
+sets how fast a message that keeps failing reaches the dead letter topic.
+
+> **Behaviour change since `2.11.0`:** in `2.11.0` the delay defaulted to Pulsar's own one minute,
+> so with *Acknowledgment Timeout* at its 30-second default a message the processor could not write
+> came back after **60 s — twice as long as before negative acknowledgement existed**, not sooner.
+> The default is now five seconds, so a flow that never set the property redelivers after a write
+> failure in seconds instead of a minute. Two consequences. A flow with *Max Redelivery Count* set
+> now uses up its redeliveries **twelve times faster**: a transient write failure that used to be
+> absorbed by a minute per attempt can now send a perfectly good message to the dead letter topic
+> in seconds, so raise the count — or set the delay back up — to keep the retry window you had. And
+> a delay longer than *Acknowledgment Timeout* still validates, but the processor now logs a warning
+> when it starts; nothing that ran on `2.11.0` stops running.
 
 A message routed to `parse_failure` is **not** redelivered. It was delivered and handled — the
 flow has its bytes and can route them anywhere, including back to a Pulsar topic — so nacking it
