@@ -112,8 +112,8 @@ public class ConsumePulsarAcknowledgementTest extends AbstractPulsarProcessorTes
         runner.run(1, true);
 
         runner.assertAllFlowFilesTransferred(ConsumePulsar.REL_SUCCESS, 1);
-        assertEquals("one acknowledgement per message on a Shared subscription, one cumulative acknowledgement otherwise",
-                shared ? 3 : 1, statesAtAcknowledgement.size());
+        assertEquals("one acknowledgement per message, on every subscription type (#223)",
+                3, statesAtAcknowledgement.size());
         for (final String state : statesAtAcknowledgement) {
             assertEquals("a message was acknowledged before the FlowFile carrying it was committed", ONE_COMMITTED_FLOWFILE, state);
         }
@@ -169,16 +169,8 @@ public class ConsumePulsarAcknowledgementTest extends AbstractPulsarProcessorTes
         }).when(consumer).acknowledge(any(Message.class));
         doAnswer(invocation -> {
             states.add(sessionState(relationship));
-            return null;
-        }).when(consumer).acknowledgeCumulative(any(Message.class));
-        doAnswer(invocation -> {
-            states.add(sessionState(relationship));
             return CompletableFuture.completedFuture(null);
         }).when(consumer).acknowledgeAsync(any(Message.class));
-        doAnswer(invocation -> {
-            states.add(sessionState(relationship));
-            return CompletableFuture.completedFuture(null);
-        }).when(consumer).acknowledgeCumulativeAsync(any(Message.class));
 
         return states;
     }
@@ -205,13 +197,10 @@ public class ConsumePulsarAcknowledgementTest extends AbstractPulsarProcessorTes
     private void verifyAcknowledged(final int messages) throws PulsarClientException {
         final Consumer<GenericRecord> consumer = mockClientService.getMockConsumer();
 
-        if (shared) {
-            verify(consumer, times(async ? 0 : messages)).acknowledge(any(Message.class));
-            verify(consumer, times(async ? messages : 0)).acknowledgeAsync(any(Message.class));
-        } else {
-            verify(consumer, times(async ? 0 : 1)).acknowledgeCumulative(any(Message.class));
-            verify(consumer, times(async ? 1 : 0)).acknowledgeCumulativeAsync(any(Message.class));
-        }
+        // One acknowledgement per message on every subscription type. Cumulative acknowledgement would
+        // reach into another concurrent task's outstanding batch, so it is no longer used at all (#223).
+        verify(consumer, times(async ? 0 : messages)).acknowledge(any(Message.class));
+        verify(consumer, times(async ? messages : 0)).acknowledgeAsync(any(Message.class));
     }
 
     private void verifyNothingAcknowledged() throws PulsarClientException {
@@ -219,8 +208,8 @@ public class ConsumePulsarAcknowledgementTest extends AbstractPulsarProcessorTes
 
         verify(consumer, never()).acknowledge(any(Message.class));
         verify(consumer, never()).acknowledgeAsync(any(Message.class));
-        verify(consumer, never()).acknowledgeCumulative(any(Message.class));
-        verify(consumer, never()).acknowledgeCumulativeAsync(any(Message.class));
+        verify(consumer, never()).acknowledge(any(Message.class));
+        verify(consumer, never()).acknowledgeAsync(any(Message.class));
     }
 
     /**

@@ -759,11 +759,10 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
      * @param session  the session holding the FlowFiles the messages were written to
      * @param consumer the consumer the messages were received from
      * @param messages the messages carried by the FlowFiles in the session; cleared on return
-     * @param shared   whether the subscription is Shared or Key_Shared
      * @param async    whether to acknowledge through the asynchronous acknowledgement service
      */
     protected void commitAndAcknowledge(final ProcessSession session, final Consumer<GenericRecord> consumer,
-                                        final List<Message<GenericRecord>> messages, final boolean shared, final boolean async) {
+                                        final List<Message<GenericRecord>> messages, final boolean async) {
         if (messages.isEmpty()) {
             return;
         }
@@ -771,7 +770,7 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
         final List<Message<GenericRecord>> committed = new ArrayList<>(messages);
         messages.clear();
 
-        session.commitAsync(() -> acknowledge(consumer, committed, shared, async));
+        session.commitAsync(() -> acknowledge(consumer, committed, async));
     }
 
     /**
@@ -807,25 +806,27 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
     }
 
     private void acknowledge(final Consumer<GenericRecord> consumer, final List<Message<GenericRecord>> messages,
-                             final boolean shared, final boolean async) {
+                             final boolean async) {
         final ExecutorCompletionService<Object> service = async ? getAckService() : null;
 
+        // Individually, on every subscription type, and never cumulatively. Cumulative acknowledgement
+        // means "this message and everything before it on the subscription", which is safe only while one
+        // task owns the whole stream. Concurrent tasks of one processor share a consumer - getConsumer()
+        // is synchronized and caches by consumer id, deliberately, so the broker never sees a second
+        // consumer on an Exclusive subscription - so "everything before it" reached into whatever another
+        // task was still holding. A task that then failed to write found its messages already
+        // acknowledged, and its negative acknowledgement had nothing left to redeliver: those messages
+        // were neither in NiFi nor recoverable from Pulsar (#223).
+        //
+        // This is the loop Shared subscriptions have always run, now taken by all of them. The client
+        // groups individual acknowledgements - a 100ms window, up to 1000 ids - into a single command, so
+        // one call per message here is not one round trip per message.
         try {
-            if (shared) {
-                for (final Message<GenericRecord> message : messages) {
-                    if (service != null) {
-                        service.submit(() -> consumer.acknowledgeAsync(message).get());
-                    } else {
-                        consumer.acknowledge(message);
-                    }
-                }
-            } else {
-                final Message<GenericRecord> last = messages.get(messages.size() - 1);
-
+            for (final Message<GenericRecord> message : messages) {
                 if (service != null) {
-                    service.submit(() -> consumer.acknowledgeCumulativeAsync(last).get());
+                    service.submit(() -> consumer.acknowledgeAsync(message).get());
                 } else {
-                    consumer.acknowledgeCumulative(last);
+                    consumer.acknowledge(message);
                 }
             }
         } catch (final PulsarClientException e) {

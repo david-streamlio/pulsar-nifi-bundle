@@ -98,8 +98,6 @@ public class ConsumePulsar extends AbstractPulsarConsumerProcessor<byte[]> {
                 final byte[] demarcatorBytes = context.getProperty(MESSAGE_DEMARCATOR).isSet() ? context.getProperty(MESSAGE_DEMARCATOR)
                     .evaluateAttributeExpressions().getValue().getBytes(StandardCharsets.UTF_8) : null;
 
-                // Cumulative acks are NOT permitted on Shared subscriptions.
-                final boolean shared = isSharedSubscription(context);
                 
                 List<Message<GenericRecord>> messages = done.get();
 
@@ -139,7 +137,7 @@ public class ConsumePulsar extends AbstractPulsarConsumerProcessor<byte[]> {
                                 session.transfer(flowFile, REL_SUCCESS);
                             }
 
-                            commitAndAcknowledge(session, consumer, uncommitted, shared, true);
+                            commitAndAcknowledge(session, consumer, uncommitted, true);
 
                             lastAttributes = null;
                         }
@@ -196,7 +194,7 @@ public class ConsumePulsar extends AbstractPulsarConsumerProcessor<byte[]> {
                     // Commits, then acknowledges: cumulatively for non-shared subscriptions, one message at a
                     // time otherwise. This has to stay inside the isNotEmpty() guard: on an idle topic the
                     // list is empty and there is nothing to commit or acknowledge.
-                    commitAndAcknowledge(session, consumer, uncommitted, shared, true);
+                    commitAndAcknowledge(session, consumer, uncommitted, true);
                 }
             }
         } catch (InterruptedException | ExecutionException e) {
@@ -215,8 +213,6 @@ public class ConsumePulsar extends AbstractPulsarConsumerProcessor<byte[]> {
             final byte[] demarcatorBytes = context.getProperty(MESSAGE_DEMARCATOR).isSet() ? context.getProperty(MESSAGE_DEMARCATOR)
                     .evaluateAttributeExpressions().getValue().getBytes(StandardCharsets.UTF_8) : null;
             
-            // Cumulative acks are NOT permitted on Shared subscriptions.
-            final boolean shared = isSharedSubscription(context);
 
             FlowFile flowFile = null;
             OutputStream out = null;
@@ -255,7 +251,7 @@ public class ConsumePulsar extends AbstractPulsarConsumerProcessor<byte[]> {
                             new Object[]{flowFile, msgCount.toString()});
                     }
 
-                    commitAndAcknowledge(session, consumer, uncommitted, shared, false);
+                    commitAndAcknowledge(session, consumer, uncommitted, false);
 
                     lastAttributes = null;
                     lastMsg = null;
@@ -316,7 +312,7 @@ public class ConsumePulsar extends AbstractPulsarConsumerProcessor<byte[]> {
 
             // Commits, then acknowledges: cumulatively for non-shared subscriptions, one message at a time
             // otherwise. Nothing is committed or acknowledged when no message was received.
-            commitAndAcknowledge(session, consumer, uncommitted, shared, false);
+            commitAndAcknowledge(session, consumer, uncommitted, false);
 
         } catch (PulsarClientException e) {
             // Deliberately not negatively acknowledged: this is the client itself failing, so the call that

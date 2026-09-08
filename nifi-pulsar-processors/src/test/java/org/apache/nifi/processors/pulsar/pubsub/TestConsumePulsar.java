@@ -185,18 +185,10 @@ public class TestConsumePulsar extends AbstractPulsarProcessorTest<byte[]> {
         // Verify that every message was acknowledged
         verify(mockClientService.getMockConsumer(), times(batchSize)).receive(0, TimeUnit.SECONDS);
         
-        if (shared) {
-        	if (async) {
-        		verify(mockClientService.getMockConsumer(), times(batchSize)).acknowledgeAsync(mockMessage);
-        	} else {
-        		verify(mockClientService.getMockConsumer(), times(batchSize)).acknowledge(mockMessage);
-        	}
+        if (async) {
+        	verify(mockClientService.getMockConsumer(), times(batchSize)).acknowledgeAsync(mockMessage);
         } else {
-        	if (async) {
-                verify(mockClientService.getMockConsumer(), times(1)).acknowledgeCumulativeAsync(mockMessage);        		
-        	} else {
-                verify(mockClientService.getMockConsumer(), times(1)).acknowledgeCumulative(mockMessage);        		
-        	}
+        	verify(mockClientService.getMockConsumer(), times(batchSize)).acknowledge(mockMessage);
         }
     }
 
@@ -230,19 +222,12 @@ public class TestConsumePulsar extends AbstractPulsarProcessorTest<byte[]> {
         boolean shared = isSharedSubType(subType);
         
         // Verify that every message was acknowledged
-        if (shared) {
-        	if (async) {
-        		verify(mockClientService.getMockConsumer(), times(iterations)).acknowledgeAsync(mockMessage);
-        	} else {
-        		verify (mockClientService.getMockConsumer(), times(iterations)).acknowledge(mockMessage);
-        	}
+        if (async) {
+        	verify(mockClientService.getMockConsumer(), times(iterations)).acknowledgeAsync(mockMessage);
         } else {
-        	if (async) {
-        		verify(mockClientService.getMockConsumer(), times(iterations)).acknowledgeCumulativeAsync(mockMessage);
-        	} else {
-        		verify(mockClientService.getMockConsumer(), times(iterations)).acknowledgeCumulative(mockMessage);
-        	}
-        }        
+        	verify (mockClientService.getMockConsumer(), times(iterations)).acknowledge(mockMessage);
+        }
+        
     }
 
     protected void doMappedAttributesTest() throws PulsarClientException {

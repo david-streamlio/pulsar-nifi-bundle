@@ -34,7 +34,10 @@
 <p>
     A consumed message leaves this processor by exactly one route, and which one it took decides whether
     Pulsar ever delivers it again. Acknowledgement happens only after the FlowFile carrying the message is
-    committed, so a message is never acknowledged while its content could still be discarded.
+    committed, so a message is never acknowledged while its content could still be discarded. Each message
+    is acknowledged individually, on every subscription type, so one trigger's acknowledgement never reaches
+    a message another trigger is still holding - which matters because concurrent tasks of one processor
+    share a single consumer.
 </p>
 <table>
     <tr><th>What happened</th><th>Route</th><th>Redelivered?</th></tr>

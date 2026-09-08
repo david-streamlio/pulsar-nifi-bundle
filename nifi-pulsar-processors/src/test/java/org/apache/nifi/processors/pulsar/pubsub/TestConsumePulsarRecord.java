@@ -170,21 +170,11 @@ public class TestConsumePulsarRecord extends AbstractPulsarProcessorTest<byte[]>
 
         verify(mockClientService.getMockConsumer(), times(iterations * batchSize)).receive(0, TimeUnit.SECONDS);
 
-        boolean shared = isSharedSubType(subType);
-        
-        if (shared) {
-        	if (async) {
-        		verify(mockClientService.getMockConsumer(), times(iterations * batchSize)).acknowledgeAsync(mockMessage);
-        	} else {
-        		verify(mockClientService.getMockConsumer(), times(iterations * batchSize)).acknowledge(mockMessage);
-        	}
-        }
-        else {
-        	if (async) {
-        		verify(mockClientService.getMockConsumer(), times(iterations)).acknowledgeCumulativeAsync(mockMessage);
-        	} else {
-        		verify(mockClientService.getMockConsumer(), times(iterations)).acknowledgeCumulative(mockMessage);
-        	}
+        // One acknowledgement per message on every subscription type (#223).
+        if (async) {
+        	verify(mockClientService.getMockConsumer(), times(iterations * batchSize)).acknowledgeAsync(mockMessage);
+        } else {
+        	verify(mockClientService.getMockConsumer(), times(iterations * batchSize)).acknowledge(mockMessage);
         }
         
         return flowFiles;

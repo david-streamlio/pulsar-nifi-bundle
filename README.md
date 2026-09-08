@@ -92,7 +92,10 @@ decides whether Pulsar ever delivers it again.
 | The Pulsar client itself failed | rolled back, left unacknowledged | Yes, after *Acknowledgment Timeout* |
 
 Acknowledgement happens only after the FlowFile carrying the message is committed, so a message
-is never acknowledged while its content could still be discarded.
+is never acknowledged while its content could still be discarded. Each message is acknowledged
+individually, on every subscription type, so one trigger's acknowledgement never reaches a message
+another trigger is still holding — which matters because concurrent tasks of one processor share a
+single consumer.
 
 The third row is the one to know about. When the processor cannot write a message into a FlowFile
 — a full content repository, a permissions problem, a disk fault — it rolls the session back and

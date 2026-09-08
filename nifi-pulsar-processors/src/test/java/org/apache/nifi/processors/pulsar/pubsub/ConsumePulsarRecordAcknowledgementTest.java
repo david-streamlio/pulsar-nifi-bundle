@@ -121,8 +121,8 @@ public class ConsumePulsarRecordAcknowledgementTest extends AbstractPulsarProces
         runner.run(1, true);
 
         runner.assertAllFlowFilesTransferred(ConsumePulsarRecord.REL_SUCCESS, 1);
-        assertEquals("one acknowledgement per message on a Shared subscription, one cumulative acknowledgement otherwise",
-                shared ? 3 : 1, statesAtAcknowledgement.size());
+        assertEquals("one acknowledgement per message, on every subscription type (#223)",
+                3, statesAtAcknowledgement.size());
         for (final String state : statesAtAcknowledgement) {
             assertEquals("a message was acknowledged before the FlowFile carrying it was committed", ONE_COMMITTED_FLOWFILE, state);
         }
@@ -144,7 +144,7 @@ public class ConsumePulsarRecordAcknowledgementTest extends AbstractPulsarProces
         runner.assertTransferCount(ConsumePulsarRecord.REL_SUCCESS, 0);
         runner.assertTransferCount(ConsumePulsarRecord.REL_PARSE_FAILURE, 1);
         assertEquals("every unparseable message is acknowledged once its parse_failure FlowFile is committed",
-                shared ? 3 : 1, statesAtAcknowledgement.size());
+                3, statesAtAcknowledgement.size());
         for (final String state : statesAtAcknowledgement) {
             assertEquals("a message was acknowledged before the FlowFile carrying it was committed", ONE_COMMITTED_FLOWFILE, state);
         }
@@ -205,16 +205,8 @@ public class ConsumePulsarRecordAcknowledgementTest extends AbstractPulsarProces
         }).when(consumer).acknowledge(any(Message.class));
         doAnswer(invocation -> {
             states.add(sessionState(relationship));
-            return null;
-        }).when(consumer).acknowledgeCumulative(any(Message.class));
-        doAnswer(invocation -> {
-            states.add(sessionState(relationship));
             return CompletableFuture.completedFuture(null);
         }).when(consumer).acknowledgeAsync(any(Message.class));
-        doAnswer(invocation -> {
-            states.add(sessionState(relationship));
-            return CompletableFuture.completedFuture(null);
-        }).when(consumer).acknowledgeCumulativeAsync(any(Message.class));
 
         return states;
     }
@@ -243,8 +235,8 @@ public class ConsumePulsarRecordAcknowledgementTest extends AbstractPulsarProces
 
         verify(consumer, never()).acknowledge(any(Message.class));
         verify(consumer, never()).acknowledgeAsync(any(Message.class));
-        verify(consumer, never()).acknowledgeCumulative(any(Message.class));
-        verify(consumer, never()).acknowledgeCumulativeAsync(any(Message.class));
+        verify(consumer, never()).acknowledge(any(Message.class));
+        verify(consumer, never()).acknowledgeAsync(any(Message.class));
     }
 
     /**
