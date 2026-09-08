@@ -229,6 +229,26 @@ on a `Key_Shared` subscription**: a consumer receives a whole batch at a time, s
 several keys hands one consumer messages belonging to another consumer's key range. It has no
 effect when batching is off.
 
+## Consumer time properties
+
+Two consumer properties are handed to the Pulsar client in units coarser than NiFi lets you type
+them in, and behave accordingly.
+
+*Auto Update Partition Interval* is kept by the client in **whole seconds**, and the client refuses
+zero. A value under one second is therefore rejected at validation — before this rule it validated
+and then failed on every trigger with the client's `interval needs to be > 0`, about an interval
+nobody typed. A value of a second or more with a fraction (`90500 millis`) runs, on the whole
+seconds the client keeps (`90`), and the processor logs a warning saying so when it starts.
+
+*Expire Time of Incomplete Chunked Message* is kept by the client in milliseconds and is applied
+exactly as configured.
+
+> **Behaviour change since `2.11.0`:** *Expire Time of Incomplete Chunked Message* used to be
+> converted to whole seconds on the way to the client, so a fraction was dropped and a sub-second
+> value became `0` — which the client reads as **never expire**: incomplete chunks were kept until
+> the pending-chunk queue evicted them. A flow that set `500 millis` now expires them after 500 ms,
+> and `1500 millis` means 1.5 s rather than 1 s. Whole-second values are unchanged.
+
 ## Consuming from topics that have a schema
 
 `ConsumePulsarRecord`'s **Message Schema Strategy** decides how a message becomes records.

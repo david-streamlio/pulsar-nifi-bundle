@@ -141,7 +141,8 @@ public class TestConsumePulsar extends AbstractPulsarProcessorTest<byte[]> {
         runner.run(10, true);
 
         verify(mockClientService.getMockConsumerBuilder(), times(1)).autoAckOldestChunkedMessageOnQueueFull(true);
-        verify(mockClientService.getMockConsumerBuilder(), times(1)).expireTimeOfIncompleteChunkedMessage(120, TimeUnit.SECONDS);
+        // handed over in milliseconds, the unit the client stores, so no fraction is lost on the way (#225)
+        verify(mockClientService.getMockConsumerBuilder(), times(1)).expireTimeOfIncompleteChunkedMessage(120_000, TimeUnit.MILLISECONDS);
         verify(mockClientService.getMockConsumerBuilder(), times(1)).maxPendingChunkedMessage(20);
     }
     
