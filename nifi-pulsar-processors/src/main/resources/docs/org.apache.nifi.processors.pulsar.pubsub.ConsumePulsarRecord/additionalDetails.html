@@ -60,7 +60,9 @@
     consumer</b> - <code>Exclusive</code> or <code>Failover</code> - and it needs the <b>persistent
     domain</b>, because only a persistent topic has a compacted view. A <code>non-persistent://</code> topic
     is rejected at validation, as is a <i>Topics Pattern</i> whose <i>Match Mode</i> admits non-persistent
-    topics. That second case matters because the client cannot catch it: with a pattern its topic list is
+    topics. A <code>non-persistent://</code> prefix on the <i>pattern itself</i> is not rejected, because it
+    is inert - the client strips the scheme from the pattern and from every candidate topic, so the domain
+    comes from <i>Match Mode</i> alone. That second case matters because the client cannot catch it: with a pattern its topic list is
     empty, so its own domain check passes vacuously and any non-persistent topic the pattern matches is
     served as a live stream - the flow reads a full stream while its configuration says it is reading the
     latest value per key, and nothing reports it.
@@ -71,6 +73,12 @@
     policy needs <i>competing</i> consumers, so Pulsar builds one only for <code>Shared</code> and
     <code>Key_Shared</code>. No subscription type satisfies both, and this processor rejects each on the wrong
     type at validation rather than letting the client fail at subscribe time.
+</p>
+<p>
+    <b>Set <i>Subscription Initial Position</i> to <code>Earliest</code>.</b> The compacted view is the
+    history of the topic - the latest value for each key seen so far. A new subscription left at the default
+    of <code>Latest</code> starts at the tail, so a compacted read delivers <b>nothing at all</b> until a new
+    message arrives, which looks identical to a broken flow.
 </p>
 <p>
     <b>Concurrent Tasks.</b> Because <i>Read Compacted</i> requires <code>Exclusive</code> or

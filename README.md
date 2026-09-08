@@ -205,7 +205,14 @@ with exclusive or failover **persistent** subscriptions"*.
   topics. That second case matters because the client cannot catch it: with a pattern its topic list
   is empty, so its own domain check passes vacuously and any non-persistent topic the pattern matches
   is served as a live stream — the flow would read a full stream while its configuration says it is
-  reading the latest value per key, with nothing reporting it.
+  reading the latest value per key, with nothing reporting it. A `non-persistent://` prefix on the
+  *pattern itself* is not rejected, because it is inert: the client strips the scheme from the pattern
+  and from every candidate topic, so the domain comes from *Match Mode* alone.
+
+> **Set *Subscription Initial Position* to `Earliest`.** The compacted view is the history of the
+> topic — the latest value for each key seen so far. A new subscription left at the default of
+> `Latest` starts at the tail, so a compacted read delivers **nothing at all** until a new message
+> arrives, which looks identical to a broken flow.
 
 > **The two single-consumer constraints are mirror images.** A compacted read needs a *single
 > active consumer*, so Pulsar permits it only on `Exclusive` and `Failover`. A dead letter policy

@@ -171,16 +171,43 @@ public class ConsumePulsarTopicPropertiesTest extends AbstractPulsarProcessorTes
         runner.assertValid();
     }
 
-    /** A pattern in the non-persistent domain matches nothing compactable, whatever the match mode. */
+    /**
+     * A pattern's own domain scheme is inert, so it must not be rejected. TopicsPatternFactory runs the
+     * pattern through TopicList.removeTopicDomainScheme() and matching strips the scheme from every
+     * candidate topic, so the domain comes from Topics Pattern Match Mode alone. An earlier version of
+     * this validator rejected the prefix and failed this working configuration.
+     */
     @Test
-    public void readCompactedIsRejectedWithANonPersistentPattern() {
+    public void aNonPersistentPatternPrefixIsInertAndMustNotBeRejected() {
         runner.removeProperty(AbstractPulsarConsumerProcessor.TOPICS);
         runner.setProperty(AbstractPulsarConsumerProcessor.TOPICS_PATTERN, "non-persistent://public/default/tp-.*");
         runner.setProperty(AbstractPulsarConsumerProcessor.SUBSCRIPTION_TYPE, "Exclusive");
         runner.setProperty(AbstractPulsarConsumerProcessor.REGEX_SUBSCRIPTION_MODE, "PersistentOnly");
         runner.setProperty(AbstractPulsarConsumerProcessor.READ_COMPACTED, "true");
 
-        runner.assertNotValid();
+        runner.assertValid();
+    }
+
+    /**
+     * The interval is passed to the client in whole seconds and the client clamps 0 to 1, so a sub-second
+     * value becomes a topic lookup every second rather than the interval that was asked for - silently.
+     */
+    @Test
+    public void aSubSecondDiscoveryIntervalIsRejected() {
+        runner.setProperty(AbstractPulsarConsumerProcessor.SUBSCRIPTION_TYPE, "Shared");
+
+        for (final String interval : new String[] {"500 millis", "0 sec"}) {
+            runner.setProperty(AbstractPulsarConsumerProcessor.PATTERN_AUTO_DISCOVERY_PERIOD, interval);
+            runner.assertNotValid();
+        }
+    }
+
+    @Test
+    public void aWholeSecondDiscoveryIntervalIsValid() {
+        runner.setProperty(AbstractPulsarConsumerProcessor.SUBSCRIPTION_TYPE, "Shared");
+        runner.setProperty(AbstractPulsarConsumerProcessor.PATTERN_AUTO_DISCOVERY_PERIOD, "1 sec");
+
+        runner.assertValid();
     }
 
     /** None of the new domain rules may fire when the compacted read is off. */

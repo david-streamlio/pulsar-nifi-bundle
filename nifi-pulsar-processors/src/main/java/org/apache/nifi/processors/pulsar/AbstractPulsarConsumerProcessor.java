@@ -215,7 +215,9 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
                     + "no key are not delivered at all. The topic must have compaction running for there to be "
                     + "a compacted view to read; without it the subscription reads the normal backlog. Pulsar "
                     + "permits this only on a persistent topic with a single active consumer, so the "
-                    + "Subscription Type must be Exclusive or Failover.")
+                    + "Subscription Type must be Exclusive or Failover. Set Subscription Initial Position to "
+                    + "Earliest: the compacted view is the history of the topic, so a new subscription left at "
+                    + "the default of Latest starts at the tail and delivers nothing at all.")
             .required(false)
             .allowableValues("true", "false")
             .defaultValue("false")
@@ -563,10 +565,15 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
                     }
                 }
             } else if (validationContext.getProperty(TOPICS_PATTERN).isSet()) {
-                final String pattern = validationContext.getProperty(TOPICS_PATTERN).getValue();
                 final String matchMode = validationContext.getProperty(REGEX_SUBSCRIPTION_MODE).getValue();
 
-                // The client cannot catch this one: with a pattern its topic list is empty, so its
+                // Only the match mode is checked, never the pattern's own scheme: TopicsPatternFactory
+                // runs the pattern through TopicList.removeTopicDomainScheme(), and matching strips the
+                // scheme from every candidate topic too, so a "non-persistent://" prefix on the pattern
+                // selects nothing - the domain comes from RegexSubscriptionMode alone. Rejecting on the
+                // prefix would fail a working configuration.
+                //
+                // The client cannot catch the real hazard: with a pattern its topic list is empty, so its
                 // persistent-domain check passes vacuously and the non-persistent topics the pattern matches
                 // are subscribed and served as a live stream. The flow then reads a full stream while its
                 // configuration says it is reading the latest value per key, and nothing reports it.
@@ -577,13 +584,17 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
                             + "Pattern Match Mode must be " + RegexSubscriptionMode.PersistentOnly.name()
                             + ", not " + matchMode).build());
                 }
-
-                if (pattern != null && pattern.trim().startsWith(NON_PERSISTENT_PREFIX)) {
-                    results.add(new ValidationResult.Builder().valid(false).subject(READ_COMPACTED.getDisplayName())
-                        .explanation("only a persistent topic has a compacted view, but Topics Pattern matches "
-                            + "the non-persistent domain").build());
-                }
             }
+        }
+
+        // asTimePeriod truncates to whole seconds, and the client clamps 0 to 1 with Math.max(1, period).
+        // So "500 millis" becomes a broker topic lookup every second - not what was asked for, and silent.
+        if (validationContext.getProperty(PATTERN_AUTO_DISCOVERY_PERIOD)
+                .asTimePeriod(TimeUnit.MILLISECONDS) < 1000L) {
+            results.add(new ValidationResult.Builder().valid(false)
+                .subject(PATTERN_AUTO_DISCOVERY_PERIOD.getDisplayName())
+                .explanation("the discovery interval is whole seconds; anything under 1 second would be "
+                    + "silently rounded to a topic lookup every second").build());
         }
 
         if (validationContext.getProperty(DEAD_LETTER_TOPIC).isSet() && !deadLetterEnabled) {
