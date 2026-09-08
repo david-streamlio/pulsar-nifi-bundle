@@ -65,10 +65,12 @@ public class ConsumePulsarDeadLetterIT extends AbstractPulsarIT {
         runner.setProperty(AbstractPulsarConsumerProcessor.MESSAGE_DEMARCATOR, "\n");
         runner.setProperty(AbstractPulsarConsumerProcessor.SUBSCRIPTION_INITIAL_POSITION, "Earliest");
         runner.setProperty(AbstractPulsarConsumerProcessor.CONSUMER_BATCH_SIZE, "1");
-        // Redeliver as soon as the broker will, so the test does not wait on the one-minute default.
-        runner.setProperty(AbstractPulsarConsumerProcessor.NEGATIVE_ACK_REDELIVERY_DELAY, "1 sec");
-        // The floor the validator allows. The point of the redelivery test is that it completes well
-        // inside this, which is the only thing that could have redelivered the message before.
+        // Negative Acknowledgment Redelivery Delay is deliberately not set here. The redelivery test is about
+        // what a flow that never set it gets, so there the default is the value under test; the dead letter
+        // test sets it explicitly, because its pace depends on the delay and not on whatever the default is.
+
+        // Acknowledgment Timeout at the floor the validator allows. The point of the redelivery test is that
+        // it completes well inside this, which is the only thing that could have redelivered the message before.
         runner.setProperty(AbstractPulsarConsumerProcessor.ACK_TIMEOUT, "10 sec");
     }
 
@@ -76,6 +78,10 @@ public class ConsumePulsarDeadLetterIT extends AbstractPulsarIT {
      * A message the processor could not write is redelivered promptly, rather than after the Acknowledgment
      * Timeout. The assertion is the timing: the redelivery has to arrive inside the timeout that would
      * otherwise have been the only thing to produce it.
+     * <p>
+     * Runs at the default Negative Acknowledgment Redelivery Delay on purpose. A nacked message is redelivered
+     * by that delay alone - the client drops it from the acknowledgment-timeout tracker - so with a default
+     * longer than the timeout this test fails, and a default flow waits longer than it did before (#218).
      */
     @Test
     public void aMessageThatCouldNotBeWrittenIsRedeliveredWithoutWaitingOutTheAckTimeout() throws Exception {
@@ -83,12 +89,16 @@ public class ConsumePulsarDeadLetterIT extends AbstractPulsarIT {
         runner.setProperty(AbstractPulsarConsumerProcessor.TOPICS, topic);
         runner.setProperty(AbstractPulsarConsumerProcessor.SUBSCRIPTION_NAME, "nack-sub");
 
+        // Subscribe on an empty topic first. Publishing before the initialising pass let that pass - which
+        // runs with a healthy session - consume the message itself, and the test then passed without any
+        // negative acknowledgement ever happening.
+        runner.run(1, false, true);
         publish(topic, "payload");
 
-        // First pass: the content repository rejects the write, so the batch is rolled back and nacked.
-        runner.run(1, false, true);
-        final long nackedAt = System.nanoTime();
-        ((ConsumePulsar) runner.getProcessor()).onTrigger(runner.getProcessContext(), failingSession());
+        // First real pass: the content repository rejects the write, so the batch is rolled back and nacked.
+        // Repeated until the message has actually arrived in the receiver queue and been refused.
+        final long nackedAt = failWriteOfNextMessage();
+        runner.assertTransferCount(ConsumePulsar.REL_SUCCESS, 0);
 
         // Second pass with a healthy session: the broker should hand the message back.
         await("the negatively acknowledged message to be redelivered", () -> {
@@ -119,6 +129,9 @@ public class ConsumePulsarDeadLetterIT extends AbstractPulsarIT {
         runner.setProperty(AbstractPulsarConsumerProcessor.SUBSCRIPTION_NAME, "dlq-sub");
         runner.setProperty(AbstractPulsarConsumerProcessor.MAX_REDELIVER_COUNT, "2");
         runner.setProperty(AbstractPulsarConsumerProcessor.DEAD_LETTER_TOPIC, deadLetterTopic);
+        // Explicit, because this test is not about the default: each redelivery has to happen inside the
+        // receive window of the polling loop below, whatever the default is set to.
+        runner.setProperty(AbstractPulsarConsumerProcessor.NEGATIVE_ACK_REDELIVERY_DELAY, "1 sec");
 
         // Subscribe to the dead letter topic before anything is published to it, so the message cannot be
         // missed by a subscription that starts at the latest position.
@@ -148,6 +161,37 @@ public class ConsumePulsarDeadLetterIT extends AbstractPulsarIT {
             assertNotNull("the poison message never reached the dead letter topic", deadLettered);
             assertEquals("poison", new String(deadLettered.getValue(), UTF_8));
         }
+    }
+
+    /** What the processor logs when a received message could not be written and was rolled back and nacked. */
+    private static final String WRITE_FAILED = "Unable to write the received messages";
+
+    /**
+     * Triggers the processor with a session that cannot be written until the message is received and refused,
+     * so the returned instant is when it was negatively acknowledged - not when the test happened to run.
+     * <p>
+     * "Refused" is a new write-failure error logged by one of these passes. The logger's error list is
+     * cumulative for the whole test and other errors are possible - a client hiccup during the initialising
+     * pass is logged and swallowed - so an unspecific "any error" check could return before the message was
+     * ever received, and the test would then pass without a negative acknowledgement having happened.
+     */
+    private long failWriteOfNextMessage() throws InterruptedException {
+        final long writeFailuresBefore = writeFailuresLogged();
+        final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
+        while (System.nanoTime() < deadline) {
+            ((ConsumePulsar) runner.getProcessor()).onTrigger(runner.getProcessContext(), failingSession());
+            if (writeFailuresLogged() > writeFailuresBefore) {
+                return System.nanoTime();
+            }
+            Thread.sleep(100);
+        }
+        throw new AssertionError("the message never reached the pass whose write fails");
+    }
+
+    private long writeFailuresLogged() {
+        return runner.getLogger().getErrorMessages().stream()
+                .filter(message -> message.getMsg().contains(WRITE_FAILED))
+                .count();
     }
 
     private static String topic(final String name) {
