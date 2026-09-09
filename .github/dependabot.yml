@@ -26,6 +26,16 @@ updates:
           - version-update:semver-major
           - version-update:semver-minor
 
+      # Testcontainers 2.x is a JUnit 4 problem, like the parent POM above. It renames
+      # every module artifact (org.testcontainers:pulsar -> testcontainers-pulsar), so
+      # the BOM stops managing the coordinate we declare and no POM parses at all, and
+      # it drops JUnit 4 rule support, so AbstractPulsarIT's @ClassRule container fails
+      # with "must implement TestRule". Both were confirmed against 2.0.5 in #231.
+      # Blocked until #235 migrates the container lifecycle; 1.x patch/minor still flow.
+      - dependency-name: "org.testcontainers:*"
+        update-types:
+          - version-update:semver-major
+
   # All GitHub Actions updates collapse into a SINGLE grouped PR.
   - package-ecosystem: github-actions
     directory: "/"
