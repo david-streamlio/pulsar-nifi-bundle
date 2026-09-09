@@ -474,6 +474,13 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
         // ("interval needs to be > 0"). So a value under a second reached it as 0 and the consumer could
         // not be created; a fraction of a second was dropped; and a value past Integer.MAX_VALUE seconds
         // wrapped in intValue() - negative, and refused, or positive and silently far shorter than asked.
+        //
+        // Unconditional on purpose, whatever Auto Update Partitions says: the client's precondition runs
+        // when the consumer is BUILT, for every consumer, while the value is only read at runtime under
+        // that flag. TIME_PERIOD_VALIDATOR already guarantees a non-negative duration, so the int overflow
+        // is the only way the builder can be handed a negative interval - which makes the upper bound a
+        // correctness requirement, not a sanity limit. The floor stays at one second, not zero, because
+        // that is what this setter enforces; the sibling Topics Pattern Discovery Interval accepts zero.
         final long partitionUpdateIntervalMillis = validationContext.getProperty(AUTO_UPDATE_PARTITION_INTERVAL)
                 .asTimePeriod(TimeUnit.MILLISECONDS);
         if (partitionUpdateIntervalMillis < TimeUnit.SECONDS.toMillis(1)
