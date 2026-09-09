@@ -301,9 +301,15 @@ public class KeyValueTopicSchema {
                 return org.apache.nifi.serialization.record.util.DataTypeUtils.toRecord(values, schema, null);
             }
 
+            // Each side carries its own read offset, so a KeyValue topic from the Kafka Connect adaptor
+            // frames the value (and the key, when its schema is Avro) independently (#207).
+            final int offset = AvroReadOffset.of(avroSchema, side);
+            AvroReadOffset.check(offset, data);
+
             final org.apache.avro.generic.GenericRecord avroRecord =
                     new org.apache.avro.generic.GenericDatumReader<org.apache.avro.generic.GenericRecord>(avroSchema)
-                            .read(null, org.apache.avro.io.DecoderFactory.get().binaryDecoder(data, null));
+                            .read(null, org.apache.avro.io.DecoderFactory.get()
+                                    .binaryDecoder(data, offset, data.length - offset, null));
 
             return new MapRecord(schema, AvroTypeUtil.convertAvroRecordToMap(avroRecord, schema));
         }

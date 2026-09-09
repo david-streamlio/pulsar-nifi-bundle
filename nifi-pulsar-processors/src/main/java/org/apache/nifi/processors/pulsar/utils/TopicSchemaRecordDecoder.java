@@ -74,9 +74,12 @@ public class TopicSchemaRecordDecoder {
         private final String primitiveField;
         private final org.apache.avro.Schema avroSchema;
         private final RecordSchema recordSchema;
+        private final SchemaInfo schemaInfo;
 
         private Parsed(final String definition, final SchemaType type, final String primitiveField,
-                final org.apache.avro.Schema avroSchema, final RecordSchema recordSchema) {
+                final org.apache.avro.Schema avroSchema, final RecordSchema recordSchema,
+                final SchemaInfo schemaInfo) {
+            this.schemaInfo = schemaInfo;
             this.definition = definition;
             this.type = type;
             this.primitiveField = primitiveField;
@@ -147,7 +150,7 @@ public class TopicSchemaRecordDecoder {
         if (current == null || !current.matches(definition, schemaInfo.getType(), null)) {
             final org.apache.avro.Schema avroSchema = new org.apache.avro.Schema.Parser().parse(definition);
             current = new Parsed(definition, schemaInfo.getType(), null, avroSchema,
-                    AvroTypeUtil.createSchema(avroSchema));
+                    AvroTypeUtil.createSchema(avroSchema), schemaInfo);
             parsed = current;
         }
 
@@ -159,8 +162,13 @@ public class TopicSchemaRecordDecoder {
         final GenericDatumReader<org.apache.avro.generic.GenericRecord> datumReader =
                 new GenericDatumReader<>(current.avroSchema);
 
-        final org.apache.avro.generic.GenericRecord avroRecord =
-                datumReader.read(null, DecoderFactory.get().binaryDecoder(data, null));
+        // The body may not start at byte zero: a schema fed through the Kafka Connect adaptor declares a
+        // preamble ahead of it (#207). Zero when the schema says nothing, which is every other topic.
+        final int offset = AvroReadOffset.of(current.avroSchema, current.schemaInfo);
+        AvroReadOffset.check(offset, data);
+
+        final org.apache.avro.generic.GenericRecord avroRecord = datumReader.read(null,
+                DecoderFactory.get().binaryDecoder(data, offset, data.length - offset, null));
 
         return new MapRecord(current.recordSchema,
                 AvroTypeUtil.convertAvroRecordToMap(avroRecord, current.recordSchema));
@@ -190,7 +198,7 @@ public class TopicSchemaRecordDecoder {
 
         if (current == null || !current.matches(null, type, fieldName)) {
             current = new Parsed(null, type, fieldName, null, new SimpleRecordSchema(Collections.singletonList(
-                    new RecordField(fieldName, PrimitiveTopicSchema.dataTypeOf(type)))));
+                    new RecordField(fieldName, PrimitiveTopicSchema.dataTypeOf(type)))), null);
             parsed = current;
         }
 
