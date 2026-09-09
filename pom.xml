@@ -91,17 +91,17 @@
         <commons-compress.version>1.28.0</commons-compress.version>
         <commons-lang3.version>3.20.0</commons-lang3.version>
         <commons.io.version>2.22.0</commons.io.version>
-        <conscrypt-openjdk.version>2.6.3</conscrypt-openjdk.version>
+        <conscrypt-openjdk.version>2.7.0</conscrypt-openjdk.version>
         <groovy-eclipse-batch.version>3.0.8-01</groovy-eclipse-batch.version>
         <grpc.version>1.41.0</grpc.version>
         <jackson-core.version>2.22.2</jackson-core.version>
         <junit.version>4.13.2</junit.version>
         <mockito-core.version>5.23.0</mockito-core.version>
         <nifi.version>2.11.0</nifi.version>
-        <protobuf3.version>4.36.0</protobuf3.version>
+        <protobuf3.version>4.36.1</protobuf3.version>
         <pulsar.version>4.2.4</pulsar.version>
-        <slf4j-simple.version>2.0.18</slf4j-simple.version>
-        <testcontainers.version>1.21.3</testcontainers.version>
+        <slf4j-simple.version>2.0.19</slf4j-simple.version>
+        <testcontainers.version>2.0.5</testcontainers.version>
         <!-- Pulsar broker image for the integration tests; kept in step with pulsar.version. -->
         <pulsar.image>apachepulsar/pulsar:4.2.4</pulsar.image>
         <!-- Docker API version the integration tests negotiate with. docker-java pins 1.32 by default,
@@ -112,14 +112,14 @@
 
         <!-- Maven plugin versions -->
         <docker-maven-plugin.version>0.49.0</docker-maven-plugin.version>
-        <maven-compiler-plugin.version>3.15.0</maven-compiler-plugin.version>
+        <maven-compiler-plugin.version>3.16.0</maven-compiler-plugin.version>
         <maven-gpg-plugin.version>3.2.8</maven-gpg-plugin.version>
         <maven-javadoc-plugin.version>3.12.0</maven-javadoc-plugin.version>
         <maven-source-plugin.version>3.4.0</maven-source-plugin.version>
         <nifi-nar-maven-plugin.version>2.4.0</nifi-nar-maven-plugin.version>
         <nexus-staging-maven-plugin.version>1.7.0</nexus-staging-maven-plugin.version>
         <maven-versions-plugin.version>2.5</maven-versions-plugin.version>
-        <maven-failsafe-plugin.version>3.5.1</maven-failsafe-plugin.version>
+        <maven-failsafe-plugin.version>3.6.0</maven-failsafe-plugin.version>
 
         <maven.deploy.skip>true</maven.deploy.skip>
     </properties>
