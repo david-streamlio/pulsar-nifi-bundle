@@ -163,9 +163,9 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
             .name("AUTO_UPDATE_PARTITION_INTERVAL")
             .displayName("Auto Update Partition Interval")
             .description("Set the interval of updating partitions (default: 1 minute). This only works if " +
-                    "autoUpdatePartitions is enabled. The Pulsar client keeps this interval in whole seconds: " +
-                    "the shortest interval it accepts is one second, and a fraction of a second is dropped - " +
-                    "the processor logs the value actually applied when it starts.")
+                    "autoUpdatePartitions is enabled. The Pulsar client keeps this interval as a whole number of " +
+                    "seconds, so the value must be a whole number of seconds between 1 second and 2147483647 seconds; " +
+                    "anything else is rejected at validation rather than silently applied as something different.")
             .addValidator(StandardValidators.TIME_PERIOD_VALIDATOR)
             .defaultValue("1 min")
             .required(false)
@@ -250,7 +250,8 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
             .displayName("Expire Time of Incomplete Chunked Message")
             .description("If producer fails to publish all the chunks of a message then consumer can expire incomplete" +
                     " chunks if consumer won't be able to receive all chunks in expire times (default 1 minute). " +
-                    "Applied with millisecond precision.")
+                    "The Pulsar client keeps this as a whole number of milliseconds, so the value must be one; " +
+                    "0 disables the expiry, and incomplete chunks are then kept until the pending-chunk queue evicts them.")
             .addValidator(StandardValidators.TIME_PERIOD_VALIDATOR)
             .defaultValue("60 sec")
             .required(false)
@@ -465,17 +466,36 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
                "Acknowledgment Timeout needs to be greater than 10 seconds.").build());
         }
 
-        // The client stores the partition update interval in whole seconds and refuses zero
-        // ("interval needs to be > 0"), so a value under a second reached it as 0 and the consumer could not
-        // be created: every trigger failed with a message about an interval the user never typed (#225).
-        // Rejecting it here fails nothing that runs today.
+        // Two time properties are handed to the client in a coarser unit than NiFi lets the user type, and
+        // the rule for each is the same: the value must be representable in the granularity the client
+        // stores it in, or it is rejected - never silently applied as something else (#225).
+        //
+        // The partition update interval is an int of whole seconds on the client, which also refuses zero
+        // ("interval needs to be > 0"). So a value under a second reached it as 0 and the consumer could
+        // not be created; a fraction of a second was dropped; and a value past Integer.MAX_VALUE seconds
+        // wrapped in intValue() - negative, and refused, or positive and silently far shorter than asked.
         final long partitionUpdateIntervalMillis = validationContext.getProperty(AUTO_UPDATE_PARTITION_INTERVAL)
                 .asTimePeriod(TimeUnit.MILLISECONDS);
-        if (partitionUpdateIntervalMillis < TimeUnit.SECONDS.toMillis(1)) {
+        if (partitionUpdateIntervalMillis < TimeUnit.SECONDS.toMillis(1)
+                || partitionUpdateIntervalMillis % TimeUnit.SECONDS.toMillis(1) != 0
+                || TimeUnit.MILLISECONDS.toSeconds(partitionUpdateIntervalMillis) > Integer.MAX_VALUE) {
             results.add(new ValidationResult.Builder().valid(false).subject(AUTO_UPDATE_PARTITION_INTERVAL.getDisplayName())
-                .explanation("the Pulsar client keeps this interval in whole seconds and accepts nothing under one second; "
-                    + validationContext.getProperty(AUTO_UPDATE_PARTITION_INTERVAL).getValue()
-                    + " would reach it as 0 and the consumer could not be created")
+                .explanation("the Pulsar client keeps this interval as a whole number of seconds between 1 and "
+                    + Integer.MAX_VALUE + "; " + validationContext.getProperty(AUTO_UPDATE_PARTITION_INTERVAL).getValue()
+                    + " is not one, and would be applied as a different interval or refused by the client")
+                .build());
+        }
+
+        // The chunk expiry is a long of whole milliseconds on the client, and 0 means "never expire". A value
+        // between 0 and 1 ms would truncate to that 0 and disable the expiry for someone who asked for the
+        // shortest one; a fraction of a millisecond would be dropped.
+        final long expireTimeNanos = validationContext.getProperty(EXPIRE_TIME_OF_INCOMPLETE_CHUNKED_MESSAGE)
+                .asTimePeriod(TimeUnit.NANOSECONDS);
+        if (expireTimeNanos % TimeUnit.MILLISECONDS.toNanos(1) != 0) {
+            results.add(new ValidationResult.Builder().valid(false).subject(EXPIRE_TIME_OF_INCOMPLETE_CHUNKED_MESSAGE.getDisplayName())
+                .explanation("the Pulsar client keeps this as a whole number of milliseconds; "
+                    + validationContext.getProperty(EXPIRE_TIME_OF_INCOMPLETE_CHUNKED_MESSAGE).getValue()
+                    + " is not one (0 disables the expiry)")
                 .build());
         }
 
@@ -510,7 +530,6 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
         // Exclusive subscription with "Exclusive consumer is already connected". The cache is built
         // lazily below and disposed in cleanUp().
         this.consumerCacheSize = context.getProperty(CONSUMER_CACHE_SIZE).asInteger();
-        warnIfPartitionUpdateIntervalLosesAFraction(context);
 
         if (context.getProperty(ASYNC_ENABLED).isSet() && context.getProperty(ASYNC_ENABLED).asBoolean()) {
             setConsumerPool(Executors.newFixedThreadPool(context.getProperty(MAX_ASYNC_REQUESTS).asInteger()));
@@ -537,21 +556,6 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
                     + "no negative acknowledgement at all. Lower the delay unless the longer wait is intended.",
                     NEGATIVE_ACK_REDELIVERY_DELAY.getDisplayName(), context.getProperty(NEGATIVE_ACK_REDELIVERY_DELAY).getValue(),
                     ACK_TIMEOUT.getDisplayName(), context.getProperty(ACK_TIMEOUT).getValue());
-        }
-    }
-
-    /**
-     * The client keeps Auto Update Partition Interval in whole seconds, so a fraction of a second in the configured
-     * value is not applied. A value under a second is rejected by {@link #customValidate}; one of a second or more
-     * with a fraction runs, only coarser than asked, and this says so once per start rather than never (#225).
-     */
-    private void warnIfPartitionUpdateIntervalLosesAFraction(final ProcessContext context) {
-        final long configuredMillis = context.getProperty(AUTO_UPDATE_PARTITION_INTERVAL).asTimePeriod(TimeUnit.MILLISECONDS);
-        if (configuredMillis % TimeUnit.SECONDS.toMillis(1) != 0) {
-            getLogger().warn("{} is set to {}, which the Pulsar client applies as {} seconds: it keeps this interval in "
-                    + "whole seconds, so the fraction of a second is dropped",
-                    AUTO_UPDATE_PARTITION_INTERVAL.getDisplayName(), context.getProperty(AUTO_UPDATE_PARTITION_INTERVAL).getValue(),
-                    TimeUnit.MILLISECONDS.toSeconds(configuredMillis));
         }
     }
 

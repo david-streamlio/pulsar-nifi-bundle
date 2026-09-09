@@ -25,7 +25,6 @@ import java.util.concurrent.TimeUnit;
 import org.apache.nifi.processors.pulsar.pubsub.ConsumePulsar;
 import org.apache.nifi.pulsar.StandardPulsarClientService;
 import org.apache.nifi.reporting.InitializationException;
-import org.apache.nifi.util.LogMessage;
 import org.apache.nifi.util.TestRunner;
 import org.apache.nifi.util.TestRunners;
 import org.apache.pulsar.client.api.PulsarClientException;
@@ -43,10 +42,11 @@ import org.junit.Test;
  * real {@code PulsarClient} - one that never connects; the client is lazy about that - and assert against the
  * {@link ConsumerConfigurationData} the builder holds, which is the value the consumer would run with.
  * <p>
- * <i>Expire Time of Incomplete Chunked Message</i> is stored by the client in milliseconds, so every value can
- * be honoured exactly. <i>Auto Update Partition Interval</i> is stored in whole seconds and the client refuses
- * zero, so a value under a second cannot be applied at all and a fraction of a second above that is dropped;
- * the first is rejected at validation and the second is warned about when the processor is scheduled.
+ * The rule is the same for both: the value must be representable in the granularity the client stores it in,
+ * or it is rejected at validation rather than applied as something else. <i>Expire Time of Incomplete Chunked
+ * Message</i> is a long of whole milliseconds, with 0 meaning "never expire". <i>Auto Update Partition
+ * Interval</i> is an int of whole seconds, and the client refuses zero, so the value must be a whole number of
+ * seconds between 1 and {@link Integer#MAX_VALUE}.
  */
 public class ConsumePulsarTimePropertiesTest {
 
@@ -107,6 +107,33 @@ public class ConsumePulsarTimePropertiesTest {
         assertEquals(TimeUnit.MINUTES.toMillis(1), consumerConfiguration().getExpireTimeOfIncompleteChunkedMessageMillis());
     }
 
+    /**
+     * Below a millisecond the same trap would reappear one unit down: {@code 0.5 millis} truncates to 0, and 0 is
+     * "never expire" - the opposite of the shortest expiry the user asked for. Not a whole millisecond, so rejected.
+     */
+    @Test
+    public void aChunkExpiryUnderOneMillisecondIsRejected() {
+        runner.setProperty(AbstractPulsarConsumerProcessor.EXPIRE_TIME_OF_INCOMPLETE_CHUNKED_MESSAGE, "0.5 millis");
+
+        runner.assertNotValid();
+    }
+
+    @Test
+    public void aChunkExpiryWithAFractionOfAMillisecondIsRejected() {
+        runner.setProperty(AbstractPulsarConsumerProcessor.EXPIRE_TIME_OF_INCOMPLETE_CHUNKED_MESSAGE, "1500000 nanos");
+
+        runner.assertNotValid();
+    }
+
+    /** Zero is the documented "never expire", chosen deliberately rather than arrived at by truncation. */
+    @Test
+    public void aZeroChunkExpiryIsValidAndDisablesTheExpiry() throws Exception {
+        runner.setProperty(AbstractPulsarConsumerProcessor.EXPIRE_TIME_OF_INCOMPLETE_CHUNKED_MESSAGE, "0 sec");
+
+        runner.assertValid();
+        assertEquals(0L, consumerConfiguration().getExpireTimeOfIncompleteChunkedMessageMillis());
+    }
+
     // --- Auto Update Partition Interval ------------------------------------------------------------------
 
     /**
@@ -139,29 +166,49 @@ public class ConsumePulsarTimePropertiesTest {
     }
 
     /**
-     * A second or more with a fraction runs, only coarser than asked: the client keeps whole seconds. That is
-     * allowed - it worked before and works now - but the processor says what it applied, once per start.
+     * A second or more with a fraction is not representable: the client keeps whole seconds, so {@code 90500 millis}
+     * would run as 90 s while the configuration says 90.5. Rejected, like the sibling Topics Pattern Discovery
+     * Interval, rather than silently applied as something else.
      */
     @Test
-    public void aFractionalPartitionUpdateIntervalIsAppliedAsWholeSecondsAndWarnsWhenScheduled() throws Exception {
+    public void aFractionalPartitionUpdateIntervalIsRejected() {
         runner.setProperty(AbstractPulsarConsumerProcessor.AUTO_UPDATE_PARTITION_INTERVAL, "90500 millis");
 
-        runner.assertValid();
-        assertEquals(90L, consumerConfiguration().getAutoUpdatePartitionsIntervalSeconds());
-
-        assertEquals("one warning about the dropped fraction, got " + runner.getLogger().getWarnMessages(),
-                1, runner.getLogger().getWarnMessages().size());
-        final LogMessage warning = runner.getLogger().getWarnMessages().get(0);
-        final String rendered = String.format(warning.getMsg().replace("{}", "%s"), warning.getArgs());
-        assertTrue(rendered, rendered.contains("Auto Update Partition Interval") && rendered.contains("90500 millis")
-                && rendered.contains("90 seconds"));
+        runner.assertNotValid();
     }
 
-    /** Whole seconds are applied as given, and nothing is logged about them. */
+    /**
+     * The client takes the seconds as an int, and the processor used {@code intValue()} on the long: past
+     * {@link Integer#MAX_VALUE} seconds the value wrapped - negative and refused by the client on every trigger, or
+     * positive and silently far shorter than asked ({@code 10000 weeks} ran as about 55 years, not 191).
+     */
     @Test
-    public void aWholeSecondPartitionUpdateIntervalIsAppliedAsGivenWithoutAWarning() throws Exception {
+    public void aPartitionUpdateIntervalPastTheIntRangeIsRejected() {
+        runner.setProperty(AbstractPulsarConsumerProcessor.AUTO_UPDATE_PARTITION_INTERVAL, "30000 days");
+        runner.assertNotValid();
+
+        runner.setProperty(AbstractPulsarConsumerProcessor.AUTO_UPDATE_PARTITION_INTERVAL, "10000 weeks");
+        runner.assertNotValid();
+
+        runner.setProperty(AbstractPulsarConsumerProcessor.AUTO_UPDATE_PARTITION_INTERVAL, (Integer.MAX_VALUE + 1L) + " sec");
+        runner.assertNotValid();
+    }
+
+    /** The top of the range is representable and applied as given. */
+    @Test
+    public void thePartitionUpdateIntervalAtTheTopOfTheIntRangeIsValid() throws Exception {
+        runner.setProperty(AbstractPulsarConsumerProcessor.AUTO_UPDATE_PARTITION_INTERVAL, Integer.MAX_VALUE + " sec");
+
+        runner.assertValid();
+        assertEquals((long) Integer.MAX_VALUE, consumerConfiguration().getAutoUpdatePartitionsIntervalSeconds());
+    }
+
+    /** Whole seconds are applied as given. */
+    @Test
+    public void aWholeSecondPartitionUpdateIntervalIsAppliedAsGiven() throws Exception {
         runner.setProperty(AbstractPulsarConsumerProcessor.AUTO_UPDATE_PARTITION_INTERVAL, "90 sec");
 
+        runner.assertValid();
         assertEquals(90L, consumerConfiguration().getAutoUpdatePartitionsIntervalSeconds());
         assertEquals(0, runner.getLogger().getWarnMessages().size());
     }
