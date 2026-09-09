@@ -231,7 +231,10 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
                     + "what a flow that must not miss messages needs. 'NonDurable' leaves no cursor behind: the "
                     + "subscription exists only while the consumer is connected and is forgotten afterwards, "
                     + "which is what tailing a topic wants, and it does not accumulate a backlog on the broker "
-                    + "when the flow is stopped.")
+                    + "when the flow is stopped. What it gives up is delivery across restarts: with no cursor "
+                    + "there is nothing to resume from, so the flow does not pick up where it left off, and "
+                    + "with Subscription Initial Position set to Earliest it re-reads the topic from the "
+                    + "beginning every time it is scheduled.")
             .required(false)
             .allowableValues(SubscriptionMode.Durable.name(), SubscriptionMode.NonDurable.name())
             .defaultValue(SubscriptionMode.Durable.name())
@@ -257,7 +260,9 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
             .description("How often the client re-evaluates a Topics Pattern to pick up topics created since "
                     + "it subscribed. A topic that starts matching is not consumed until the next sweep, so "
                     + "this is the worst-case delay before a newly created topic is read. Only applies when "
-                    + "Topics Pattern is used; ignored when Topics is used instead.")
+                    + "Topics Pattern is used; ignored when Topics is used instead - except that the value "
+                    + "must be a whole number of seconds within int range either way, because the client "
+                    + "checks that when it builds any consumer.")
             .addValidator(StandardValidators.TIME_PERIOD_VALIDATOR)
             .defaultValue("60 sec")
             .required(false)
@@ -674,6 +679,22 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
                     + "view is this topic's history, and a new subscription starting at the tail will not see "
                     + "any of it. Set Subscription Initial Position to {} to read the compacted view.",
                     OFFSET_LATEST.getValue(), OFFSET_EARLIEST.getValue());
+        }
+
+        // The mirror of the warning above, and the reason it is worth saying: the Read Compacted guidance
+        // sends users to Earliest, and Earliest on a NonDurable subscription re-reads the whole topic every
+        // time the consumer subscribes. The broker keeps no cursor for a NonDurable subscription, so there
+        // is no resume point - newNonDurableCursor resolves Earliest to the first position in the ledger.
+        // That is every stop/start, and every eviction from the consumer cache too, since removeLRU closes
+        // the consumer it drops and getConsumerId varies with the incoming FlowFile's attributes.
+        if (SubscriptionMode.NonDurable.name().equals(context.getProperty(SUBSCRIPTION_MODE).getValue())
+                && OFFSET_EARLIEST.getValue().equals(context.getProperty(SUBSCRIPTION_INITIAL_POSITION).getValue())) {
+            getLogger().warn("Subscription Mode is {} with Subscription Initial Position {}: the broker keeps "
+                    + "no cursor for a non-durable subscription, so this flow re-reads the topic from the "
+                    + "beginning every time it is scheduled and every time a consumer is evicted from the "
+                    + "cache, rather than resuming. Use {} to resume where it left off, or {} to tail.",
+                    SubscriptionMode.NonDurable.name(), OFFSET_EARLIEST.getValue(),
+                    SubscriptionMode.Durable.name(), OFFSET_LATEST.getValue());
         }
 
         // Record the size only. Replacing the cache here would abandon the consumers the previous one

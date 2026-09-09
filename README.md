@@ -184,12 +184,18 @@ matches a non-persistent topic can appear to do nothing. *Topics Pattern Match M
 that — `PersistentOnly` (the default and the previous behaviour), `NonPersistentOnly`, or
 `AllTopics`. *Topics Pattern Discovery Interval* is how often the client re-evaluates the
 pattern, and so the worst-case delay before a newly created matching topic is read. Both are
-ignored when *Topics* is used.
+ignored when *Topics* is used — with one exception: the discovery interval is still bounded to a
+whole number of seconds within `int` range whichever is set, because the client checks that bound
+when it builds any consumer, not only a pattern one.
 
 *Subscription Mode* decides whether the broker keeps a cursor. `Durable` (the default) survives
 a restart and resumes where it left off. `NonDurable` leaves no cursor: the subscription exists
 only while the consumer is connected, which is what tailing wants, and it accumulates no backlog
-on the broker while the flow is stopped.
+on the broker while the flow is stopped. What it gives up is delivery across restarts — with no
+cursor there is no resume point, so a `NonDurable` subscription set to *Subscription Initial
+Position* `Earliest` re-reads the topic from the beginning every time it is scheduled, and every
+time a consumer is evicted from the cache. The processor warns when it starts in that state.
+Worth knowing because the *Read Compacted* guidance below sends you to `Earliest`.
 
 *Read Compacted* reads the compacted view of a topic — the latest value per key — instead of its
 backlog. Messages without a key are not delivered at all, and the topic must actually have

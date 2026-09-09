@@ -18,12 +18,22 @@ package org.apache.nifi.processors.pulsar.pubsub;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+import java.nio.charset.StandardCharsets;
+import java.util.concurrent.TimeUnit;
 
 import org.apache.nifi.processors.pulsar.AbstractPulsarConsumerProcessor;
 import org.apache.nifi.processors.pulsar.AbstractPulsarProcessorTest;
 import org.apache.nifi.reporting.InitializationException;
 import org.apache.nifi.util.MockProcessContext;
 import org.apache.nifi.util.TestRunners;
+import org.apache.pulsar.client.api.Message;
+import org.apache.pulsar.client.api.RegexSubscriptionMode;
+import org.apache.pulsar.client.api.SubscriptionMode;
 import org.apache.pulsar.client.api.schema.GenericRecord;
 import org.junit.Before;
 import org.junit.Test;
@@ -49,9 +59,22 @@ public class ConsumePulsarTopicPropertiesTest extends AbstractPulsarProcessorTes
         runner.setProperty(AbstractPulsarConsumerProcessor.SUBSCRIPTION_NAME, "nifi-subscription");
     }
 
-    /** The defaults have to leave every existing flow exactly as it was. */
+    /**
+     * The defaults have to leave every existing flow exactly as it was, which means matching the client's
+     * own defaults in {@code ConsumerConfigurationData}. Asserted rather than assumed: a later change to any
+     * of these four would silently alter the behaviour of every flow that never sets them, and validity
+     * alone would not notice.
+     */
     @Test
     public void theDefaultsAreTheClientDefaultsAndStayValid() {
+        assertEquals(SubscriptionMode.Durable.name(),
+                AbstractPulsarConsumerProcessor.SUBSCRIPTION_MODE.getDefaultValue());
+        assertEquals("false", AbstractPulsarConsumerProcessor.READ_COMPACTED.getDefaultValue());
+        assertEquals(RegexSubscriptionMode.PersistentOnly.name(),
+                AbstractPulsarConsumerProcessor.REGEX_SUBSCRIPTION_MODE.getDefaultValue());
+        assertEquals("60 sec",
+                AbstractPulsarConsumerProcessor.PATTERN_AUTO_DISCOVERY_PERIOD.getDefaultValue());
+
         runner.setProperty(AbstractPulsarConsumerProcessor.SUBSCRIPTION_TYPE, "Shared");
 
         runner.assertValid();
@@ -348,6 +371,55 @@ public class ConsumePulsarTopicPropertiesTest extends AbstractPulsarProcessorTes
         runner.assertValid();
     }
 
+    /**
+     * A non-durable subscription leaves no cursor, so Earliest has nothing to resume from and re-reads the
+     * topic from the start on every schedule - and on every eviction from the consumer cache. Valid, and
+     * sometimes wanted, but the Read Compacted guidance sends users to Earliest, so the combination is easy
+     * to arrive at without meaning to.
+     */
+    @Test
+    public void aNonDurableSubscriptionAtTheEarliestPositionWarns() throws Exception {
+        runner.setProperty(AbstractPulsarConsumerProcessor.SUBSCRIPTION_TYPE, "Exclusive");
+        runner.setProperty(AbstractPulsarConsumerProcessor.SUBSCRIPTION_MODE, "NonDurable");
+        runner.setProperty(AbstractPulsarConsumerProcessor.SUBSCRIPTION_INITIAL_POSITION, "Earliest");
+
+        runner.assertValid();
+        runner.run(1, false, true);
+
+        assertEquals("exactly one warning is expected at scheduling", 1,
+                runner.getLogger().getWarnMessages().stream()
+                        .filter(m -> m.getMsg().contains("no cursor for a non-durable subscription"))
+                        .count());
+    }
+
+    @Test
+    public void aDurableSubscriptionAtTheEarliestPositionDoesNotWarn() throws Exception {
+        runner.setProperty(AbstractPulsarConsumerProcessor.SUBSCRIPTION_TYPE, "Exclusive");
+        runner.setProperty(AbstractPulsarConsumerProcessor.SUBSCRIPTION_INITIAL_POSITION, "Earliest");
+
+        runner.run(1, false, true);
+
+        assertEquals("no warning is expected when the cursor is durable", 0,
+                runner.getLogger().getWarnMessages().stream()
+                        .filter(m -> m.getMsg().contains("no cursor for a non-durable subscription"))
+                        .count());
+    }
+
+    /** The warning is about the combination: tailing without a cursor is exactly what NonDurable is for. */
+    @Test
+    public void aNonDurableSubscriptionAtTheLatestPositionDoesNotWarn() throws Exception {
+        runner.setProperty(AbstractPulsarConsumerProcessor.SUBSCRIPTION_TYPE, "Exclusive");
+        runner.setProperty(AbstractPulsarConsumerProcessor.SUBSCRIPTION_MODE, "NonDurable");
+        runner.setProperty(AbstractPulsarConsumerProcessor.SUBSCRIPTION_INITIAL_POSITION, "Latest");
+
+        runner.run(1, false, true);
+
+        assertEquals("no warning is expected when tailing", 0,
+                runner.getLogger().getWarnMessages().stream()
+                        .filter(m -> m.getMsg().contains("no cursor for a non-durable subscription"))
+                        .count());
+    }
+
     /** The two Topics Pattern properties are accepted alongside a pattern subscription. */
     @Test
     public void theTopicsPatternPropertiesAreValidWithAPattern() {
@@ -372,5 +444,59 @@ public class ConsumePulsarTopicPropertiesTest extends AbstractPulsarProcessorTes
         runner.setProperty(AbstractPulsarConsumerProcessor.PATTERN_AUTO_DISCOVERY_PERIOD, "5 sec");
 
         runner.assertValid();
+    }
+
+    /**
+     * Validation is not evidence that a property is applied. These four are the whole point of the change,
+     * and every other test here stops at the canvas - so without this, deleting any of the four calls from
+     * {@code getConsumerBuilder} leaves the suite green.
+     */
+    private void scheduleOnceWithAMessage() {
+        @SuppressWarnings("unchecked")
+        final Message<GenericRecord> message = mock(Message.class);
+        when(message.getData()).thenReturn("mocked message".getBytes(StandardCharsets.UTF_8));
+        mockClientService.setMockMessage(message);
+
+        runner.run(1, true);
+    }
+
+    @Test
+    public void readCompactedReachesTheConsumerBuilder() {
+        runner.setProperty(AbstractPulsarConsumerProcessor.SUBSCRIPTION_TYPE, "Exclusive");
+        runner.setProperty(AbstractPulsarConsumerProcessor.SUBSCRIPTION_INITIAL_POSITION, "Earliest");
+        runner.setProperty(AbstractPulsarConsumerProcessor.READ_COMPACTED, "true");
+
+        scheduleOnceWithAMessage();
+
+        verify(mockClientService.getMockConsumerBuilder(), times(1)).readCompacted(true);
+    }
+
+    @Test
+    public void subscriptionModeReachesTheConsumerBuilder() {
+        runner.setProperty(AbstractPulsarConsumerProcessor.SUBSCRIPTION_TYPE, "Shared");
+        runner.setProperty(AbstractPulsarConsumerProcessor.SUBSCRIPTION_MODE,
+                SubscriptionMode.NonDurable.name());
+
+        scheduleOnceWithAMessage();
+
+        verify(mockClientService.getMockConsumerBuilder(), times(1))
+                .subscriptionMode(SubscriptionMode.NonDurable);
+    }
+
+    @Test
+    public void theTopicsPatternPropertiesReachTheConsumerBuilder() {
+        runner.removeProperty(AbstractPulsarConsumerProcessor.TOPICS);
+        runner.setProperty(AbstractPulsarConsumerProcessor.TOPICS_PATTERN, "persistent://public/default/tp-.*");
+        runner.setProperty(AbstractPulsarConsumerProcessor.SUBSCRIPTION_TYPE, "Shared");
+        runner.setProperty(AbstractPulsarConsumerProcessor.REGEX_SUBSCRIPTION_MODE,
+                RegexSubscriptionMode.AllTopics.name());
+        runner.setProperty(AbstractPulsarConsumerProcessor.PATTERN_AUTO_DISCOVERY_PERIOD, "5 sec");
+
+        scheduleOnceWithAMessage();
+
+        verify(mockClientService.getMockConsumerBuilder(), times(1))
+                .subscriptionTopicsMode(RegexSubscriptionMode.AllTopics);
+        verify(mockClientService.getMockConsumerBuilder(), times(1))
+                .patternAutoDiscoveryPeriod(5, TimeUnit.SECONDS);
     }
 }

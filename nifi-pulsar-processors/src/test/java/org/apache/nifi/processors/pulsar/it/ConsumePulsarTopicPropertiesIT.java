@@ -19,6 +19,7 @@ package org.apache.nifi.processors.pulsar.it;
 import static org.junit.Assert.assertTrue;
 
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 import org.apache.nifi.processors.pulsar.AbstractPulsarConsumerProcessor;
 import org.apache.nifi.processors.pulsar.pubsub.ConsumePulsar;
@@ -86,6 +87,46 @@ public class ConsumePulsarTopicPropertiesIT extends AbstractPulsarIT {
         assertTrue("nothing was consumed from the non-persistent topic", !flowFiles.isEmpty());
         assertTrue("the consumed content did not come from the non-persistent topic",
                 new String(flowFiles.get(0).toByteArray()).contains("non-persistent-payload"));
+    }
+
+    /**
+     * The other half of the rule above, and the premise the Read Compacted validation rests on: under the
+     * default <code>PersistentOnly</code> the same pattern must not match the same non-persistent topic.
+     * Without this, the positive case alone would also hold on a broker that ignored the match mode
+     * entirely - and the rule at customValidate ("Match Mode must be PersistentOnly" for a compacted read)
+     * would be resting on an untested assumption.
+     * <p>
+     * The wait is the same 30s the positive case gets before it gives up, so this is "did not arrive in the
+     * time the match mode needs to work", not "did not arrive yet".
+     */
+    @Test
+    public void aNonPersistentTopicIsNotMatchedUnderTheDefaultMatchMode() throws Exception {
+        final String suffix = "no-match-" + System.nanoTime();
+        final String nonPersistent = "non-persistent://public/default/" + suffix;
+
+        runner.setProperty(AbstractPulsarConsumerProcessor.TOPICS_PATTERN,
+                "non-persistent://public/default/" + suffix);
+        runner.setProperty(AbstractPulsarConsumerProcessor.SUBSCRIPTION_NAME, "no-match-sub");
+        runner.setProperty(AbstractPulsarConsumerProcessor.SUBSCRIPTION_TYPE, "Exclusive");
+        runner.setProperty(AbstractPulsarConsumerProcessor.REGEX_SUBSCRIPTION_MODE, "PersistentOnly");
+        runner.setProperty(AbstractPulsarConsumerProcessor.PATTERN_AUTO_DISCOVERY_PERIOD, "1 sec");
+
+        runner.run(1, false, true);
+
+        try (Producer<byte[]> producer = getClient().newProducer(Schema.BYTES).topic(nonPersistent).create()) {
+            final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
+
+            while (System.nanoTime() < deadline) {
+                producer.send("non-persistent-payload".getBytes());
+                runner.run(1, false, false);
+
+                assertTrue("the non-persistent topic was consumed under PersistentOnly, so the match mode "
+                        + "is not what decides the domain a pattern matches",
+                        runner.getFlowFilesForRelationship(ConsumePulsar.REL_SUCCESS).isEmpty());
+
+                Thread.sleep(250);
+            }
+        }
     }
 
     /**
