@@ -1037,20 +1037,25 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
      * nor recoverable from Pulsar. The acknowledgement now runs in the commit callback, so a session that
      * is never committed acknowledges nothing and the broker redelivers its messages instead.
      * <p>
-     * Shared and Key_Shared subscriptions do not permit cumulative acknowledgements, so every message is
-     * acknowledged individually; the other subscription types acknowledge cumulatively up to the last
-     * message. In asynchronous mode the acknowledgements are submitted to the acknowledgement service and
-     * collected by {@link #drainAcknowledgments()}, as before. {@code messages} is emptied so the caller
-     * can keep collecting the messages of the next commit in the same list.
+     * Every message is acknowledged individually, on every subscription type. Exclusive and Failover
+     * subscriptions used to acknowledge cumulatively up to the last message of the batch, and a cumulative
+     * acknowledgement covers everything before that message on the subscription - not only this batch. Two
+     * things can be "before" it and not belong to the batch: a message a concurrent task is still holding,
+     * and a message this task received earlier, failed to write and negatively acknowledged, which is waiting
+     * for redelivery. Both were acknowledged along with the batch and never came back (#223). Acknowledging
+     * each message names exactly what was committed. The client groups the acknowledgements into one command
+     * anyway ({@code acknowledgementsGroupTimeMicros}), so a batch costs the broker one round trip either way.
+     * In asynchronous mode the acknowledgements are submitted to the acknowledgement service and collected by
+     * {@link #drainAcknowledgments()}, as before. {@code messages} is emptied so the caller can keep collecting
+     * the messages of the next commit in the same list.
      *
      * @param session  the session holding the FlowFiles the messages were written to
      * @param consumer the consumer the messages were received from
      * @param messages the messages carried by the FlowFiles in the session; cleared on return
-     * @param shared   whether the subscription is Shared or Key_Shared
      * @param async    whether to acknowledge through the asynchronous acknowledgement service
      */
     protected void commitAndAcknowledge(final ProcessSession session, final Consumer<GenericRecord> consumer,
-                                        final List<Message<GenericRecord>> messages, final boolean shared, final boolean async) {
+                                        final List<Message<GenericRecord>> messages, final boolean async) {
         if (messages.isEmpty()) {
             return;
         }
@@ -1058,7 +1063,7 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
         final List<Message<GenericRecord>> committed = new ArrayList<>(messages);
         messages.clear();
 
-        session.commitAsync(() -> acknowledge(consumer, committed, shared, async));
+        session.commitAsync(() -> acknowledge(consumer, committed, async));
     }
 
     /**
@@ -1094,25 +1099,15 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
     }
 
     private void acknowledge(final Consumer<GenericRecord> consumer, final List<Message<GenericRecord>> messages,
-                             final boolean shared, final boolean async) {
+                             final boolean async) {
         final ExecutorCompletionService<Object> service = async ? getAckService() : null;
 
         try {
-            if (shared) {
-                for (final Message<GenericRecord> message : messages) {
-                    if (service != null) {
-                        service.submit(() -> consumer.acknowledgeAsync(message).get());
-                    } else {
-                        consumer.acknowledge(message);
-                    }
-                }
-            } else {
-                final Message<GenericRecord> last = messages.get(messages.size() - 1);
-
+            for (final Message<GenericRecord> message : messages) {
                 if (service != null) {
-                    service.submit(() -> consumer.acknowledgeCumulativeAsync(last).get());
+                    service.submit(() -> consumer.acknowledgeAsync(message).get());
                 } else {
-                    consumer.acknowledgeCumulative(last);
+                    consumer.acknowledge(message);
                 }
             }
         } catch (final PulsarClientException e) {
@@ -1212,10 +1207,5 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
 
         return msg.getKey();
     }
-    
-    protected boolean isSharedSubscription(ProcessContext context) {
-    	final String subscriptionType = context.getProperty(SUBSCRIPTION_TYPE).getValue();
-    	
-    	return subscriptionType.equalsIgnoreCase(SHARED.getValue()) || subscriptionType.equalsIgnoreCase(KEY_SHARED.getValue());
-    }
+
 }

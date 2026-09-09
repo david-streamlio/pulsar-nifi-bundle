@@ -84,12 +84,10 @@ public class ConsumePulsarRecordAcknowledgementTest extends AbstractPulsarProces
 
     private final boolean async;
     private final String subscriptionType;
-    private final boolean shared;
 
     public ConsumePulsarRecordAcknowledgementTest(final boolean async, final String subscriptionType) {
         this.async = async;
         this.subscriptionType = subscriptionType;
-        this.shared = isSharedSubType(subscriptionType);
     }
 
     @Before
@@ -121,8 +119,7 @@ public class ConsumePulsarRecordAcknowledgementTest extends AbstractPulsarProces
         runner.run(1, true);
 
         runner.assertAllFlowFilesTransferred(ConsumePulsarRecord.REL_SUCCESS, 1);
-        assertEquals("one acknowledgement per message on a Shared subscription, one cumulative acknowledgement otherwise",
-                shared ? 3 : 1, statesAtAcknowledgement.size());
+        assertEquals("one acknowledgement per message, whatever the subscription type (#223)", 3, statesAtAcknowledgement.size());
         for (final String state : statesAtAcknowledgement) {
             assertEquals("a message was acknowledged before the FlowFile carrying it was committed", ONE_COMMITTED_FLOWFILE, state);
         }
@@ -144,7 +141,7 @@ public class ConsumePulsarRecordAcknowledgementTest extends AbstractPulsarProces
         runner.assertTransferCount(ConsumePulsarRecord.REL_SUCCESS, 0);
         runner.assertTransferCount(ConsumePulsarRecord.REL_PARSE_FAILURE, 1);
         assertEquals("every unparseable message is acknowledged once its parse_failure FlowFile is committed",
-                shared ? 3 : 1, statesAtAcknowledgement.size());
+                3, statesAtAcknowledgement.size());
         for (final String state : statesAtAcknowledgement) {
             assertEquals("a message was acknowledged before the FlowFile carrying it was committed", ONE_COMMITTED_FLOWFILE, state);
         }
