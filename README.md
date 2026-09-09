@@ -220,6 +220,67 @@ is what to use when clients in other languages also write the topic.
 > either raise *Max Pending Messages*, set it to `0` to restore the previous unbounded behaviour, or
 > enable *Block if Message Queue Full* so sends wait instead of failing.
 
+## Choosing what to consume
+
+*Topics* and *Topics Pattern* are alternatives; exactly one must be set.
+
+A pattern matches **persistent topics only** by default, which is why a pattern that plainly
+matches a non-persistent topic can appear to do nothing. *Topics Pattern Match Mode* changes
+that — `PersistentOnly` (the default and the previous behaviour), `NonPersistentOnly`, or
+`AllTopics`. *Topics Pattern Discovery Interval* is how often the client re-evaluates the
+pattern, and so the worst-case delay before a newly created matching topic is read. Both are
+ignored when *Topics* is used — with one exception: the discovery interval is still bounded to a
+whole number of seconds within `int` range whichever is set, because the client checks that bound
+when it builds any consumer, not only a pattern one.
+
+*Subscription Mode* decides whether the broker keeps a cursor. `Durable` (the default) survives
+a restart and resumes where it left off. `NonDurable` leaves no cursor: the subscription exists
+only while the consumer is connected, which is what tailing wants, and it accumulates no backlog
+on the broker while the flow is stopped. What it gives up is delivery across restarts — with no
+cursor there is no resume point, so a `NonDurable` subscription set to *Subscription Initial
+Position* `Earliest` re-reads the topic from the beginning every time it is scheduled, and every
+time a consumer is evicted from the cache. The processor warns when it starts in that state.
+Worth knowing because the *Read Compacted* guidance below sends you to `Earliest`.
+
+*Read Compacted* reads the compacted view of a topic — the latest value per key — instead of its
+backlog. Messages without a key are not delivered at all, and the topic must actually have
+compaction running for there to be a compacted view; without it the subscription reads the normal
+backlog.
+
+*Read Compacted* has two requirements, and the client states both: *"Read compacted can only be used
+with exclusive or failover **persistent** subscriptions"*.
+
+- **A single active consumer** — so `Exclusive` or `Failover`.
+- **The persistent domain** — only a persistent topic has a compacted view. A `non-persistent://`
+  topic named literally in *Topics* is rejected at validation, as is a *Topics Pattern* whose *Match
+  Mode* admits non-persistent topics. A topic supplied by an expression is only checked if the
+  expression resolves at startup — an environment variable or a system property does, and a
+  non-persistent topic from one of those is warned about when the processor starts. A topic taken
+  from FlowFile attributes does not resolve at startup, so neither validation nor the warning can
+  see it and the client is what refuses the subscription. That second case matters because the client cannot catch it: with a pattern its topic list
+  is empty, so its own domain check passes vacuously and any non-persistent topic the pattern matches
+  is served as a live stream — the flow would read a full stream while its configuration says it is
+  reading the latest value per key, with nothing reporting it. A `non-persistent://` prefix on the
+  *pattern itself* is not rejected, because it is inert: the client strips the scheme from the pattern
+  and from every candidate topic, so the domain comes from *Match Mode* alone.
+
+> **Set *Subscription Initial Position* to `Earliest`.** The compacted view is the history of the
+> topic — the latest value for each key seen so far. A new subscription left at the default of
+> `Latest` starts at the tail, so a compacted read delivers **nothing at all** until a new message
+> arrives, which looks identical to a broken flow.
+
+> **The two single-consumer constraints are mirror images.** A compacted read needs a *single
+> active consumer*, so Pulsar permits it only on `Exclusive` and `Failover`. A dead letter policy
+> needs *competing* consumers, so Pulsar builds one only for `Shared` and `Key_Shared`. No
+> subscription type satisfies both, and the processor rejects each on the wrong type at validation
+> rather than letting the client fail at subscribe time.
+
+> **Concurrent Tasks and non-Shared subscriptions.** Because *Read Compacted* requires `Exclusive` or
+> `Failover`, flows using it are on a subscription type where *Concurrent Tasks* > 1 is not currently
+> safe: one task's cumulative acknowledgement can acknowledge messages another task still holds. See
+> [#223](https://github.com/david-streamlio/pulsar-nifi-bundle/issues/223). Run these flows with a
+> single task until that is resolved.
+
 ## Producer behaviour
 
 *Send Timeout* bounds how long a single send may take. A message the broker has not acknowledged
