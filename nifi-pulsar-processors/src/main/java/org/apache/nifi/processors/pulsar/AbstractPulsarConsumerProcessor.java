@@ -163,7 +163,9 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
             .name("AUTO_UPDATE_PARTITION_INTERVAL")
             .displayName("Auto Update Partition Interval")
             .description("Set the interval of updating partitions (default: 1 minute). This only works if " +
-                    "autoUpdatePartitions is enabled.")
+                    "autoUpdatePartitions is enabled. The Pulsar client keeps this interval as a whole number of " +
+                    "seconds, so the value must be a whole number of seconds between 1 second and 2147483647 seconds; " +
+                    "anything else is rejected at validation rather than silently applied as something different.")
             .addValidator(StandardValidators.TIME_PERIOD_VALIDATOR)
             .defaultValue("1 min")
             .required(false)
@@ -247,7 +249,9 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
             .name("EXPIRE_TIME_OF_INCOMPLETE_CHUNKED_MESSAGE")
             .displayName("Expire Time of Incomplete Chunked Message")
             .description("If producer fails to publish all the chunks of a message then consumer can expire incomplete" +
-                    " chunks if consumer won't be able to receive all chunks in expire times (default 1 minute).")
+                    " chunks if consumer won't be able to receive all chunks in expire times (default 1 minute). " +
+                    "The Pulsar client keeps this as a whole number of milliseconds, so the value must be one; " +
+                    "0 disables the expiry, and incomplete chunks are then kept until the pending-chunk queue evicts them.")
             .addValidator(StandardValidators.TIME_PERIOD_VALIDATOR)
             .defaultValue("60 sec")
             .required(false)
@@ -462,6 +466,46 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
                "Acknowledgment Timeout needs to be greater than 10 seconds.").build());
         }
 
+        // Two time properties are handed to the client in a coarser unit than NiFi lets the user type, and
+        // the rule for each is the same: the value must be representable in the granularity the client
+        // stores it in, or it is rejected - never silently applied as something else (#225).
+        //
+        // The partition update interval is an int of whole seconds on the client, which also refuses zero
+        // ("interval needs to be > 0"). So a value under a second reached it as 0 and the consumer could
+        // not be created; a fraction of a second was dropped; and a value past Integer.MAX_VALUE seconds
+        // wrapped in intValue() - negative, and refused, or positive and silently far shorter than asked.
+        //
+        // Unconditional on purpose, whatever Auto Update Partitions says: the client's precondition runs
+        // when the consumer is BUILT, for every consumer, while the value is only read at runtime under
+        // that flag. TIME_PERIOD_VALIDATOR already guarantees a non-negative duration, so the int overflow
+        // is the only way the builder can be handed a negative interval - which makes the upper bound a
+        // correctness requirement, not a sanity limit. The floor stays at one second, not zero, because
+        // that is what this setter enforces; the sibling Topics Pattern Discovery Interval accepts zero.
+        final long partitionUpdateIntervalMillis = validationContext.getProperty(AUTO_UPDATE_PARTITION_INTERVAL)
+                .asTimePeriod(TimeUnit.MILLISECONDS);
+        if (partitionUpdateIntervalMillis < TimeUnit.SECONDS.toMillis(1)
+                || partitionUpdateIntervalMillis % TimeUnit.SECONDS.toMillis(1) != 0
+                || TimeUnit.MILLISECONDS.toSeconds(partitionUpdateIntervalMillis) > Integer.MAX_VALUE) {
+            results.add(new ValidationResult.Builder().valid(false).subject(AUTO_UPDATE_PARTITION_INTERVAL.getDisplayName())
+                .explanation("the Pulsar client keeps this interval as a whole number of seconds between 1 and "
+                    + Integer.MAX_VALUE + "; " + validationContext.getProperty(AUTO_UPDATE_PARTITION_INTERVAL).getValue()
+                    + " is not one, and would be applied as a different interval or refused by the client")
+                .build());
+        }
+
+        // The chunk expiry is a long of whole milliseconds on the client, and 0 means "never expire". A value
+        // between 0 and 1 ms would truncate to that 0 and disable the expiry for someone who asked for the
+        // shortest one; a fraction of a millisecond would be dropped.
+        final long expireTimeNanos = validationContext.getProperty(EXPIRE_TIME_OF_INCOMPLETE_CHUNKED_MESSAGE)
+                .asTimePeriod(TimeUnit.NANOSECONDS);
+        if (expireTimeNanos % TimeUnit.MILLISECONDS.toNanos(1) != 0) {
+            results.add(new ValidationResult.Builder().valid(false).subject(EXPIRE_TIME_OF_INCOMPLETE_CHUNKED_MESSAGE.getDisplayName())
+                .explanation("the Pulsar client keeps this as a whole number of milliseconds; "
+                    + validationContext.getProperty(EXPIRE_TIME_OF_INCOMPLETE_CHUNKED_MESSAGE).getValue()
+                    + " is not one (0 disables the expiry)")
+                .build());
+        }
+
         final boolean deadLetterEnabled = validationContext.getProperty(MAX_REDELIVER_COUNT).isSet();
         final String subscriptionType = validationContext.getProperty(SUBSCRIPTION_TYPE).getValue();
 
@@ -668,8 +712,11 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
                 .negativeAckRedeliveryDelay(context.getProperty(NEGATIVE_ACK_REDELIVERY_DELAY)
                         .asTimePeriod(TimeUnit.MICROSECONDS), TimeUnit.MICROSECONDS)
                 .autoAckOldestChunkedMessageOnQueueFull(context.getProperty(AUTO_ACK_OLDEST_CHUNKED_ON_QUEUE_FULL).asBoolean())
+                // The client stores this in milliseconds, so hand it over in milliseconds: converting to whole
+                // seconds here dropped any fraction, and turned a sub-second value into 0, which disables the
+                // expiry altogether (#225).
                 .expireTimeOfIncompleteChunkedMessage(context.getProperty(EXPIRE_TIME_OF_INCOMPLETE_CHUNKED_MESSAGE)
-                        .asTimePeriod(TimeUnit.SECONDS), TimeUnit.SECONDS)
+                        .asTimePeriod(TimeUnit.MILLISECONDS), TimeUnit.MILLISECONDS)
                 .maxPendingChunkedMessage(context.getProperty(MAX_PENDING_CHUNKED_MESSAGE).asInteger())
                 .priorityLevel(context.getProperty(PRIORITY_LEVEL).asInteger())
                 .receiverQueueSize(context.getProperty(RECEIVER_QUEUE_SIZE).asInteger())

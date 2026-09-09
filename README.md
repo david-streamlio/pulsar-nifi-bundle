@@ -256,6 +256,35 @@ on a `Key_Shared` subscription**: a consumer receives a whole batch at a time, s
 several keys hands one consumer messages belonging to another consumer's key range. It has no
 effect when batching is off.
 
+## Consumer time properties
+
+NiFi time-period values always carry a unit (`500 millis`, `90 sec`, `1 min`), so the only question
+for a property the Pulsar client stores in a coarser unit is whether the duration you typed is
+representable in the granularity the client keeps. Where it is not, the value is **rejected at
+validation** rather than silently applied as something else.
+
+*Auto Update Partition Interval* is kept by the client as a whole number of **seconds**, in an `int`,
+and the client refuses zero. The value must therefore be a whole number of seconds between `1 sec`
+and `2147483647 sec`: `500 millis` would reach the client as `0` and be refused on every trigger,
+`90500 millis` would run as `90 sec` while the configuration says otherwise, and anything past the
+`int` range wrapped around — `30000 days` became a negative interval and failed, `10000 weeks` ran
+silently as about 55 years instead of 191. *Topics Pattern Discovery Interval* follows the same rule
+for the same reason.
+
+*Expire Time of Incomplete Chunked Message* is kept by the client as a whole number of
+**milliseconds**, so any whole-millisecond value is applied exactly as configured; a fraction of a
+millisecond is rejected. `0` is a deliberate value: it disables the expiry, and incomplete chunks are
+then kept until the pending-chunk queue evicts them.
+
+> **Behaviour change since `2.1.0`:** every release so far converted *Expire Time of Incomplete
+> Chunked Message* to whole seconds on the way to the client, so a fraction of a second was dropped
+> and a sub-second value became `0` — which the client reads as **never expire**. A flow that set
+> `500 millis` had no chunk expiry at all; it now expires incomplete chunks after 500 ms, and
+> `1500 millis` means 1.5 s rather than 1 s. Whole-second values are unchanged. On *Auto Update
+> Partition Interval*, a value that is not a whole number of seconds in the `int` range is now
+> invalid; a sub-second value was already failing every trigger, so the only flows this stops are
+> ones that ran on a different interval from the one configured.
+
 ## Consuming from topics that have a schema
 
 `ConsumePulsarRecord`'s **Message Schema Strategy** decides how a message becomes records.
