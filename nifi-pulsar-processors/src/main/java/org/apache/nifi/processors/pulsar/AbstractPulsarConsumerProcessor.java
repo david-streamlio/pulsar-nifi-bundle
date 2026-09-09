@@ -599,6 +599,25 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
             }
         }
 
+        final long discoveryPeriodMillis = validationContext.getProperty(PATTERN_AUTO_DISCOVERY_PERIOD)
+                .asTimePeriod(TimeUnit.MILLISECONDS);
+
+        // Not gated on TOPICS_PATTERN, unlike the granularity rule below, because the two are enforced by
+        // different things. ConsumerBuilderImpl.patternAutoDiscoveryPeriod checks "interval needs to be >= 0"
+        // when the consumer is BUILT, for every consumer, whether or not a pattern was given - while the value
+        // itself is only READ, by PatternMultiTopicsConsumerImpl, when one was. TIME_PERIOD_VALIDATOR already
+        // guarantees a non-negative duration, so an int overflow in the intValue() below is the only way the
+        // builder can see a negative interval, and a topic-list flow would hit that precondition too: without
+        // this bound "30000 days" is accepted here and then throws on every schedule.
+        if (TimeUnit.MILLISECONDS.toSeconds(discoveryPeriodMillis) > Integer.MAX_VALUE) {
+            results.add(new ValidationResult.Builder().valid(false)
+                .subject(PATTERN_AUTO_DISCOVERY_PERIOD.getDisplayName())
+                .explanation("the client keeps this as an int number of seconds, so it cannot exceed "
+                    + Integer.MAX_VALUE + " seconds (about 68 years), but "
+                    + validationContext.getProperty(PATTERN_AUTO_DISCOVERY_PERIOD).getValue() + " is "
+                    + TimeUnit.MILLISECONDS.toSeconds(discoveryPeriodMillis) + " seconds").build());
+        }
+
         // Only when a pattern is actually in use: the client reads this property nowhere else, so failing a
         // topic-list flow over it would reject a configuration the property has no effect on - which is what
         // the inertness documented on the property, and asserted in the tests, means.
@@ -607,15 +626,12 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
             // clamps 0 to 1 - so any fraction of a second is silently discarded, not just a sub-second
             // value: "1500 millis" would run as a one-second sweep and "500 millis" as one per second.
             // Rejecting only the sub-second case would leave the same silent rounding one step up.
-            final long millis = validationContext.getProperty(PATTERN_AUTO_DISCOVERY_PERIOD)
-                    .asTimePeriod(TimeUnit.MILLISECONDS);
-
             // Stricter than the sibling time properties (Auto Update Partition Interval, Expire Time of
             // Incomplete Chunked Message), which truncate the same way and accept a fraction in silence.
             // That inconsistency is real, but the fix for it is to tighten those, not to loosen this one -
             // and tightening them would invalidate flows that are running today, so it belongs in its own
             // change. Tracked as #225.
-            if (millis < 1000L || millis % 1000L != 0L) {
+            if (discoveryPeriodMillis < 1000L || discoveryPeriodMillis % 1000L != 0L) {
                 results.add(new ValidationResult.Builder().valid(false)
                     .subject(PATTERN_AUTO_DISCOVERY_PERIOD.getDisplayName())
                     .explanation("the client takes this as whole seconds, so it must be a whole number of "

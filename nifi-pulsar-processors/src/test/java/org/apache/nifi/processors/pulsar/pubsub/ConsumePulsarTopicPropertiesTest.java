@@ -253,6 +253,44 @@ public class ConsumePulsarTopicPropertiesTest extends AbstractPulsarProcessorTes
     }
 
     /**
+     * The one value a topic-list flow cannot ignore. The granularity rule is gated on Topics Pattern because
+     * the client reads the value only on the pattern path, but
+     * {@code ConsumerBuilderImpl.patternAutoDiscoveryPeriod} checks "interval needs to be >= 0" when the
+     * consumer is built, for every consumer - and the builder is handed
+     * {@code asTimePeriod(SECONDS).intValue()}, which overflows negative above the int range. So an
+     * unbounded value is the only way a topic-list flow can be failed by this property, and it fails at
+     * every schedule rather than on the canvas. 30000 days is 2,592,000,000 seconds, which is
+     * -1,702,967,296 as an int.
+     */
+    @Test
+    public void aDiscoveryIntervalAboveTheIntRangeIsRejectedEvenWithATopicList() {
+        runner.setProperty(AbstractPulsarConsumerProcessor.SUBSCRIPTION_TYPE, "Shared");
+        runner.setProperty(AbstractPulsarConsumerProcessor.PATTERN_AUTO_DISCOVERY_PERIOD, "30000 days");
+
+        runner.assertNotValid();
+    }
+
+    /**
+     * The boundary of the int seconds the client keeps: Integer.MAX_VALUE seconds is representable and one
+     * second more is not. Guards the comparison against being written on the millisecond value, where both
+     * of these would pass.
+     */
+    @Test
+    public void theDiscoveryIntervalBoundaryIsIntegerMaxValueSeconds() {
+        runner.removeProperty(AbstractPulsarConsumerProcessor.TOPICS);
+        runner.setProperty(AbstractPulsarConsumerProcessor.TOPICS_PATTERN, "persistent://public/default/tp-.*");
+        runner.setProperty(AbstractPulsarConsumerProcessor.SUBSCRIPTION_TYPE, "Shared");
+
+        runner.setProperty(AbstractPulsarConsumerProcessor.PATTERN_AUTO_DISCOVERY_PERIOD,
+                Integer.MAX_VALUE + " sec");
+        runner.assertValid();
+
+        runner.setProperty(AbstractPulsarConsumerProcessor.PATTERN_AUTO_DISCOVERY_PERIOD,
+                (Integer.MAX_VALUE + 1L) + " sec");
+        runner.assertNotValid();
+    }
+
+    /**
      * Read Compacted with the default Subscription Initial Position of Latest warns rather than failing
      * validation. On a live topic it does deliver - new messages arrive and are read compacted - so it is
      * unusual, not invalid, and rejecting it would fail a working flow. On an idle topic it delivers
