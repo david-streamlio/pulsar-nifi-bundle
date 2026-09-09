@@ -147,9 +147,36 @@ FlowFile:
 | Message field | Comes from |
 |---|---|
 | key | the *Message Key* property; if that is not set, the FlowFile attribute `msg.key` |
+| ordering key | the *Ordering Key* property (`PublishPulsar` only); nothing is set when it is blank |
 | properties | the attributes named by *Mapped Message Properties* (`<property>[=<attribute>]`) |
 
-`PublishPulsarRecord` takes the key from the record field named by *Message Key Field* instead.
+`PublishPulsarRecord` takes the key from the record field named by *Message Key Field* instead, and
+the ordering key from the field named by *Ordering Key Field*; it has no FlowFile-level *Ordering
+Key*. Both fields yield the same bytes — text as UTF-8, an Avro `bytes` field as its bytes, a nested
+record as the Record Writer writes it — so naming one field under both properties keys and orders by
+the same value. A **binary** field travels as a binary message key (Pulsar's `keyBytes`: base64 on
+the wire, flagged as such, so two different byte strings are always two different keys) and as the
+raw ordering key; a text field is the text under both. A blank value means no ordering key. A field
+name that is not in the records' schema is warned about once per FlowFile, since it would otherwise
+set no key for any record without a sign of the typo.
+
+> **Behaviour change since `2.11.0`:** *Message Key Field* naming an Avro `bytes` field used to
+> publish the **identity hash of the array** (`[Ljava.lang.Object;@5cf57368`) as the key — a
+> different value for every record, so records that shared a key were spread over partitions at
+> random and nothing was ever compacted away (#226). The key is now the field's bytes, sent as a
+> binary key rather than decoded into text — a charset decode would map every invalid byte sequence
+> to the same replacement character and could merge two different keys. A flow that
+> keys by an Avro `bytes` field will see its messages start landing on the partition their key
+> hashes to, and a compacted topic fed that way will start keeping one message per key.
+
+The two keys serve different concerns. The **message key** decides which partition a message is
+routed to and is the key topic compaction keeps the latest value for. The **ordering key** decides
+which consumer of a `Key_Shared` subscription receives the message, and takes precedence over the
+message key there. With no ordering key set Pulsar falls back to the message key, so the two are the
+same value — which is what every flow got before *Ordering Key* existed, and still gets when it is
+left blank. Set it when the unit you route and compact by is not the unit you need ordered delivery
+for: route and compact by tenant, order per session. Pair it with *Batch Builder* = `Key based` if
+batching is on, or a batch spanning several keys is dispatched as one unit.
 
 > **Behaviour change since `2.9.0`:** the *Message Key* property has always documented the
 > `msg.key` fallback, but it was never implemented — `getMessageKey()` read the property and
