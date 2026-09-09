@@ -302,6 +302,12 @@ public class PublisherLease implements Closeable {
 
         final ByteArrayOutputStream baos = new ByteArrayOutputStream(1024);
 
+        // Once per FlowFile: a key field the records do not have yields null for every record, which is
+        // indistinguishable from a field that is present and null, so a misspelt name fails in silence. For
+        // the ordering key the only observable effect is dispatch on a multi-consumer subscription.
+        warnIfNotAField(recordSet.getSchema(), messageKeyField, "Message Key Field");
+        warnIfNotAField(recordSet.getSchema(), orderingKeyField, "Ordering Key Field");
+
         Record record;
         List<CompletableFuture<MessageId>> futureList = new ArrayList<>();
 
@@ -310,7 +316,6 @@ public class PublisherLease implements Closeable {
                 baos.reset();
 
                 final byte[] messageContent;
-                final String messageKey;
                 final byte[] orderingKey = orderingKeyField == null || orderingKeyField.isEmpty()
                         ? null : getOrderingKey(flowFile, writerFactory, record.getValue(orderingKeyField));
 
@@ -362,11 +367,26 @@ public class PublisherLease implements Closeable {
 
                     messageContent = baos.toByteArray();
                 }
-                messageKey = getMessageKey(flowFile, writerFactory, record.getValue(messageKeyField));
+                final Object keyValue = messageKeyField == null || messageKeyField.isEmpty() ? null : record.getValue(messageKeyField);
+                final byte[] messageKey = keyBytes(flowFile, writerFactory, keyValue);
 
-                futureList.add(async ?
-                        sendAsync(producer, messageKey, orderingKey, messageProperties, messageContent) :
-                        send(producer, messageKey, orderingKey, messageProperties, messageContent));
+                if (messageKey != null && isBinary(keyValue)) {
+                    // A byte field is a binary key and travels as one: keyBytes() carries the bytes as they are
+                    // (base64 on the wire, flagged as such), so two different values are always two different
+                    // keys. Decoding them into a String would go through a charset, and a charset maps every
+                    // invalid sequence to the same replacement character - two different UUIDs could become one
+                    // key, route to one partition and supersede each other on a compacted topic.
+                    futureList.add(async
+                            ? sendAsyncWithKeyBytes(producer, messageKey, orderingKey, messageProperties, messageContent)
+                            : sendWithKeyBytes(producer, messageKey, orderingKey, messageProperties, messageContent));
+                } else {
+                    // Text, a number, a nested record the writer serialised: a text key, always read as UTF-8 so
+                    // that every node of a cluster derives the same key from the same record.
+                    final String textKey = messageKey == null ? null : new String(messageKey, StandardCharsets.UTF_8);
+                    futureList.add(async
+                            ? sendAsync(producer, textKey, orderingKey, messageProperties, messageContent)
+                            : send(producer, textKey, orderingKey, messageProperties, messageContent));
+                }
 
                 if (futureList.size() > 100) {
                     producer.flush();
@@ -732,16 +752,12 @@ public class PublisherLease implements Closeable {
         }
     }
 
-    private String getMessageKey(final FlowFile flowFile, final RecordSetWriterFactory writerFactory,
-                                 final Object keyValue) throws IOException, SchemaNotFoundException {
-        final byte[] messageKey = keyBytes(flowFile, writerFactory, keyValue);
-        return (messageKey == null) ? null : new String(messageKey);
-    }
-
     /**
      * The bytes a record field contributes as a key. Shared by the message key and the ordering key, so a field
-     * of any type means the same thing under either property: bytes as they are, an array of boxed bytes unboxed,
-     * a nested record serialised with the FlowFile's writer, anything else as its UTF-8 string.
+     * of any type yields the same bytes under either property: bytes as they are, an array of boxed bytes unboxed,
+     * a nested record serialised with the FlowFile's writer, anything else as its UTF-8 string. What the caller
+     * does with them differs by necessity - the ordering key is always bytes, the message key is bytes for a
+     * binary field ({@link #isBinary}) and UTF-8 text otherwise - but the value is the same.
      */
     private byte[] keyBytes(final FlowFile flowFile, final RecordSetWriterFactory writerFactory,
                             final Object keyValue) throws IOException, SchemaNotFoundException {
@@ -774,10 +790,30 @@ public class PublisherLease implements Closeable {
         }
     }
 
-    /** True for an array whose every element is a {@link Byte} - a byte string in the Record API's clothing. */
+    private void warnIfNotAField(final RecordSchema recordSchema, final String fieldName, final String property) {
+        if (fieldName == null || fieldName.isEmpty() || recordSchema == null || recordSchema.getField(fieldName).isPresent()) {
+            return;
+        }
+        logger.warn("{} names '{}', which is not a field of the records' schema (fields: {}); every record of this "
+                + "FlowFile is sent as if the field were null", property, fieldName, recordSchema.getFieldNames());
+    }
+
+    /** Whether a key field's value is binary - a {@code byte[]}, or the boxed form the Record API uses for one. */
+    static boolean isBinary(final Object value) {
+        return value instanceof byte[] || (value instanceof Object[] && isBoxedBytes((Object[]) value));
+    }
+
+    /**
+     * True for an array whose every element is a {@link Byte} - a byte string in the Record API's clothing. An
+     * empty array is bytes only when it is declared as such: an empty {@code array<string>} field is also an
+     * empty {@code Object[]}, and must not turn into an empty key.
+     */
     private static boolean isBoxedBytes(final Object[] array) {
         if (array instanceof Byte[]) {
             return true;
+        }
+        if (array.length == 0) {
+            return false;
         }
         for (final Object element : array) {
             if (!(element instanceof Byte)) {

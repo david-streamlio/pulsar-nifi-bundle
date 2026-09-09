@@ -152,14 +152,20 @@ FlowFile:
 
 `PublishPulsarRecord` takes the key from the record field named by *Message Key Field* instead, and
 the ordering key from the field named by *Ordering Key Field*; it has no FlowFile-level *Ordering
-Key*. Both fields are converted the same way — text as UTF-8, an Avro `bytes` field as its bytes, a
-nested record as the Record Writer writes it — so naming one field under both properties gives the
-same key twice, and a blank value means no ordering key.
+Key*. Both fields yield the same bytes — text as UTF-8, an Avro `bytes` field as its bytes, a nested
+record as the Record Writer writes it — so naming one field under both properties keys and orders by
+the same value. A **binary** field travels as a binary message key (Pulsar's `keyBytes`: base64 on
+the wire, flagged as such, so two different byte strings are always two different keys) and as the
+raw ordering key; a text field is the text under both. A blank value means no ordering key. A field
+name that is not in the records' schema is warned about once per FlowFile, since it would otherwise
+set no key for any record without a sign of the typo.
 
 > **Behaviour change since `2.11.0`:** *Message Key Field* naming an Avro `bytes` field used to
 > publish the **identity hash of the array** (`[Ljava.lang.Object;@5cf57368`) as the key — a
 > different value for every record, so records that shared a key were spread over partitions at
-> random and nothing was ever compacted away (#226). The key is now the field's bytes. A flow that
+> random and nothing was ever compacted away (#226). The key is now the field's bytes, sent as a
+> binary key rather than decoded into text — a charset decode would map every invalid byte sequence
+> to the same replacement character and could merge two different keys. A flow that
 > keys by an Avro `bytes` field will see its messages start landing on the partition their key
 > hashes to, and a compacted topic fed that way will start keeping one message per key.
 

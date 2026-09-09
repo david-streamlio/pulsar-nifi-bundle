@@ -23,10 +23,17 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
+import java.io.ByteArrayOutputStream;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
+import org.apache.avro.file.DataFileWriter;
+import org.apache.avro.generic.GenericData;
+import org.apache.avro.generic.GenericDatumWriter;
+import org.apache.avro.generic.GenericRecord;
+import org.apache.nifi.avro.AvroReader;
 import org.apache.nifi.processors.pulsar.AbstractPulsarProducerProcessor;
 import org.apache.nifi.processors.pulsar.pubsub.PublishPulsar;
 import org.apache.nifi.processors.pulsar.pubsub.PublishPulsarRecord;
@@ -37,8 +44,9 @@ import org.apache.nifi.serialization.record.RecordFieldType;
 import org.apache.nifi.util.TestRunner;
 import org.apache.nifi.util.TestRunners;
 import org.apache.pulsar.client.api.Consumer;
-import org.apache.pulsar.client.api.ConsumerBuilder;
+import org.apache.pulsar.client.api.KeySharedPolicy;
 import org.apache.pulsar.client.api.Message;
+import org.apache.pulsar.client.api.Range;
 import org.apache.pulsar.client.api.Schema;
 import org.apache.pulsar.client.api.SubscriptionInitialPosition;
 import org.apache.pulsar.client.api.SubscriptionType;
@@ -158,10 +166,76 @@ public class PublishPulsarOrderingKeyIT extends AbstractPulsarIT {
         runner.setProperty(AbstractPulsarProducerProcessor.MESSAGE_KEY, "${key}");
         runner.setProperty(PublishPulsar.ORDERING_KEY, "session-1");
         final Distribution together = publishToTwoKeySharedConsumers(runner, topic, true);
+        // arrival first: a partial drain would otherwise pass the single-consumer check vacuously and fail
+        // one line later with a count mismatch, which misreads a delivery problem as a dispatch one
+        assertEquals("every message must have arrived", MESSAGES, together.first + together.second);
         assertTrue("one ordering key must keep every message on one consumer, but they landed " + together,
                 together.first == 0 || together.second == 0);
-        assertEquals("every message must have arrived", MESSAGES, together.first + together.second);
         assertTrue("messages sharing the ordering key must arrive in publish order", together.inOrder);
+    }
+
+    /**
+     * A binary key field (an Avro {@code bytes} field, which NiFi reads as boxed bytes) is sent through
+     * {@code keyBytes()}: on the wire the key is base64 and flagged as such, and a consumer gets the bytes back
+     * exactly. Decoding them into a String first would have gone through a charset and could have merged two
+     * different values into one key (#226).
+     */
+    @Test
+    public void aBinaryMessageKeyFieldArrivesAsTheSameBytes() throws Exception {
+        final String topic = topic("binary-key");
+        final TestRunner runner = TestRunners.newTestRunner(PublishPulsarRecord.class);
+        addRealPulsarClientService(runner, "pulsar-client");
+        final AvroReader reader = new AvroReader();
+        runner.addControllerService("record-reader", reader);
+        runner.enableControllerService(reader);
+        final MockRecordWriter writer = new MockRecordWriter("id, session");
+        runner.addControllerService("record-writer", writer);
+        runner.enableControllerService(writer);
+        runner.setProperty(PublishPulsarRecord.RECORD_READER, "record-reader");
+        runner.setProperty(PublishPulsarRecord.RECORD_WRITER, "record-writer");
+        runner.setProperty(AbstractPulsarProducerProcessor.PULSAR_CLIENT_SERVICE, "pulsar-client");
+        runner.setProperty(AbstractPulsarProducerProcessor.ASYNC_ENABLED, "false");
+        runner.setProperty(AbstractPulsarProducerProcessor.TOPIC, topic);
+        runner.setProperty(PublishPulsarRecord.MESSAGE_KEY_FIELD, "session");
+
+        // two keys that are different bytes but the same text once decoded as UTF-8
+        final byte[] first = {(byte) 0xFF, (byte) 0xFE, 0x01};
+        final byte[] second = {(byte) 0xFE, (byte) 0xFF, 0x01};
+
+        try (Consumer<byte[]> consumer = subscribe(topic, "binary-check", SubscriptionType.Exclusive)) {
+            runner.enqueue(avroRecords(first, second));
+            runner.run(1, true);
+            runner.assertAllFlowFilesTransferred(PublishPulsarRecord.REL_SUCCESS, 1);
+
+            final Message<byte[]> one = consumer.receive(30, TimeUnit.SECONDS);
+            final Message<byte[]> two = consumer.receive(30, TimeUnit.SECONDS);
+            assertNotNull(one);
+            assertNotNull(two);
+            assertTrue("a binary key travels base64-encoded and flagged", one.hasBase64EncodedKey() && two.hasBase64EncodedKey());
+            assertArrayEquals(first, one.getKeyBytes());
+            assertArrayEquals(second, two.getKeyBytes());
+            assertFalse("two different byte strings must stay two different keys", one.getKey().equals(two.getKey()));
+        }
+    }
+
+    private static final org.apache.avro.Schema BINARY_KEY_SCHEMA = new org.apache.avro.Schema.Parser().parse(
+            "{\"type\":\"record\",\"name\":\"Event\",\"fields\":["
+            + "{\"name\":\"id\",\"type\":\"int\"},{\"name\":\"session\",\"type\":\"bytes\"}]}");
+
+    /** An Avro data file with one record per session, the session being the record's binary key. */
+    private static byte[] avroRecords(final byte[]... sessions) throws Exception {
+        final ByteArrayOutputStream out = new ByteArrayOutputStream();
+        try (DataFileWriter<GenericRecord> writer = new DataFileWriter<>(new GenericDatumWriter<>(BINARY_KEY_SCHEMA))) {
+            writer.create(BINARY_KEY_SCHEMA, out);
+            int id = 0;
+            for (final byte[] session : sessions) {
+                final GenericRecord record = new GenericData.Record(BINARY_KEY_SCHEMA);
+                record.put("id", id++);
+                record.put("session", ByteBuffer.wrap(session));
+                writer.append(record);
+            }
+        }
+        return out.toByteArray();
     }
 
     @Test
@@ -190,25 +264,32 @@ public class PublishPulsarOrderingKeyIT extends AbstractPulsarIT {
 
     private Consumer<byte[]> subscribe(final String topic, final String subscription, final SubscriptionType type)
             throws Exception {
-        return subscribe(topic, subscription, type, null);
-    }
-
-    /**
-     * A consumer with a fixed name where it matters: Key_Shared places consumers on its hash ring by consumer
-     * name, so with auto-generated names the split of a fixed set of keys over two consumers would differ from
-     * run to run. Named, it is the same split every time.
-     */
-    private Consumer<byte[]> subscribe(final String topic, final String subscription, final SubscriptionType type,
-                                       final String consumerName) throws Exception {
-        final ConsumerBuilder<byte[]> builder = getClient().newConsumer(Schema.BYTES)
+        return getClient().newConsumer(Schema.BYTES)
                 .topic(topic)
                 .subscriptionName(subscription)
                 .subscriptionType(type)
-                .subscriptionInitialPosition(SubscriptionInitialPosition.Earliest);
-        if (consumerName != null) {
-            builder.consumerName(consumerName);
-        }
-        return builder.subscribe();
+                .subscriptionInitialPosition(SubscriptionInitialPosition.Earliest)
+                .subscribe();
+    }
+
+    /**
+     * A Key_Shared consumer that owns an explicit half of the key hash space. With the default AUTO_SPLIT policy
+     * the broker places consumers on a consistent-hash ring whose shape - point count, hash function, the sticky
+     * key implementation in use - has moved within the 4.x line, so which half of a fixed key set each consumer
+     * gets is a broker detail, and a future image bump could hand every key to one consumer and fail the control
+     * run with no product regression behind it. A sticky hash range pins it: a key's consumer is decided by
+     * {@code hash(key) % 65536} against the ranges declared here, on any broker.
+     */
+    private Consumer<byte[]> subscribeKeyShared(final String topic, final String consumerName, final Range hashRange)
+            throws Exception {
+        return getClient().newConsumer(Schema.BYTES)
+                .topic(topic)
+                .subscriptionName("key-shared")
+                .subscriptionType(SubscriptionType.Key_Shared)
+                .subscriptionInitialPosition(SubscriptionInitialPosition.Earliest)
+                .consumerName(consumerName)
+                .keySharedPolicy(KeySharedPolicy.stickyHashRange().ranges(hashRange))
+                .subscribe();
     }
 
     private static final class Distribution {
@@ -228,8 +309,9 @@ public class PublishPulsarOrderingKeyIT extends AbstractPulsarIT {
      */
     private Distribution publishToTwoKeySharedConsumers(final TestRunner runner, final String topic,
                                                         final boolean expectOrderingKey) throws Exception {
-        try (Consumer<byte[]> first = subscribe(topic, "key-shared", SubscriptionType.Key_Shared, "first");
-             Consumer<byte[]> second = subscribe(topic, "key-shared", SubscriptionType.Key_Shared, "second")) {
+        // the two halves of Key_Shared's 65536-slot hash space
+        try (Consumer<byte[]> first = subscribeKeyShared(topic, "first", Range.of(0, 32767));
+             Consumer<byte[]> second = subscribeKeyShared(topic, "second", Range.of(32768, 65535))) {
 
             for (int n = 0; n < MESSAGES; n++) {
                 runner.enqueue(String.valueOf(n).getBytes(UTF_8), java.util.Map.of("key", "device-" + n));
