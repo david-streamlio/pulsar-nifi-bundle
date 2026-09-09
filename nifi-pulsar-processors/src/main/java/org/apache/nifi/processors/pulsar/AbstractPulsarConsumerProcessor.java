@@ -669,9 +669,15 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
         // works. On an idle topic it delivers nothing at all, because the compacted view is the topic's
         // history and a subscription at the tail has none of it, which is indistinguishable from a broken
         // flow. Said once per start, where it is seen, rather than never.
-        // Validation reads the raw property, so an expression hides a non-persistent topic from it. Here the
-        // expression has been resolved, which makes this the first point the real topic is knowable - and
-        // the last before the client throws on every schedule.
+        // Validation reads the raw property, so an expression hides a non-persistent topic from it. This
+        // catches the expressions that resolve without a FlowFile - environment variables and system
+        // properties - which is the last point before the client throws on every schedule.
+        //
+        // It does NOT catch a topic taken from FlowFile attributes, and cannot: there is no FlowFile at
+        // @OnScheduled, so such an expression resolves to an empty string here. That case is not silently
+        // unprotected so much as already broken - getConsumerBuilder resolves TOPICS without a FlowFile
+        // too, so the subscription is built from the same empty value, while getConsumerId resolves it
+        // with one. That asymmetry predates this property and is tracked as #232.
         if (context.getProperty(READ_COMPACTED).asBoolean() && context.getProperty(TOPICS).isSet()) {
             for (final String topic : context.getProperty(TOPICS).evaluateAttributeExpressions().getValue().split("[, ]")) {
                 if (topic.trim().startsWith(NON_PERSISTENT_PREFIX)) {

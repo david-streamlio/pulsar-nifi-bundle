@@ -208,8 +208,11 @@ with exclusive or failover **persistent** subscriptions"*.
 - **A single active consumer** — so `Exclusive` or `Failover`.
 - **The persistent domain** — only a persistent topic has a compacted view. A `non-persistent://`
   topic named literally in *Topics* is rejected at validation, as is a *Topics Pattern* whose *Match
-  Mode* admits non-persistent topics. A topic supplied by an expression cannot be checked until the
-  expression resolves, so that case is warned about at startup instead. That second case matters because the client cannot catch it: with a pattern its topic list
+  Mode* admits non-persistent topics. A topic supplied by an expression is only checked if the
+  expression resolves at startup — an environment variable or a system property does, and a
+  non-persistent topic from one of those is warned about when the processor starts. A topic taken
+  from FlowFile attributes does not resolve at startup, so neither validation nor the warning can
+  see it and the client is what refuses the subscription. That second case matters because the client cannot catch it: with a pattern its topic list
   is empty, so its own domain check passes vacuously and any non-persistent topic the pattern matches
   is served as a live stream — the flow would read a full stream while its configuration says it is
   reading the latest value per key, with nothing reporting it. A `non-persistent://` prefix on the
