@@ -690,9 +690,9 @@ public class PublisherLease implements Closeable {
     }
 
     /**
-     * The ordering key a record field yields, converted exactly as {@link #getMessageKey} converts the message key
-     * field - so the same field named by either property gives the same bytes. Null, blank text and empty byte
-     * arrays mean no ordering key.
+     * The ordering key a record field yields. {@link #keyBytes} converts it, exactly as it converts the
+     * message key field, so the same field named by either property gives the same bytes. Null, blank text
+     * and empty byte arrays mean no ordering key.
      */
     private byte[] getOrderingKey(final FlowFile flowFile, final RecordSetWriterFactory writerFactory,
                                   final Object fieldValue) throws IOException, SchemaNotFoundException {
