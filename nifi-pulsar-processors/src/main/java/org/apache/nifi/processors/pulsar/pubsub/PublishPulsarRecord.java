@@ -37,6 +37,7 @@ import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.processors.pulsar.utils.KeyValueTopicSchema;
 import org.apache.nifi.processors.pulsar.utils.PublishPulsarUtils;
 import org.apache.nifi.processors.pulsar.utils.PublisherLease;
+import org.apache.nifi.processors.pulsar.utils.PublisherUnavailableException;
 import org.apache.nifi.schema.access.SchemaNotFoundException;
 import org.apache.nifi.serialization.MalformedRecordException;
 import org.apache.nifi.serialization.RecordReader;
@@ -127,6 +128,20 @@ public class PublishPulsarRecord extends AbstractPulsarProducerProcessor<byte[]>
             .required(false)
             .build();
 
+    public static final PropertyDescriptor ORDERING_KEY_FIELD = new PropertyDescriptor.Builder()
+            .name("ordering-key-field")
+            .displayName("Ordering Key Field")
+            .description("The name of a field in the Input Records whose value becomes the Pulsar ordering key of the "
+                    + "record's message, independently of the Message Key Field. The message key routes and compacts; "
+                    + "the ordering key decides which consumer of a Key_Shared subscription receives the message and "
+                    + "takes precedence over the message key there. A record whose field is null or empty is sent "
+                    + "without an ordering key. When not specified no ordering key is set and Pulsar falls back to the "
+                    + "message key, as before.")
+            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
+            .expressionLanguageSupported(FLOWFILE_ATTRIBUTES)
+            .required(false)
+            .build();
+
     private static final List<PropertyDescriptor> PROPERTIES;
 
     static {
@@ -135,6 +150,7 @@ public class PublishPulsarRecord extends AbstractPulsarProducerProcessor<byte[]>
         properties.add(RECORD_WRITER);
         properties.add(MESSAGE_SCHEMA_STRATEGY);
         properties.add(MESSAGE_KEY_FIELD);
+        properties.add(ORDERING_KEY_FIELD);
         properties.add(KEY_VALUE_KEY_FIELD);
         properties.add(KEY_VALUE_VALUE_FIELD);
         properties.addAll(AbstractPulsarProducerProcessor.PROPERTIES);
@@ -165,7 +181,13 @@ public class PublishPulsarRecord extends AbstractPulsarProducerProcessor<byte[]>
             final String topicName = context.getProperty(TOPIC).evaluateAttributeExpressions(flowFile).getValue();
             final boolean asyncFlag = (context.getProperty(ASYNC_ENABLED).isSet() && context.getProperty(ASYNC_ENABLED).asBoolean());
 
-            PublisherLease lease = getPublisherPool().obtainPublisher(topicName);
+            final PublisherLease lease;
+            try {
+                lease = getPublisherPool().obtainPublisher(topicName);
+            } catch (final PublisherUnavailableException e) {
+                returnToQueueAndYield(context, session, flowFile, itr, e);
+                return;
+            }
 
             if (lease == null) {
                 getLogger().error("Unable to publish to topic {}", new Object[] {topicName});
@@ -178,6 +200,8 @@ public class PublishPulsarRecord extends AbstractPulsarProducerProcessor<byte[]>
                         .asControllerService(RecordSetWriterFactory.class);
 
                 final String messageKeyField = context.getProperty(MESSAGE_KEY_FIELD)
+                        .evaluateAttributeExpressions(flowFile).getValue();
+                final String orderingKeyField = context.getProperty(ORDERING_KEY_FIELD)
                         .evaluateAttributeExpressions(flowFile).getValue();
 
                 final boolean useTopicSchema = SCHEMA_FROM_TOPIC.getValue()
@@ -193,7 +217,7 @@ public class PublishPulsarRecord extends AbstractPulsarProducerProcessor<byte[]>
                             final RecordSet recordSet = reader.createRecordSet();
 
                             final RecordSchema schema = writerFactory.getSchema(flowFile.getAttributes(), recordSet.getSchema());
-                            lease.publish(flowFile, recordSet, writerFactory, schema, messageKeyField,
+                            lease.publish(flowFile, recordSet, writerFactory, schema, messageKeyField, orderingKeyField,
                                     getMappedMessageProperties(context, flowFile), asyncFlag, useTopicSchema,
                                     context.getProperty(KEY_VALUE_KEY_FIELD).evaluateAttributeExpressions().getValue(),
                                     context.getProperty(KEY_VALUE_VALUE_FIELD).evaluateAttributeExpressions().getValue());

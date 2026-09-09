@@ -4,6 +4,7 @@
 
 | Bundle version | NiFi | Pulsar client | Java |
 |---|---|---|---|
+| `2.11.0.1` | 2.11.0 | 4.2.4 | 21 |
 | `2.11.0` | 2.11.0 | 4.2.4 | 21 |
 | `2.10.0` | 2.10.0 | 4.2.4 | 21 |
 | `2.9.0` | 2.9.0 | 4.2.2 | 21 |
@@ -17,8 +18,9 @@ The bundle version tracks the NiFi platform version it is built for; each releas
 line targets one Pulsar client major. See [VERSIONING.md](VERSIONING.md) for the
 full scheme, branching model, and release process.
 
-Release notes live in [`docs/release-notes/`](docs/release-notes/). `2.11.0` is a
-platform bump — see [its notes](docs/release-notes/2.11.0.md). If you are coming from
+Release notes live in [`docs/release-notes/`](docs/release-notes/). `2.11.0.1` fixes two defects in
+features `2.11.0` introduced — see [its notes](docs/release-notes/2.11.0.1.md). `2.11.0` is the
+platform bump ([notes](docs/release-notes/2.11.0.md)). If you are coming from
 `2.9.0` or earlier, read [the `2.10.0` notes](docs/release-notes/2.10.0.md) too: that
 release carries several behaviour changes.
 
@@ -97,8 +99,24 @@ The third row is the one to know about. When the processor cannot write a messag
 **negatively acknowledges** the message, which asks the broker to redeliver it now. Without that
 the message is merely unacknowledged, and the broker cannot tell a consumer that has failed from
 one that is still working: it waits out *Acknowledgment Timeout*, thirty seconds by default and
-never less than ten. Set *Negative Acknowledgment Redelivery Delay* to control how soon; it
-defaults to Pulsar's own one minute.
+never less than ten. *Negative Acknowledgment Redelivery Delay* controls how soon the redelivery
+comes; it defaults to five seconds. Keep it under *Acknowledgment Timeout*: once a message is
+negatively acknowledged the client stops tracking it for the timeout, so the delay is the **only**
+thing that redelivers it, and a longer delay makes a write failure wait longer than a plain rollback
+did. A longer delay is still accepted — it can be a deliberate backoff — but the processor logs a
+warning when it starts. Every redelivery also counts against *Max Redelivery Count*, so the delay
+sets how fast a message that keeps failing reaches the dead letter topic.
+
+> **Behaviour change since `2.11.0`:** in `2.11.0` the delay defaulted to Pulsar's own one minute,
+> so with *Acknowledgment Timeout* at its 30-second default a message the processor could not write
+> came back after **60 s — twice as long as before negative acknowledgement existed**, not sooner.
+> The default is now five seconds, so a flow that never set the property redelivers after a write
+> failure in seconds instead of a minute. Two consequences. A flow with *Max Redelivery Count* set
+> now uses up its redeliveries **twelve times faster**: a transient write failure that used to be
+> absorbed by a minute per attempt can now send a perfectly good message to the dead letter topic
+> in seconds, so raise the count — or set the delay back up — to keep the retry window you had. And
+> a delay longer than *Acknowledgment Timeout* still validates, but the processor now logs a warning
+> when it starts; nothing that ran on `2.11.0` stops running.
 
 A message routed to `parse_failure` is **not** redelivered. It was delivered and handled — the
 flow has its bytes and can route them anywhere, including back to a Pulsar topic — so nacking it
@@ -129,9 +147,36 @@ FlowFile:
 | Message field | Comes from |
 |---|---|
 | key | the *Message Key* property; if that is not set, the FlowFile attribute `msg.key` |
+| ordering key | the *Ordering Key* property (`PublishPulsar` only); nothing is set when it is blank |
 | properties | the attributes named by *Mapped Message Properties* (`<property>[=<attribute>]`) |
 
-`PublishPulsarRecord` takes the key from the record field named by *Message Key Field* instead.
+`PublishPulsarRecord` takes the key from the record field named by *Message Key Field* instead, and
+the ordering key from the field named by *Ordering Key Field*; it has no FlowFile-level *Ordering
+Key*. Both fields yield the same bytes — text as UTF-8, an Avro `bytes` field as its bytes, a nested
+record as the Record Writer writes it — so naming one field under both properties keys and orders by
+the same value. A **binary** field travels as a binary message key (Pulsar's `keyBytes`: base64 on
+the wire, flagged as such, so two different byte strings are always two different keys) and as the
+raw ordering key; a text field is the text under both. A blank value means no ordering key. A field
+name that is not in the records' schema is warned about once per FlowFile, since it would otherwise
+set no key for any record without a sign of the typo.
+
+> **Behaviour change since `2.11.0`:** *Message Key Field* naming an Avro `bytes` field used to
+> publish the **identity hash of the array** (`[Ljava.lang.Object;@5cf57368`) as the key — a
+> different value for every record, so records that shared a key were spread over partitions at
+> random and nothing was ever compacted away (#226). The key is now the field's bytes, sent as a
+> binary key rather than decoded into text — a charset decode would map every invalid byte sequence
+> to the same replacement character and could merge two different keys. A flow that
+> keys by an Avro `bytes` field will see its messages start landing on the partition their key
+> hashes to, and a compacted topic fed that way will start keeping one message per key.
+
+The two keys serve different concerns. The **message key** decides which partition a message is
+routed to and is the key topic compaction keeps the latest value for. The **ordering key** decides
+which consumer of a `Key_Shared` subscription receives the message, and takes precedence over the
+message key there. With no ordering key set Pulsar falls back to the message key, so the two are the
+same value — which is what every flow got before *Ordering Key* existed, and still gets when it is
+left blank. Set it when the unit you route and compact by is not the unit you need ordered delivery
+for: route and compact by tenant, order per session. Pair it with *Batch Builder* = `Key based` if
+batching is on, or a batch spanning several keys is dispatched as one unit.
 
 > **Behaviour change since `2.9.0`:** the *Message Key* property has always documented the
 > `msg.key` fallback, but it was never implemented — `getMessageKey()` read the property and
@@ -246,13 +291,60 @@ Pulsar's broker-side deduplication requires.
 *Producer Access Mode* is how you stop two flows writing the same topic. `Shared`, the default,
 lets any number of producers write. `Exclusive` fails at producer creation if another producer
 already holds the topic; `WaitForExclusive` queues until it can take over; `ExclusiveWithFencing`
-evicts the incumbent and takes the topic.
+evicts the incumbent and takes the topic. Under any of the three the processor keeps **one
+producer per topic**, whatever its Concurrent Tasks: a task that needs a topic whose producer is
+busy waits for it instead of opening a second one, so the exclusivity is held against other flows
+and never turned against the processor itself. The topic is the topic as the broker sees it, so
+`my-topic` and `persistent://public/default/my-topic` share one producer. The wait is bounded — five
+seconds — because the task holding the producer may be inside a send that *Send Timeout* `0` lets
+run indefinitely; when it runs out, the FlowFiles of that trigger go **back to the incoming queue**,
+not to `failure`, the processor logs a warning and yields, and they are retried on a later trigger.
+Nothing was attempted for them, so nothing was refused.
+
+> **Behaviour change since `2.11.0`:** in `2.11.0` the publisher pool opened one producer per
+> concurrently held lease, so `PublishPulsarRecord` with more than one Concurrent Task collided
+> with its own producers under the exclusive modes: with `Exclusive` part of the FlowFiles went to
+> `failure` ("Topic has an existing exclusive producer" — its own), with `ExclusiveWithFencing`
+> the producers fenced each other, and with `WaitForExclusive` the second task blocked inside
+> `onTrigger` for good. Those flows now publish everything through the topic's single producer,
+> and a task that cannot get it within five seconds returns its FlowFiles to the queue and yields
+> rather than failing them or waiting without limit. `Shared` is unchanged: concurrent tasks still
+> get concurrent producers.
 
 *Batch Builder* decides how messages are grouped when *Batching Enabled* is on. `Default` fills a
 batch with whatever is pending, interleaving keys. **`Key based` is required for per-key ordering
 on a `Key_Shared` subscription**: a consumer receives a whole batch at a time, so a batch spanning
 several keys hands one consumer messages belonging to another consumer's key range. It has no
 effect when batching is off.
+
+## Consumer time properties
+
+NiFi time-period values always carry a unit (`500 millis`, `90 sec`, `1 min`), so the only question
+for a property the Pulsar client stores in a coarser unit is whether the duration you typed is
+representable in the granularity the client keeps. Where it is not, the value is **rejected at
+validation** rather than silently applied as something else.
+
+*Auto Update Partition Interval* is kept by the client as a whole number of **seconds**, in an `int`,
+and the client refuses zero. The value must therefore be a whole number of seconds between `1 sec`
+and `2147483647 sec`: `500 millis` would reach the client as `0` and be refused on every trigger,
+`90500 millis` would run as `90 sec` while the configuration says otherwise, and anything past the
+`int` range wrapped around — `30000 days` became a negative interval and failed, `10000 weeks` ran
+silently as about 55 years instead of 191. *Topics Pattern Discovery Interval* follows the same rule
+for the same reason.
+
+*Expire Time of Incomplete Chunked Message* is kept by the client as a whole number of
+**milliseconds**, so any whole-millisecond value is applied exactly as configured; a fraction of a
+millisecond is rejected. `0` is a deliberate value: it disables the expiry, and incomplete chunks are
+then kept until the pending-chunk queue evicts them.
+
+> **Behaviour change since `2.1.0`:** every release so far converted *Expire Time of Incomplete
+> Chunked Message* to whole seconds on the way to the client, so a fraction of a second was dropped
+> and a sub-second value became `0` — which the client reads as **never expire**. A flow that set
+> `500 millis` had no chunk expiry at all; it now expires incomplete chunks after 500 ms, and
+> `1500 millis` means 1.5 s rather than 1 s. Whole-second values are unchanged. On *Auto Update
+> Partition Interval*, a value that is not a whole number of seconds in the `int` range is now
+> invalid; a sub-second value was already failing every trigger, so the only flows this stops are
+> ones that ran on a different interval from the one configured.
 
 ## Consuming from topics that have a schema
 

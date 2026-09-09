@@ -41,7 +41,15 @@
     <i>Producer Access Mode</i> is how you stop two flows writing the same topic. <code>Shared</code>, the
     default, lets any number of producers write. <code>Exclusive</code> fails at producer creation if another
     producer already holds the topic, <code>WaitForExclusive</code> queues until it can take over, and
-    <code>ExclusiveWithFencing</code> evicts the incumbent and takes the topic.
+    <code>ExclusiveWithFencing</code> evicts the incumbent and takes the topic. Under any of the three the
+    processor keeps one producer per topic whatever its Concurrent Tasks: a task that needs a topic whose
+    producer is busy waits for it instead of opening a second one, so the exclusivity is held against other
+    flows and never turned against the processor itself. The topic is the topic as the broker sees it -
+    <code>my-topic</code> and <code>persistent://public/default/my-topic</code> share one producer. The wait
+    is bounded to five seconds, because the task holding the producer may be inside a send that <i>Send
+    Timeout</i> <code>0</code> lets run indefinitely; when it runs out, the FlowFiles of that trigger go back
+    to the incoming queue rather than to <code>failure</code> - nothing was attempted for them - the processor
+    logs a warning and yields, and they are retried on a later trigger.
 </p>
 <p>
     <i>Hashing Scheme</i> picks the hash used to turn a message key into a partition on a partitioned topic.
@@ -56,6 +64,20 @@
     is required for per-key ordering on a <code>Key_Shared</code> subscription</b>: a consumer receives a whole
     batch at a time, so a batch spanning several keys hands one consumer messages belonging to another
     consumer's key range. It has no effect when batching is off.
+</p>
+<p>
+    <i>Ordering Key Field</i> names the record field whose value becomes Pulsar's ordering key of the record's
+    message, independently of <i>Message Key Field</i>. The message key decides the partition and is what topic
+    compaction keeps the latest value for; the ordering key decides which consumer of a <code>Key_Shared</code>
+    subscription receives the message and takes precedence over the message key there. A record whose field is
+    null or blank is sent without an ordering key, and with the property blank none is ever set, so Pulsar falls
+    back to the message key as before. The field yields the same bytes as it would under <i>Message Key
+    Field</i> - text as UTF-8, an Avro <code>bytes</code> field as its bytes, a nested record as the Record Writer
+    writes it - so the same field named under both properties keys and orders by the same value. A binary field
+    travels as a binary message key (base64 on the wire, flagged as such, so different byte strings stay different
+    keys) and as the raw ordering key. A field name that is not in the records' schema is warned about once per
+    FlowFile. This processor has no FlowFile-level <i>Ordering Key</i>; that property belongs to
+    <code>PublishPulsar</code>, whose messages have no records to take it from.
 </p>
 <br/>
 <h3>Support</h3>

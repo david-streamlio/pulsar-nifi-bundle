@@ -168,7 +168,9 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
             .name("AUTO_UPDATE_PARTITION_INTERVAL")
             .displayName("Auto Update Partition Interval")
             .description("Set the interval of updating partitions (default: 1 minute). This only works if " +
-                    "autoUpdatePartitions is enabled.")
+                    "autoUpdatePartitions is enabled. The Pulsar client keeps this interval as a whole number of " +
+                    "seconds, so the value must be a whole number of seconds between 1 second and 2147483647 seconds; " +
+                    "anything else is rejected at validation rather than silently applied as something different.")
             .addValidator(StandardValidators.TIME_PERIOD_VALIDATOR)
             .defaultValue("1 min")
             .required(false)
@@ -272,11 +274,16 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
             .name("NEGATIVE_ACK_REDELIVERY_DELAY")
             .displayName("Negative Acknowledgment Redelivery Delay")
             .description("How long the broker waits before redelivering a message this processor could not hand "
-                    + "to the flow. A message whose FlowFile could not be written is now negatively acknowledged "
-                    + "rather than left to expire, so its redelivery is governed by this property. The "
-                    + "Acknowledgment Timeout remains the ceiling for a message that was never acted on at all.")
+                    + "to the flow. A message whose FlowFile could not be written is negatively acknowledged "
+                    + "rather than left to expire, and from that moment this delay is the only thing that "
+                    + "redelivers it: a negatively acknowledged message is no longer subject to the Acknowledgment "
+                    + "Timeout. The default is therefore kept under the shortest Acknowledgment Timeout allowed, "
+                    + "and a delay longer than the Acknowledgment Timeout is logged as a warning when the processor "
+                    + "starts. Each redelivery also counts against Max Redelivery Count, so a shorter delay reaches "
+                    + "the dead letter topic sooner. The Acknowledgment Timeout remains the ceiling for a message "
+                    + "that was never acted on at all.")
             .addValidator(StandardValidators.TIME_PERIOD_VALIDATOR)
-            .defaultValue("1 min")
+            .defaultValue("5 sec")
             .required(false)
             .build();
 
@@ -308,7 +315,9 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
             .name("EXPIRE_TIME_OF_INCOMPLETE_CHUNKED_MESSAGE")
             .displayName("Expire Time of Incomplete Chunked Message")
             .description("If producer fails to publish all the chunks of a message then consumer can expire incomplete" +
-                    " chunks if consumer won't be able to receive all chunks in expire times (default 1 minute).")
+                    " chunks if consumer won't be able to receive all chunks in expire times (default 1 minute). " +
+                    "The Pulsar client keeps this as a whole number of milliseconds, so the value must be one; " +
+                    "0 disables the expiry, and incomplete chunks are then kept until the pending-chunk queue evicts them.")
             .addValidator(StandardValidators.TIME_PERIOD_VALIDATOR)
             .defaultValue("60 sec")
             .required(false)
@@ -527,6 +536,46 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
                "Acknowledgment Timeout needs to be greater than 10 seconds.").build());
         }
 
+        // Two time properties are handed to the client in a coarser unit than NiFi lets the user type, and
+        // the rule for each is the same: the value must be representable in the granularity the client
+        // stores it in, or it is rejected - never silently applied as something else (#225).
+        //
+        // The partition update interval is an int of whole seconds on the client, which also refuses zero
+        // ("interval needs to be > 0"). So a value under a second reached it as 0 and the consumer could
+        // not be created; a fraction of a second was dropped; and a value past Integer.MAX_VALUE seconds
+        // wrapped in intValue() - negative, and refused, or positive and silently far shorter than asked.
+        //
+        // Unconditional on purpose, whatever Auto Update Partitions says: the client's precondition runs
+        // when the consumer is BUILT, for every consumer, while the value is only read at runtime under
+        // that flag. TIME_PERIOD_VALIDATOR already guarantees a non-negative duration, so the int overflow
+        // is the only way the builder can be handed a negative interval - which makes the upper bound a
+        // correctness requirement, not a sanity limit. The floor stays at one second, not zero, because
+        // that is what this setter enforces; the sibling Topics Pattern Discovery Interval accepts zero.
+        final long partitionUpdateIntervalMillis = validationContext.getProperty(AUTO_UPDATE_PARTITION_INTERVAL)
+                .asTimePeriod(TimeUnit.MILLISECONDS);
+        if (partitionUpdateIntervalMillis < TimeUnit.SECONDS.toMillis(1)
+                || partitionUpdateIntervalMillis % TimeUnit.SECONDS.toMillis(1) != 0
+                || TimeUnit.MILLISECONDS.toSeconds(partitionUpdateIntervalMillis) > Integer.MAX_VALUE) {
+            results.add(new ValidationResult.Builder().valid(false).subject(AUTO_UPDATE_PARTITION_INTERVAL.getDisplayName())
+                .explanation("the Pulsar client keeps this interval as a whole number of seconds between 1 and "
+                    + Integer.MAX_VALUE + "; " + validationContext.getProperty(AUTO_UPDATE_PARTITION_INTERVAL).getValue()
+                    + " is not one, and would be applied as a different interval or refused by the client")
+                .build());
+        }
+
+        // The chunk expiry is a long of whole milliseconds on the client, and 0 means "never expire". A value
+        // between 0 and 1 ms would truncate to that 0 and disable the expiry for someone who asked for the
+        // shortest one; a fraction of a millisecond would be dropped.
+        final long expireTimeNanos = validationContext.getProperty(EXPIRE_TIME_OF_INCOMPLETE_CHUNKED_MESSAGE)
+                .asTimePeriod(TimeUnit.NANOSECONDS);
+        if (expireTimeNanos % TimeUnit.MILLISECONDS.toNanos(1) != 0) {
+            results.add(new ValidationResult.Builder().valid(false).subject(EXPIRE_TIME_OF_INCOMPLETE_CHUNKED_MESSAGE.getDisplayName())
+                .explanation("the Pulsar client keeps this as a whole number of milliseconds; "
+                    + validationContext.getProperty(EXPIRE_TIME_OF_INCOMPLETE_CHUNKED_MESSAGE).getValue()
+                    + " is not one (0 disables the expiry)")
+                .build());
+        }
+
         final boolean deadLetterEnabled = validationContext.getProperty(MAX_REDELIVER_COUNT).isSet();
         final boolean readCompacted = validationContext.getProperty(READ_COMPACTED).asBoolean();
         final String subscriptionType = validationContext.getProperty(SUBSCRIPTION_TYPE).getValue();
@@ -664,6 +713,8 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
 
     @OnScheduled
     public void init(ProcessContext context) {
+        warnIfNegativeAckDelayExceedsAckTimeout(context);
+
         // Not a validation error: on a live topic this configuration does deliver - new messages arrive and
         // are read compacted - so it is unusual rather than invalid, and rejecting it would fail a flow that
         // works. On an idle topic it delivers nothing at all, because the compacted view is the topic's
@@ -727,6 +778,24 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
         }
 
         setPulsarClientService(context.getProperty(PULSAR_CLIENT_SERVICE).asControllerService(PulsarClientService.class));
+    }
+
+    /**
+     * Once a message is negatively acknowledged the client stops tracking it for the Acknowledgment Timeout, so
+     * the redelivery delay is the only thing that brings it back. A delay longer than the timeout therefore makes
+     * a message the processor could not write wait longer than a plain rollback did (#218). That can be a
+     * deliberate backoff, so it is allowed - but it is worth a warning, because nothing else connects the two.
+     */
+    private void warnIfNegativeAckDelayExceedsAckTimeout(final ProcessContext context) {
+        final long ackTimeoutMillis = context.getProperty(ACK_TIMEOUT).asTimePeriod(TimeUnit.MILLISECONDS);
+        final long negativeAckDelayMillis = context.getProperty(NEGATIVE_ACK_REDELIVERY_DELAY).asTimePeriod(TimeUnit.MILLISECONDS);
+        if (negativeAckDelayMillis > ackTimeoutMillis) {
+            getLogger().warn("{} ({}) is longer than {} ({}). A negatively acknowledged message is redelivered by that "
+                    + "delay alone, so a message this processor cannot write will wait longer than it would have with "
+                    + "no negative acknowledgement at all. Lower the delay unless the longer wait is intended.",
+                    NEGATIVE_ACK_REDELIVERY_DELAY.getDisplayName(), context.getProperty(NEGATIVE_ACK_REDELIVERY_DELAY).getValue(),
+                    ACK_TIMEOUT.getDisplayName(), context.getProperty(ACK_TIMEOUT).getValue());
+        }
     }
 
     @OnUnscheduled
@@ -875,8 +944,11 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
                 .negativeAckRedeliveryDelay(context.getProperty(NEGATIVE_ACK_REDELIVERY_DELAY)
                         .asTimePeriod(TimeUnit.MICROSECONDS), TimeUnit.MICROSECONDS)
                 .autoAckOldestChunkedMessageOnQueueFull(context.getProperty(AUTO_ACK_OLDEST_CHUNKED_ON_QUEUE_FULL).asBoolean())
+                // The client stores this in milliseconds, so hand it over in milliseconds: converting to whole
+                // seconds here dropped any fraction, and turned a sub-second value into 0, which disables the
+                // expiry altogether (#225).
                 .expireTimeOfIncompleteChunkedMessage(context.getProperty(EXPIRE_TIME_OF_INCOMPLETE_CHUNKED_MESSAGE)
-                        .asTimePeriod(TimeUnit.SECONDS), TimeUnit.SECONDS)
+                        .asTimePeriod(TimeUnit.MILLISECONDS), TimeUnit.MILLISECONDS)
                 .maxPendingChunkedMessage(context.getProperty(MAX_PENDING_CHUNKED_MESSAGE).asInteger())
                 .priorityLevel(context.getProperty(PRIORITY_LEVEL).asInteger())
                 .receiverQueueSize(context.getProperty(RECEIVER_QUEUE_SIZE).asInteger())

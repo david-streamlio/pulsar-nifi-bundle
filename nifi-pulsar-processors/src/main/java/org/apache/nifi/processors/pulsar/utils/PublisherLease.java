@@ -19,6 +19,7 @@ package org.apache.nifi.processors.pulsar.utils;
 import com.fasterxml.jackson.core.JsonFactory;
 import com.fasterxml.jackson.core.JsonGenerator;
 import org.apache.commons.compress.utils.IOUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.nifi.avro.AvroTypeUtil;
 import org.apache.avro.generic.GenericData;
 import org.apache.avro.generic.GenericDatumWriter;
@@ -189,6 +190,16 @@ public class PublisherLease implements Closeable {
 
     public void publish(final FlowFile flowFile, final InputStream flowFileContent, final String messageKey,
                         Map<String, String> messageProperties, final byte[] demarcatorBytes, boolean async) throws IOException {
+        publish(flowFile, flowFileContent, messageKey, null, messageProperties, demarcatorBytes, async);
+    }
+
+    /**
+     * @param orderingKey Pulsar's ordering key for every message of the FlowFile, or {@code null} to set none, in
+     *                    which case the broker falls back to the message key
+     */
+    public void publish(final FlowFile flowFile, final InputStream flowFileContent, final String messageKey,
+                        final byte[] orderingKey, Map<String, String> messageProperties, final byte[] demarcatorBytes,
+                        boolean async) throws IOException {
 
         byte[] messageContent;
         List<CompletableFuture<MessageId>> futureList = new ArrayList<>();
@@ -197,16 +208,16 @@ public class PublisherLease implements Closeable {
             messageContent = new byte[(int) flowFile.getSize()];
             StreamUtils.fillBuffer(flowFileContent, messageContent);
             futureList.add(async ?
-                    sendAsync(producer, messageKey, messageProperties, messageContent) :
-                    send(producer, messageKey, messageProperties, messageContent));
+                    sendAsync(producer, messageKey, orderingKey, messageProperties, messageContent) :
+                    send(producer, messageKey, orderingKey, messageProperties, messageContent));
 
         } else {
             try (final StreamDemarcator demarcator = new StreamDemarcator(flowFileContent, demarcatorBytes, Integer.MAX_VALUE)) {
 
                 while ((messageContent = demarcator.nextToken()) != null) {
                     futureList.add(async ?
-                            sendAsync(producer, messageKey, messageProperties, messageContent) :
-                            send(producer, messageKey, messageProperties, messageContent));
+                            sendAsync(producer, messageKey, orderingKey, messageProperties, messageContent) :
+                            send(producer, messageKey, orderingKey, messageProperties, messageContent));
 
                     if (futureList.size() > 99) {
                         producer.flush();
@@ -248,6 +259,18 @@ public class PublisherLease implements Closeable {
                         final RecordSchema schema, final String messageKeyField, Map<String, String> messageProperties,
                         boolean async, boolean useTopicSchema, final String keyValueKeyField,
                         final String keyValueValueField) throws IOException {
+        publish(flowFile, recordSet, writerFactory, schema, messageKeyField, null, messageProperties, async, useTopicSchema,
+                keyValueKeyField, keyValueValueField);
+    }
+
+    /**
+     * @param orderingKeyField the record field whose value becomes the message's ordering key, or {@code null} to set
+     *                         none; a record whose field is null or empty gets no ordering key either
+     */
+    public void publish(final FlowFile flowFile, final RecordSet recordSet, final RecordSetWriterFactory writerFactory,
+                        final RecordSchema schema, final String messageKeyField, final String orderingKeyField,
+                        Map<String, String> messageProperties, boolean async, boolean useTopicSchema,
+                        final String keyValueKeyField, final String keyValueValueField) throws IOException {
 
         final TopicSchema resolvedSchema = useTopicSchema ? getTopicSchema() : null;
 
@@ -279,6 +302,12 @@ public class PublisherLease implements Closeable {
 
         final ByteArrayOutputStream baos = new ByteArrayOutputStream(1024);
 
+        // Once per FlowFile: a key field the records do not have yields null for every record, which is
+        // indistinguishable from a field that is present and null, so a misspelt name fails in silence. For
+        // the ordering key the only observable effect is dispatch on a multi-consumer subscription.
+        warnIfNotAField(recordSet.getSchema(), messageKeyField, "Message Key Field");
+        warnIfNotAField(recordSet.getSchema(), orderingKeyField, "Ordering Key Field");
+
         Record record;
         List<CompletableFuture<MessageId>> futureList = new ArrayList<>();
 
@@ -287,7 +316,8 @@ public class PublisherLease implements Closeable {
                 baos.reset();
 
                 final byte[] messageContent;
-                final String messageKey;
+                final byte[] orderingKey = orderingKeyField == null || orderingKeyField.isEmpty()
+                        ? null : getOrderingKey(flowFile, writerFactory, record.getValue(orderingKeyField));
 
                 if (keyValueSchema != null) {
                     final KeyValueTopicSchema.EncodedKeyValue encoded =
@@ -310,8 +340,8 @@ public class PublisherLease implements Closeable {
                         }
 
                         futureList.add(async
-                                ? sendAsyncWithKeyBytes(producer, encoded.getMessageKey(), messageProperties, messageContent)
-                                : sendWithKeyBytes(producer, encoded.getMessageKey(), messageProperties, messageContent));
+                                ? sendAsyncWithKeyBytes(producer, encoded.getMessageKey(), orderingKey, messageProperties, messageContent)
+                                : sendWithKeyBytes(producer, encoded.getMessageKey(), orderingKey, messageProperties, messageContent));
 
                         if (futureList.size() > 100) {
                             producer.flush();
@@ -337,11 +367,26 @@ public class PublisherLease implements Closeable {
 
                     messageContent = baos.toByteArray();
                 }
-                messageKey = getMessageKey(flowFile, writerFactory, record.getValue(messageKeyField));
+                final Object keyValue = messageKeyField == null || messageKeyField.isEmpty() ? null : record.getValue(messageKeyField);
+                final byte[] messageKey = keyBytes(flowFile, writerFactory, keyValue);
 
-                futureList.add(async ?
-                        sendAsync(producer, messageKey, messageProperties, messageContent) :
-                        send(producer, messageKey, messageProperties, messageContent));
+                if (messageKey != null && isBinary(keyValue)) {
+                    // A byte field is a binary key and travels as one: keyBytes() carries the bytes as they are
+                    // (base64 on the wire, flagged as such), so two different values are always two different
+                    // keys. Decoding them into a String would go through a charset, and a charset maps every
+                    // invalid sequence to the same replacement character - two different UUIDs could become one
+                    // key, route to one partition and supersede each other on a compacted topic.
+                    futureList.add(async
+                            ? sendAsyncWithKeyBytes(producer, messageKey, orderingKey, messageProperties, messageContent)
+                            : sendWithKeyBytes(producer, messageKey, orderingKey, messageProperties, messageContent));
+                } else {
+                    // Text, a number, a nested record the writer serialised: a text key, always read as UTF-8 so
+                    // that every node of a cluster derives the same key from the same record.
+                    final String textKey = messageKey == null ? null : new String(messageKey, StandardCharsets.UTF_8);
+                    futureList.add(async
+                            ? sendAsync(producer, textKey, orderingKey, messageProperties, messageContent)
+                            : send(producer, textKey, orderingKey, messageProperties, messageContent));
+                }
 
                 if (futureList.size() > 100) {
                     producer.flush();
@@ -580,11 +625,38 @@ public class PublisherLease implements Closeable {
         return producer.newMessage().properties(properties).keyBytes(keyBytes).value(value).sendAsync();
     }
 
+    /**
+     * The variants taking an ordering key hand a message without one to the original methods, so a subclass that
+     * overrides those (tests do, to control the futures) keeps seeing every message that has no ordering key.
+     */
+    protected CompletableFuture<MessageId> sendAsyncWithKeyBytes(Producer producer, byte[] keyBytes, byte[] orderingKey,
+                                                                 Map<String, String> properties, byte[] value) {
+        if (orderingKey == null) {
+            return sendAsyncWithKeyBytes(producer, keyBytes, properties, value);
+        }
+        return producer.newMessage().properties(properties).keyBytes(keyBytes).orderingKey(orderingKey).value(value).sendAsync();
+    }
+
     protected CompletableFuture<MessageId> sendWithKeyBytes(Producer producer, byte[] keyBytes, Map<String, String> properties, byte[] value)
             throws PulsarClientException {
         try {
             return CompletableFuture.completedFuture(
                     producer.newMessage().properties(properties).keyBytes(keyBytes).value(value).send());
+        } catch (final PulsarClientException e) {
+            final CompletableFuture<MessageId> failed = new CompletableFuture<>();
+            failed.completeExceptionally(e);
+            return failed;
+        }
+    }
+
+    protected CompletableFuture<MessageId> sendWithKeyBytes(Producer producer, byte[] keyBytes, byte[] orderingKey,
+                                                            Map<String, String> properties, byte[] value) throws PulsarClientException {
+        if (orderingKey == null) {
+            return sendWithKeyBytes(producer, keyBytes, properties, value);
+        }
+        try {
+            return CompletableFuture.completedFuture(
+                    producer.newMessage().properties(properties).keyBytes(keyBytes).orderingKey(orderingKey).value(value).send());
         } catch (final PulsarClientException e) {
             final CompletableFuture<MessageId> failed = new CompletableFuture<>();
             failed.completeExceptionally(e);
@@ -599,6 +671,37 @@ public class PublisherLease implements Closeable {
             tmb = tmb.key(key);
         }
         return tmb.sendAsync();
+    }
+
+    /**
+     * Sets the ordering key when there is one. Left unset, the broker falls back to the message key, which is what
+     * every message carried before the ordering key could be given separately (#196).
+     */
+    protected CompletableFuture<MessageId> sendAsync(Producer producer, String key, byte[] orderingKey, Map<String, String> properties, byte[] value) {
+        if (orderingKey == null) {
+            return sendAsync(producer, key, properties, value);
+        }
+        TypedMessageBuilder tmb = producer.newMessage().properties(properties).orderingKey(orderingKey).value(value);
+
+        if (key != null) {
+            tmb = tmb.key(key);
+        }
+        return tmb.sendAsync();
+    }
+
+    /**
+     * The ordering key a record field yields, converted exactly as {@link #getMessageKey} converts the message key
+     * field - so the same field named by either property gives the same bytes. Null, blank text and empty byte
+     * arrays mean no ordering key.
+     */
+    private byte[] getOrderingKey(final FlowFile flowFile, final RecordSetWriterFactory writerFactory,
+                                  final Object fieldValue) throws IOException, SchemaNotFoundException {
+        if (fieldValue instanceof CharSequence && StringUtils.isBlank((CharSequence) fieldValue)) {
+            // blank is "no ordering key", as it is for PublishPulsar's Ordering Key property
+            return null;
+        }
+        final byte[] key = keyBytes(flowFile, writerFactory, fieldValue);
+        return key == null || key.length == 0 ? null : key;
     }
 
     /**
@@ -630,23 +733,49 @@ public class PublisherLease implements Closeable {
         }
     }
 
-    private String getMessageKey(final FlowFile flowFile, final RecordSetWriterFactory writerFactory,
-                                 final Object keyValue) throws IOException, SchemaNotFoundException {
-        final byte[] messageKey;
+    protected CompletableFuture<MessageId> send(Producer producer, String key, byte[] orderingKey, Map<String, String> properties, byte[] value) {
+        if (orderingKey == null) {
+            return send(producer, key, properties, value);
+        }
+        TypedMessageBuilder tmb = producer.newMessage().properties(properties).orderingKey(orderingKey).value(value);
+
+        if (key != null) {
+            tmb = tmb.key(key);
+        }
+
+        try {
+            return CompletableFuture.completedFuture(tmb.send());
+        } catch (final PulsarClientException e) {
+            final CompletableFuture<MessageId> failed = new CompletableFuture<>();
+            failed.completeExceptionally(e);
+            return failed;
+        }
+    }
+
+    /**
+     * The bytes a record field contributes as a key. Shared by the message key and the ordering key, so a field
+     * of any type yields the same bytes under either property: bytes as they are, an array of boxed bytes unboxed,
+     * a nested record serialised with the FlowFile's writer, anything else as its UTF-8 string. What the caller
+     * does with them differs by necessity - the ordering key is always bytes, the message key is bytes for a
+     * binary field ({@link #isBinary}) and UTF-8 text otherwise - but the value is the same.
+     */
+    private byte[] keyBytes(final FlowFile flowFile, final RecordSetWriterFactory writerFactory,
+                            final Object keyValue) throws IOException, SchemaNotFoundException {
         if (keyValue == null) {
-            messageKey = null;
+            return null;
         } else if (keyValue instanceof byte[]) {
-            messageKey = (byte[]) keyValue;
-        } else if (keyValue instanceof Byte[]) {
+            return (byte[]) keyValue;
+        } else if (keyValue instanceof Object[] && isBoxedBytes((Object[]) keyValue)) {
             // This case exists because in our Record API we currently don't have a BYTES type, we use an Array of type
-            // Byte, which creates a Byte[] instead of a byte[]. We should address this in the future, but we should
-            // account for the log here.
-            final Byte[] bytes = (Byte[]) keyValue;
+            // Byte. Depending on the reader that is a Byte[] or - from AvroTypeUtil, which is what an AvroReader hands
+            // us for an Avro "bytes" field - an Object[] whose elements are Bytes. Either way toString() would be an
+            // identity hash, different for every record, so unbox to the content.
+            final Object[] bytes = (Object[]) keyValue;
             final byte[] bytesPrimitive = new byte[bytes.length];
             for (int i = 0; i < bytes.length; i++) {
-                bytesPrimitive[i] = bytes[i];
+                bytesPrimitive[i] = (Byte) bytes[i];
             }
-            messageKey = bytesPrimitive;
+            return bytesPrimitive;
         } else if (keyValue instanceof Record) {
             final Record keyRecord = (Record) keyValue;
             try (final ByteArrayOutputStream os = new ByteArrayOutputStream(1024)) {
@@ -654,13 +783,44 @@ public class PublisherLease implements Closeable {
                     writerKey.write(keyRecord);
                     writerKey.flush();
                 }
-                messageKey = os.toByteArray();
+                return os.toByteArray();
             }
         } else {
-            final String keyString = keyValue.toString();
-            messageKey = keyString.getBytes(StandardCharsets.UTF_8);
+            return keyValue.toString().getBytes(StandardCharsets.UTF_8);
         }
-        return (messageKey == null) ? null : new String(messageKey);
+    }
+
+    private void warnIfNotAField(final RecordSchema recordSchema, final String fieldName, final String property) {
+        if (fieldName == null || fieldName.isEmpty() || recordSchema == null || recordSchema.getField(fieldName).isPresent()) {
+            return;
+        }
+        logger.warn("{} names '{}', which is not a field of the records' schema (fields: {}); every record of this "
+                + "FlowFile is sent as if the field were null", property, fieldName, recordSchema.getFieldNames());
+    }
+
+    /** Whether a key field's value is binary - a {@code byte[]}, or the boxed form the Record API uses for one. */
+    static boolean isBinary(final Object value) {
+        return value instanceof byte[] || (value instanceof Object[] && isBoxedBytes((Object[]) value));
+    }
+
+    /**
+     * True for an array whose every element is a {@link Byte} - a byte string in the Record API's clothing. An
+     * empty array is bytes only when it is declared as such: an empty {@code array<string>} field is also an
+     * empty {@code Object[]}, and must not turn into an empty key.
+     */
+    private static boolean isBoxedBytes(final Object[] array) {
+        if (array instanceof Byte[]) {
+            return true;
+        }
+        if (array.length == 0) {
+            return false;
+        }
+        for (final Object element : array) {
+            if (!(element instanceof Byte)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     @Override
