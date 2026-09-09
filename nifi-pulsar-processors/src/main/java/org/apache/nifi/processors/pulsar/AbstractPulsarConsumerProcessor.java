@@ -528,13 +528,16 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
         }
 
         final boolean deadLetterEnabled = validationContext.getProperty(MAX_REDELIVER_COUNT).isSet();
+        final boolean readCompacted = validationContext.getProperty(READ_COMPACTED).asBoolean();
         final String subscriptionType = validationContext.getProperty(SUBSCRIPTION_TYPE).getValue();
 
         // The client builds a dead letter policy only for Shared and Key_Shared subscriptions. On the other
         // two the consumer is accepted and simply never dead-letters anything, so a flow would sit waiting on
         // a dead letter topic that can never receive a message. Reject it here instead, as CustomPartition is
         // rejected on the producer side, rather than let the configuration look like it took effect.
-        if (deadLetterEnabled && !SHARED.getValue().equals(subscriptionType)
+        // Not when a compacted read is also on: the combination has its own message below, and this one
+        // would send the user to Shared, which that message has just told them cannot work either.
+        if (deadLetterEnabled && !readCompacted && !SHARED.getValue().equals(subscriptionType)
                 && !KEY_SHARED.getValue().equals(subscriptionType)) {
             results.add(new ValidationResult.Builder().valid(false).subject(MAX_REDELIVER_COUNT.getDisplayName())
                 .explanation("a dead letter policy is supported only on Shared and Key_Shared subscriptions, but "
@@ -550,7 +553,7 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
         // complains and points at Exclusive, on Exclusive the dead letter policy complains and points back
         // at Shared. The docs state that no subscription type satisfies both; the validation messages are
         // the only place the user actually looks.
-        if (validationContext.getProperty(READ_COMPACTED).asBoolean() && deadLetterEnabled) {
+        if (readCompacted && deadLetterEnabled) {
             results.add(new ValidationResult.Builder().valid(false).subject(READ_COMPACTED.getDisplayName())
                 .explanation("Read Compacted and Max Redelivery Count cannot both be set: a compacted read "
                     + "needs a single active consumer (Exclusive or Failover) and a dead letter policy needs "
@@ -558,10 +561,17 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
                 .build());
         }
 
-        if (validationContext.getProperty(READ_COMPACTED).asBoolean()) {
+        if (readCompacted) {
             // Half one: a compacted read needs a single active consumer. This is the mirror of the dead
             // letter policy's constraint, which needs competing consumers, so the two can never both be on.
-            if (SHARED.getValue().equals(subscriptionType) || KEY_SHARED.getValue().equals(subscriptionType)) {
+            // Suppressed when the dead letter policy is on, which is what makes "said once" true rather
+            // than aspirational: this message names Exclusive, the dead letter rule above names Shared, and
+            // a user alternating between them never reaches a valid state. The combined message is the only
+            // one that describes the actual situation. Half two below is not suppressed - it names no
+            // subscription type, so it is not part of that circle, and a non-persistent topic is a second
+            // independent problem worth hearing about.
+            if (!deadLetterEnabled
+                    && (SHARED.getValue().equals(subscriptionType) || KEY_SHARED.getValue().equals(subscriptionType))) {
                 results.add(new ValidationResult.Builder().valid(false).subject(READ_COMPACTED.getDisplayName())
                     .explanation("a compacted read needs a single active consumer, so it is supported only on "
                         + "Exclusive and Failover subscriptions, but the Subscription Type is " + subscriptionType).build());

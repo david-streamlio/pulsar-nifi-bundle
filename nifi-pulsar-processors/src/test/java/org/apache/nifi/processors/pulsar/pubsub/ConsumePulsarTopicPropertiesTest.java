@@ -24,8 +24,11 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
+import org.apache.nifi.components.ValidationResult;
 import org.apache.nifi.processors.pulsar.AbstractPulsarConsumerProcessor;
 import org.apache.nifi.processors.pulsar.AbstractPulsarProcessorTest;
 import org.apache.nifi.reporting.InitializationException;
@@ -138,15 +141,27 @@ public class ConsumePulsarTopicPropertiesTest extends AbstractPulsarProcessorTes
      */
     @Test
     public void theConflictBetweenThemIsReportedAsOneReason() {
-        runner.setProperty(AbstractPulsarConsumerProcessor.READ_COMPACTED, "true");
-        runner.setProperty(AbstractPulsarConsumerProcessor.MAX_REDELIVER_COUNT, "5");
-        runner.setProperty(AbstractPulsarConsumerProcessor.SUBSCRIPTION_TYPE, "Shared");
+        for (final String type : new String[] {"Shared", "Key_Shared", "Exclusive", "Failover"}) {
+            runner.setProperty(AbstractPulsarConsumerProcessor.READ_COMPACTED, "true");
+            runner.setProperty(AbstractPulsarConsumerProcessor.MAX_REDELIVER_COUNT, "5");
+            runner.setProperty(AbstractPulsarConsumerProcessor.SUBSCRIPTION_TYPE, type);
 
-        assertTrue("the conflict should be reported as its own reason, naming both properties",
-                ((MockProcessContext) runner.getProcessContext()).validate().stream()
-                        .filter(result -> !result.isValid())
-                        .anyMatch(result -> result.getExplanation()
-                                .contains("cannot both be set")));
+            final List<String> reasons = ((MockProcessContext) runner.getProcessContext()).validate().stream()
+                    .filter(result -> !result.isValid())
+                    .map(ValidationResult::getExplanation)
+                    .collect(Collectors.toList());
+
+            assertTrue("on " + type + " the conflict should be reported as its own reason, naming both "
+                            + "properties, but the reasons were " + reasons,
+                    reasons.stream().anyMatch(reason -> reason.contains("cannot both be set")));
+
+            // The point of "one reason": no message may name a Subscription Type to move to, because every
+            // such message contradicts the one above. Half one sends the user to Exclusive, the dead letter
+            // rule sends them back to Shared, and alternating never reaches a valid state.
+            assertTrue("on " + type + " no reason may direct the user at a Subscription Type while both are "
+                            + "set, but the reasons were " + reasons,
+                    reasons.stream().noneMatch(reason -> reason.contains("but the Subscription Type is")));
+        }
     }
 
     /** Turning it off must not carry the constraint with it. */
