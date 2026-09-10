@@ -19,6 +19,7 @@ package org.apache.nifi.processors.pulsar.pubsub;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assume.assumeTrue;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -85,7 +86,12 @@ public class ConsumePulsarAckLeakTest extends AbstractPulsarProcessorTest<Generi
         long pendingAcks() {
             final ExecutorService pool = getAckPool();
             if (!(pool instanceof ThreadPoolExecutor)) {
-                return 0;
+                // Loud on purpose. Returning 0 here would make awaitSubmittedAcksToComplete() return without
+                // waiting and pass its own check trivially, and the gate would silently go back to measuring
+                // acks in flight on a loaded machine - the flake this test exists to be rid of (#233).
+                throw new AssertionError("the ack pool is a " + (pool == null ? "null" : pool.getClass().getName())
+                        + "; pendingAcks() can only measure a ThreadPoolExecutor, so this test cannot take the "
+                        + "machine out of the measurement (see #233)");
             }
             final ThreadPoolExecutor executor = (ThreadPoolExecutor) pool;
             return executor.getTaskCount() - executor.getCompletedTaskCount();
@@ -166,9 +172,15 @@ public class ConsumePulsarAckLeakTest extends AbstractPulsarProcessorTest<Generi
      * The aggravating case: an idle topic. The cumulative-ack task used to be submitted outside the
      * "did we receive anything?" guard, so every trigger queued a Future holding an
      * IndexOutOfBoundsException from messages.get(-1) - an idle processor leaked fastest of all.
+     * <p>
+     * That is a defect of the cumulative path, which only Exclusive takes: a Shared subscription acknowledges
+     * per message and submits nothing on an idle topic, so its run of this test could only ever assert
+     * {@code 0 == 0}. Pinned to Exclusive; the gate test above is where both types earn their place.
      */
     @Test
     public void idleTopicDoesNotQueueFailedAcks() throws Exception {
+        assumeTrue("the idle-topic defect lives on the cumulative-ack path, which only Exclusive takes",
+                "Exclusive".equals(subscriptionType));
         mockClientService.setMockMessageQueue(new ArrayList<>());
 
         runner.run(TRIGGERS, false);
