@@ -25,15 +25,20 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
+import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
 
 import org.apache.nifi.processors.pulsar.AbstractPulsarConsumerProcessor;
 import org.apache.nifi.processors.pulsar.AbstractPulsarProcessorTest;
 import org.apache.nifi.processors.pulsar.pubsub.mocks.MockPulsarMessage;
+import org.apache.nifi.processors.pulsar.pubsub.mocks.MockRecordParser;
+import org.apache.nifi.processors.pulsar.pubsub.mocks.MockRecordWriter;
 import org.apache.nifi.reporting.InitializationException;
+import org.apache.nifi.serialization.record.RecordFieldType;
 import org.apache.nifi.util.TestRunners;
 import org.apache.pulsar.client.api.Message;
 import org.apache.pulsar.client.api.schema.GenericRecord;
@@ -55,36 +60,60 @@ import org.junit.runners.Parameterized.Parameters;
  * depends on how loaded the machine is and cannot be pinned (#233: a hard 3 failed in CI with 8, a quarter
  * of the triggers failed with 26 and 21, on commits that could not touch retention).
  * <p>
- * Runs for both subscription types the consumers acknowledge differently on: Shared acknowledges every
- * message, Exclusive cumulatively once per batch.
+ * Runs for both consumers - each has its own drain call at the end of its own async loop (#239) - and for
+ * both subscription types the consumers acknowledge differently on: Shared acknowledges every message,
+ * Exclusive cumulatively once per batch.
  */
 @RunWith(Parameterized.class)
 public class ConsumePulsarAckLeakTest extends AbstractPulsarProcessorTest<GenericRecord> {
 
     private static final String TOPIC = "persistent://public/default/events";
-    private static final int TRIGGERS = 40;
 
-    @Parameters(name = "{0}")
-    public static Collection<Object[]> subscriptionTypes() {
-        return Arrays.asList(new Object[][] {{"Shared"}, {"Exclusive"}});
+    /**
+     * Triggers per case. ConsumePulsar's async loop returns as soon as its one receive future completes, so
+     * forty triggers take a moment. ConsumePulsarRecord's loops on the completion service until a poll times
+     * out, so every trigger costs one Max Wait Time (set to its one-second minimum below) - the leak it measures
+     * is the same one Future per acknowledgement, and ten of them against zero is as unmistakable as forty.
+     */
+    private static final int TRIGGERS = 40;
+    private static final int RECORD_TRIGGERS = 10;
+
+    @Parameters(name = "{0} {1}")
+    public static Collection<Object[]> processorsAndSubscriptionTypes() {
+        final List<Object[]> cases = new ArrayList<>();
+        for (final String subscriptionType : new String[] {"Shared", "Exclusive"}) {
+            cases.add(new Object[] {"ConsumePulsar", subscriptionType, (Supplier<AbstractPulsarConsumerProcessor<?>>) AckProbeConsumePulsar::new});
+            cases.add(new Object[] {"ConsumePulsarRecord", subscriptionType, (Supplier<AbstractPulsarConsumerProcessor<?>>) AckProbeConsumePulsarRecord::new});
+        }
+        return cases;
     }
 
     private final String subscriptionType;
+    private final Supplier<AbstractPulsarConsumerProcessor<?>> processorFactory;
 
-    public ConsumePulsarAckLeakTest(final String subscriptionType) {
+    public ConsumePulsarAckLeakTest(final String processorName, final String subscriptionType,
+                                    final Supplier<AbstractPulsarConsumerProcessor<?>> processorFactory) {
         this.subscriptionType = subscriptionType;
+        this.processorFactory = processorFactory;
     }
 
-    /** Exposes the ack pool and completion service, which are protected on AbstractPulsarConsumerProcessor. */
-    public static class AckProbeConsumePulsar extends ConsumePulsar {
+    /**
+     * What the test needs from a consumer processor: the ack pool and its completion service, which are protected
+     * on AbstractPulsarConsumerProcessor. A probe subclass of each consumer exposes the two accessors; everything
+     * the test measures is built on them here, once, so both processors go through the same measurement.
+     */
+    interface AckProbe {
+        ExecutorService ackPool();
+
+        ExecutorCompletionService<Object> ackService();
 
         /**
          * How many submitted acknowledgements have not run yet. This is the number the old fixed allowance
          * tried to bound, and it is a property of the machine, not of the processor: logged for the record,
          * never asserted on.
          */
-        long pendingAcks() {
-            final ExecutorService pool = getAckPool();
+        default long pendingAcks() {
+            final ExecutorService pool = ackPool();
             if (!(pool instanceof ThreadPoolExecutor)) {
                 // Loud on purpose. Returning 0 here would make awaitSubmittedAcksToComplete() return without
                 // waiting and pass its own check trivially, and the gate would silently go back to measuring
@@ -102,7 +131,7 @@ public class ConsumePulsarAckLeakTest extends AbstractPulsarProcessorTest<Generi
          * unbounded queue, so "submitted" and "completed" can be arbitrarily far apart on a loaded machine;
          * this is the wait that takes the machine out of the measurement.
          */
-        void awaitSubmittedAcksToComplete() throws InterruptedException {
+        default void awaitSubmittedAcksToComplete() throws InterruptedException {
             final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
             while (pendingAcks() > 0 && System.nanoTime() < deadline) {
                 Thread.sleep(20);
@@ -111,28 +140,54 @@ public class ConsumePulsarAckLeakTest extends AbstractPulsarProcessorTest<Generi
         }
 
         /** Drains and counts the acknowledgement Futures the processor left behind. */
-        int countRetainedAcks() throws InterruptedException {
-            if (getAckService() == null) {
+        default int countRetainedAcks() throws InterruptedException {
+            if (ackService() == null) {
                 return 0;
             }
 
             int retained = 0;
-            Future<Object> ack = getAckService().poll(500, TimeUnit.MILLISECONDS);
+            Future<Object> ack = ackService().poll(500, TimeUnit.MILLISECONDS);
 
             while (ack != null) {
                 retained++;
-                ack = getAckService().poll(100, TimeUnit.MILLISECONDS);
+                ack = ackService().poll(100, TimeUnit.MILLISECONDS);
             }
 
             return retained;
         }
     }
 
-    private AckProbeConsumePulsar processor;
+    public static class AckProbeConsumePulsar extends ConsumePulsar implements AckProbe {
+        @Override
+        public ExecutorService ackPool() {
+            return getAckPool();
+        }
+
+        @Override
+        public ExecutorCompletionService<Object> ackService() {
+            return getAckService();
+        }
+    }
+
+    public static class AckProbeConsumePulsarRecord extends ConsumePulsarRecord implements AckProbe {
+        @Override
+        public ExecutorService ackPool() {
+            return getAckPool();
+        }
+
+        @Override
+        public ExecutorCompletionService<Object> ackService() {
+            return getAckService();
+        }
+    }
+
+    private AbstractPulsarConsumerProcessor<?> processor;
+    private AckProbe probe;
 
     @Before
     public void init() throws InitializationException {
-        processor = new AckProbeConsumePulsar();
+        processor = processorFactory.get();
+        probe = (AckProbe) processor;
         runner = TestRunners.newTestRunner(processor);
         addPulsarClientService();
         runner.setProperty(AbstractPulsarConsumerProcessor.TOPICS, TOPIC);
@@ -141,30 +196,51 @@ public class ConsumePulsarAckLeakTest extends AbstractPulsarProcessorTest<Generi
         runner.setProperty(AbstractPulsarConsumerProcessor.CONSUMER_BATCH_SIZE, "1");
         runner.setProperty(AbstractPulsarConsumerProcessor.MESSAGE_DEMARCATOR, "\n");
         runner.setProperty(AbstractPulsarConsumerProcessor.SUBSCRIPTION_TYPE, subscriptionType);
+
+        if (processor instanceof ConsumePulsarRecord) {
+            // one string field per message; the payloads below are single-column CSV lines
+            final MockRecordParser reader = new MockRecordParser();
+            reader.addSchemaField("payload", RecordFieldType.STRING);
+            runner.addControllerService("record-reader", reader);
+            runner.enableControllerService(reader);
+            final MockRecordWriter writer = new MockRecordWriter("payload");
+            runner.addControllerService("record-writer", writer);
+            runner.enableControllerService(writer);
+            runner.setProperty(ConsumePulsarRecord.RECORD_READER, "record-reader");
+            runner.setProperty(ConsumePulsarRecord.RECORD_WRITER, "record-writer");
+            // the record processor's async loop polls until this elapses, once per trigger; the property is
+            // handed to the client in whole seconds, so one second is the shortest wait it can run with
+            runner.setProperty(ConsumePulsarRecord.MAX_WAIT_TIME, "1 sec");
+        }
+    }
+
+    private int triggers() {
+        return processor instanceof ConsumePulsarRecord ? RECORD_TRIGGERS : TRIGGERS;
     }
 
     /**
      * The gate. After the triggers have run and every acknowledgement they submitted has completed, one
      * trigger on the now-empty topic drains the completion service, and nothing may be left in it. With the
-     * leak, everything is left: one Future per acknowledgement, {@link #TRIGGERS} of them.
+     * leak, everything is left: one Future per acknowledgement, one per trigger.
      */
     @Test
     public void completedAcknowledgementsAreDrainedByTheNextTrigger() throws Exception {
-        mockClientService.setMockMessageQueue(messages(TRIGGERS));
+        final int triggers = triggers();
+        mockClientService.setMockMessageQueue(messages(triggers));
 
         // do not stop the processor: @OnUnscheduled tears the pools down, which would hide the leak
-        runner.run(TRIGGERS, false);
+        runner.run(triggers, false);
         // diagnostic only - the in-flight count at this instant is what a loaded runner inflates (#233)
-        System.out.println(subscriptionType + ": " + processor.pendingAcks() + " acknowledgement(s) still pending when the last of "
-                + TRIGGERS + " triggers returned");
-        processor.awaitSubmittedAcksToComplete();
+        System.out.println(processor.getClass().getSimpleName() + " " + subscriptionType + ": " + probe.pendingAcks()
+                + " acknowledgement(s) still pending when the last of " + triggers + " triggers returned");
+        probe.awaitSubmittedAcksToComplete();
 
         // the topic is empty now; this trigger receives nothing and only drains
         runner.run(1, false, false);
 
-        final int retained = processor.countRetainedAcks();
+        final int retained = probe.countRetainedAcks();
         assertEquals("Acknowledgement Futures are being retained after they completed: " + retained + " left after "
-                + TRIGGERS + " triggers and a draining one. The leak kept one per acknowledgement (see issue #53)",
+                + triggers + " triggers and a draining one. The leak kept one per acknowledgement (see issue #53)",
                 0, retained);
     }
 
@@ -175,7 +251,8 @@ public class ConsumePulsarAckLeakTest extends AbstractPulsarProcessorTest<Generi
      * <p>
      * That is a defect of the cumulative path, which only Exclusive takes: a Shared subscription acknowledges
      * per message and submits nothing on an idle topic, so its run of this test could only ever assert
-     * {@code 0 == 0}. Pinned to Exclusive; the gate test above is where both types earn their place.
+     * {@code 0 == 0}. Pinned to Exclusive; the gate test above is where both types earn their place. Both
+     * processors run it, since each guards the submission in its own loop (#239).
      */
     @Test
     public void idleTopicDoesNotQueueFailedAcks() throws Exception {
@@ -183,12 +260,12 @@ public class ConsumePulsarAckLeakTest extends AbstractPulsarProcessorTest<Generi
                 "Exclusive".equals(subscriptionType));
         mockClientService.setMockMessageQueue(new ArrayList<>());
 
-        runner.run(TRIGGERS, false);
-        processor.awaitSubmittedAcksToComplete();
+        runner.run(triggers(), false);
+        probe.awaitSubmittedAcksToComplete();
 
         runner.assertTransferCount(ConsumePulsar.REL_SUCCESS, 0);
-        final int retained = processor.countRetainedAcks();
-        assertTrue("An idle topic queued " + retained + " acknowledgement Futures over " + TRIGGERS
+        final int retained = probe.countRetainedAcks();
+        assertTrue("An idle topic queued " + retained + " acknowledgement Futures over " + triggers()
                 + " triggers; it should queue none (see issue #53)", retained == 0);
     }
 
