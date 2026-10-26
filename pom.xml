@@ -87,6 +87,7 @@
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <!-- Dependency versions -->
+        <bouncycastle.version>1.86</bouncycastle.version>
         <commons-collections4.version>4.6.0</commons-collections4.version>
         <commons-compress.version>1.28.0</commons-compress.version>
         <commons-lang3.version>3.20.0</commons-lang3.version>
@@ -94,7 +95,9 @@
         <conscrypt-openjdk.version>2.7.0</conscrypt-openjdk.version>
         <groovy-eclipse-batch.version>3.0.8-01</groovy-eclipse-batch.version>
         <grpc.version>1.41.0</grpc.version>
-        <jackson-core.version>2.22.2</jackson-core.version>
+        <jackson.version>2.22.4</jackson.version>
+        <!-- Since 2.20 jackson-annotations is released per minor version only (2.22, not 2.22.4). -->
+        <jackson-annotations.version>2.22</jackson-annotations.version>
         <junit.version>4.13.2</junit.version>
         <mockito-core.version>5.23.0</mockito-core.version>
         <nifi.version>2.11.0</nifi.version>
@@ -141,6 +144,46 @@
                 <version>${testcontainers.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
+            </dependency>
+            <!-- The nifi-extension-bundles parent manages Jackson at 2.18.2 and Bouncy Castle at 1.79,
+                 both with HIGH/CRITICAL CVEs. Explicit entries here outrank the parent's; the Jackson BOM
+                 alone would not, because an imported BOM loses to versions the parent already manages. -->
+            <dependency>
+                <groupId>com.fasterxml.jackson</groupId>
+                <artifactId>jackson-bom</artifactId>
+                <version>${jackson.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>com.fasterxml.jackson.core</groupId>
+                <artifactId>jackson-annotations</artifactId>
+                <version>${jackson-annotations.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.fasterxml.jackson.core</groupId>
+                <artifactId>jackson-core</artifactId>
+                <version>${jackson.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.fasterxml.jackson.core</groupId>
+                <artifactId>jackson-databind</artifactId>
+                <version>${jackson.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.bouncycastle</groupId>
+                <artifactId>bcprov-jdk18on</artifactId>
+                <version>${bouncycastle.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.bouncycastle</groupId>
+                <artifactId>bcpkix-jdk18on</artifactId>
+                <version>${bouncycastle.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.bouncycastle</groupId>
+                <artifactId>bcutil-jdk18on</artifactId>
+                <version>${bouncycastle.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>
