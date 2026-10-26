@@ -28,19 +28,17 @@ import org.apache.pulsar.client.api.Message;
 import org.apache.pulsar.client.api.MessageId;
 import org.apache.pulsar.client.api.PulsarClientException;
 import org.apache.pulsar.client.api.schema.GenericRecord;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.Mock;
 
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
-
-import static org.junit.Assert.*;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.*;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 public class ConsumePulsarMessageAttributesTest extends AbstractPulsarProcessorTest<GenericRecord> {
 
@@ -50,7 +48,7 @@ public class ConsumePulsarMessageAttributesTest extends AbstractPulsarProcessorT
     @Mock
     private MessageId mockMessageId;
 
-    @Before
+    @BeforeEach
     public void init() throws Exception {
         runner = TestRunners.newTestRunner(ConsumePulsar.class);
         addPulsarClientService();
@@ -91,32 +89,32 @@ public class ConsumePulsarMessageAttributesTest extends AbstractPulsarProcessorT
         MockFlowFile flowFile = flowFiles.get(0);
 
         // Verify message ID attribute
-        assertTrue("FlowFile should have pulsar.message.id attribute", 
-                   flowFile.getAttributes().containsKey("pulsar.message.id"));
-        assertEquals("Message ID should match", testMessageId, 
-                     flowFile.getAttribute("pulsar.message.id"));
+        assertTrue(flowFile.getAttributes().containsKey("pulsar.message.id"), 
+                   "FlowFile should have pulsar.message.id attribute");
+        assertEquals(testMessageId, flowFile.getAttribute("pulsar.message.id"), 
+                     "Message ID should match");
 
         // Verify all message properties are present with proper prefix
-        assertTrue("FlowFile should have source property", 
-                   flowFile.getAttributes().containsKey("pulsar.property.source"));
-        assertEquals("Source property should match", "test-app", 
-                     flowFile.getAttribute("pulsar.property.source"));
+        assertTrue(flowFile.getAttributes().containsKey("pulsar.property.source"), 
+                   "FlowFile should have source property");
+        assertEquals("test-app", flowFile.getAttribute("pulsar.property.source"), 
+                     "Source property should match");
 
-        assertTrue("FlowFile should have timestamp property", 
-                   flowFile.getAttributes().containsKey("pulsar.property.timestamp"));
-        assertEquals("Timestamp property should match", "2023-01-01T10:00:00Z", 
-                     flowFile.getAttribute("pulsar.property.timestamp"));
+        assertTrue(flowFile.getAttributes().containsKey("pulsar.property.timestamp"), 
+                   "FlowFile should have timestamp property");
+        assertEquals("2023-01-01T10:00:00Z", flowFile.getAttribute("pulsar.property.timestamp"), 
+                     "Timestamp property should match");
 
-        assertTrue("FlowFile should have correlation-id property", 
-                   flowFile.getAttributes().containsKey("pulsar.property.correlation-id"));
-        assertEquals("Correlation-id property should match", "abc-123", 
-                     flowFile.getAttribute("pulsar.property.correlation-id"));
+        assertTrue(flowFile.getAttributes().containsKey("pulsar.property.correlation-id"), 
+                   "FlowFile should have correlation-id property");
+        assertEquals("abc-123", flowFile.getAttribute("pulsar.property.correlation-id"), 
+                     "Correlation-id property should match");
 
         // Verify content is correct
         flowFile.assertContentEquals("Hello Pulsar");
         
         // Verify message count attribute
-        assertEquals("Message count should be 1", "1", flowFile.getAttribute("message.count"));
+        assertEquals("1", flowFile.getAttribute("message.count"), "Message count should be 1");
     }
 
     @Test
@@ -142,18 +140,18 @@ public class ConsumePulsarMessageAttributesTest extends AbstractPulsarProcessorT
         MockFlowFile flowFile = flowFiles.get(0);
 
         // Verify message ID attribute is not present when null
-        assertFalse("FlowFile should not have pulsar.message.id attribute when message ID is null", 
-                    flowFile.getAttributes().containsKey("pulsar.message.id"));
+        assertFalse(flowFile.getAttributes().containsKey("pulsar.message.id"), 
+                    "FlowFile should not have pulsar.message.id attribute when message ID is null");
 
         // Verify no property attributes are present
         for (String attributeName : flowFile.getAttributes().keySet()) {
-            assertFalse("No property attributes should be present", 
-                       attributeName.startsWith("pulsar.property."));
+            assertFalse(attributeName.startsWith("pulsar.property."), 
+                       "No property attributes should be present");
         }
 
         // Verify content and basic attributes are still correct
         flowFile.assertContentEquals("Hello Pulsar");
-        assertEquals("Message count should be 1", "1", flowFile.getAttribute("message.count"));
+        assertEquals("1", flowFile.getAttribute("message.count"), "Message count should be 1");
     }
 
     @Test
@@ -188,16 +186,16 @@ public class ConsumePulsarMessageAttributesTest extends AbstractPulsarProcessorT
         MockFlowFile flowFile = flowFiles.get(0);
 
         // Verify custom mappings work
-        assertEquals("Custom key mapping should work", messageKey, 
-                     flowFile.getAttribute("message.key"));
-        assertEquals("Custom property mapping should work", "premium", 
-                     flowFile.getAttribute("user.type"));
+        assertEquals(messageKey, flowFile.getAttribute("message.key"), 
+                     "Custom key mapping should work");
+        assertEquals("premium", flowFile.getAttribute("user.type"), 
+                     "Custom property mapping should work");
 
         // Verify automatic attributes are also present
-        assertEquals("Message ID should be present", testMessageId, 
-                     flowFile.getAttribute("pulsar.message.id"));
-        assertEquals("Property should be present with prefix", "premium", 
-                     flowFile.getAttribute("pulsar.property.user-type"));
+        assertEquals(testMessageId, flowFile.getAttribute("pulsar.message.id"), 
+                     "Message ID should be present");
+        assertEquals("premium", flowFile.getAttribute("pulsar.property.user-type"), 
+                     "Property should be present with prefix");
 
         // Verify content
         flowFile.assertContentEquals("User data");
@@ -250,18 +248,18 @@ public class ConsumePulsarMessageAttributesTest extends AbstractPulsarProcessorT
         MockFlowFile flowFile = flowFiles.get(0);
 
         flowFile.assertContentEquals("Message 1\nMessage 2");
-        assertEquals("Message count should be 2", "2", flowFile.getAttribute("message.count"));
+        assertEquals("2", flowFile.getAttribute("message.count"), "Message count should be 2");
 
         // No single message id describes a two-message FlowFile: only the first/last ids are published
         flowFile.assertAttributeNotExists("pulsar.message.id");
-        assertEquals("First message id should be from the first message", messageId1,
-                     flowFile.getAttribute("pulsar.message.id.first"));
-        assertEquals("Last message id should be from the last message", messageId2,
-                     flowFile.getAttribute("pulsar.message.id.last"));
+        assertEquals(messageId1, flowFile.getAttribute("pulsar.message.id.first"),
+                     "First message id should be from the first message");
+        assertEquals(messageId2, flowFile.getAttribute("pulsar.message.id.last"),
+                     "Last message id should be from the last message");
 
         // Properties shared by every message in the batch are kept, the differing one is dropped
-        assertEquals("Common batch property should be present", "1",
-                     flowFile.getAttribute("pulsar.property.batch"));
+        assertEquals("1", flowFile.getAttribute("pulsar.property.batch"),
+                     "Common batch property should be present");
         flowFile.assertAttributeNotExists("pulsar.property.sequence");
     }
 }

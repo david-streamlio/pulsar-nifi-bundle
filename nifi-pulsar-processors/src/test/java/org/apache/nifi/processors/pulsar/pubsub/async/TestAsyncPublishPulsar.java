@@ -16,9 +16,8 @@
  */
 package org.apache.nifi.processors.pulsar.pubsub.async;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.mockito.Mockito.any;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -34,7 +33,8 @@ import org.apache.nifi.processors.pulsar.pubsub.PublishPulsarRecord;
 import org.apache.nifi.processors.pulsar.pubsub.TestPublishPulsar;
 import org.apache.nifi.util.MockFlowFile;
 import org.apache.pulsar.client.api.PulsarClientException;
-import org.junit.Test;
+
+import org.junit.jupiter.api.Test;
 
 public class TestAsyncPublishPulsar extends TestPublishPulsar {
 

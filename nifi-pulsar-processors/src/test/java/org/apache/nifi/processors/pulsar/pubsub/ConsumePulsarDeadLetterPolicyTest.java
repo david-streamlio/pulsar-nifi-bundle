@@ -21,8 +21,8 @@ import org.apache.nifi.processors.pulsar.AbstractPulsarProcessorTest;
 import org.apache.nifi.reporting.InitializationException;
 import org.apache.nifi.util.TestRunners;
 import org.apache.pulsar.client.api.schema.GenericRecord;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 /**
  * The dead letter policy is configuration the broker can silently ignore, so the processor rejects the
@@ -38,7 +38,7 @@ public class ConsumePulsarDeadLetterPolicyTest extends AbstractPulsarProcessorTe
 
     private static final String TOPIC = "persistent://public/default/dead-letter";
 
-    @Before
+    @BeforeEach
     public void init() throws InitializationException {
         runner = TestRunners.newTestRunner(ConsumePulsar.class);
         addPulsarClientService();

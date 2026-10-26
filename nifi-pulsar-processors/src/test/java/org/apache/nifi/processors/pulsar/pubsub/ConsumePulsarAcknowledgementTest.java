@@ -17,7 +17,7 @@
 package org.apache.nifi.processors.pulsar.pubsub;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
-import static org.junit.Assert.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.never;
@@ -50,11 +50,8 @@ import org.apache.pulsar.client.api.Consumer;
 import org.apache.pulsar.client.api.Message;
 import org.apache.pulsar.client.api.PulsarClientException;
 import org.apache.pulsar.client.api.schema.GenericRecord;
-import org.junit.Before;
-import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.junit.runners.Parameterized;
-import org.junit.runners.Parameterized.Parameters;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 
 /**
  * A message may be acknowledged to the broker only once the FlowFile that carries it has been committed.
@@ -66,29 +63,28 @@ import org.junit.runners.Parameterized.Parameters;
  * Pulsar. Every scenario runs in synchronous and asynchronous mode on a Shared and on an Exclusive
  * subscription, because each combination acknowledges through a different path.
  */
-@RunWith(Parameterized.class)
 public class ConsumePulsarAcknowledgementTest extends AbstractPulsarProcessorTest<GenericRecord> {
 
     private static final String TOPIC = "persistent://public/default/acknowledgement";
 
-    @Parameters(name = "async={0}, subscription={1}")
     public static Collection<Object[]> parameters() {
         return Arrays.asList(new Object[][] {
             {false, "Exclusive"}, {false, "Shared"}, {true, "Exclusive"}, {true, "Shared"}});
     }
 
-    private final boolean async;
-    private final String subscriptionType;
-    private final boolean shared;
+    private boolean async;
+    private String subscriptionType;
+    private boolean shared;
 
-    public ConsumePulsarAcknowledgementTest(final boolean async, final String subscriptionType) {
+    public void initConsumePulsarAcknowledgementTest(final boolean async, final String subscriptionType) throws InitializationException {
         this.async = async;
         this.subscriptionType = subscriptionType;
         this.shared = isSharedSubType(subscriptionType);
+        init();
     }
 
-    @Before
-    public void init() throws InitializationException {
+    /** Called by each test once its parameters are set, as JUnit 4 ran @Before after the constructor. */
+    private void init() throws InitializationException {
         runner = TestRunners.newTestRunner(ConsumePulsar.class);
         addPulsarClientService();
         runner.setProperty(AbstractPulsarConsumerProcessor.TOPICS, TOPIC);
@@ -104,18 +100,20 @@ public class ConsumePulsarAcknowledgementTest extends AbstractPulsarProcessorTes
      * the FlowFile carrying it is already committed. Before the fix a Shared subscription acknowledged
      * every message before it was even written, and the committed count recorded here was 0.
      */
-    @Test
-    public void messagesAreAcknowledgedOnlyAfterTheirFlowFileIsCommitted() throws PulsarClientException {
+    @MethodSource("parameters")
+    @ParameterizedTest(name = "async={0}, subscription={1}")
+    public void messagesAreAcknowledgedOnlyAfterTheirFlowFileIsCommitted(final boolean async, final String subscriptionType) throws PulsarClientException, InitializationException {
+        initConsumePulsarAcknowledgementTest(async, subscriptionType);
         final List<String> statesAtAcknowledgement = recordSessionStateAtAcknowledgement(ConsumePulsar.REL_SUCCESS);
         mockClientService.setMockMessageQueue(messages(3, "payload"));
 
         runner.run(1, true);
 
         runner.assertAllFlowFilesTransferred(ConsumePulsar.REL_SUCCESS, 1);
-        assertEquals("one acknowledgement per message on a Shared subscription, one cumulative acknowledgement otherwise",
-                shared ? 3 : 1, statesAtAcknowledgement.size());
+        assertEquals(shared ? 3 : 1,
+                statesAtAcknowledgement.size(), "one acknowledgement per message on a Shared subscription, one cumulative acknowledgement otherwise");
         for (final String state : statesAtAcknowledgement) {
-            assertEquals("a message was acknowledged before the FlowFile carrying it was committed", ONE_COMMITTED_FLOWFILE, state);
+            assertEquals(ONE_COMMITTED_FLOWFILE, state, "a message was acknowledged before the FlowFile carrying it was committed");
         }
     }
 
@@ -124,8 +122,10 @@ public class ConsumePulsarAcknowledgementTest extends AbstractPulsarProcessorTes
      * so that the broker redelivers the batch. Before the fix a Shared subscription had already acknowledged
      * every message, and an Exclusive one acknowledged cumulatively right after rolling the session back.
      */
-    @Test
-    public void nothingIsAcknowledgedWhenTheContentCannotBeWritten() throws PulsarClientException {
+    @MethodSource("parameters")
+    @ParameterizedTest(name = "async={0}, subscription={1}")
+    public void nothingIsAcknowledgedWhenTheContentCannotBeWritten(final boolean async, final String subscriptionType) throws PulsarClientException, InitializationException {
+        initConsumePulsarAcknowledgementTest(async, subscriptionType);
         // schedule the processor against the still-empty topic
         runner.run(1, false, true);
         mockClientService.setMockMessageQueue(messages(3, "payload"));
@@ -144,8 +144,10 @@ public class ConsumePulsarAcknowledgementTest extends AbstractPulsarProcessorTes
     }
 
     /** Messages with an empty payload are discarded on purpose, and they still have to be acknowledged. */
-    @Test
-    public void discardedEmptyMessagesAreStillAcknowledged() throws PulsarClientException {
+    @MethodSource("parameters")
+    @ParameterizedTest(name = "async={0}, subscription={1}")
+    public void discardedEmptyMessagesAreStillAcknowledged(final boolean async, final String subscriptionType) throws PulsarClientException, InitializationException {
+        initConsumePulsarAcknowledgementTest(async, subscriptionType);
         mockClientService.setMockMessageQueue(messages(3, null));
 
         runner.run(1, true);

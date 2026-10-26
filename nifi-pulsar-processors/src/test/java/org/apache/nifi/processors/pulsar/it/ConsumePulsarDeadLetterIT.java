@@ -17,8 +17,8 @@
 package org.apache.nifi.processors.pulsar.it;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -39,8 +39,9 @@ import org.apache.pulsar.client.api.Consumer;
 import org.apache.pulsar.client.api.Message;
 import org.apache.pulsar.client.api.Schema;
 import org.apache.pulsar.client.api.SubscriptionInitialPosition;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 /**
  * Negative acknowledgement and the dead letter policy, against a real broker.
@@ -54,7 +55,7 @@ public class ConsumePulsarDeadLetterIT extends AbstractPulsarIT {
 
     private TestRunner runner;
 
-    @Before
+    @BeforeEach
     public void init() throws InitializationException {
         runner = TestRunners.newTestRunner(ConsumePulsar.class);
         addRealPulsarClientService(runner, "pulsar-client");
@@ -111,9 +112,9 @@ public class ConsumePulsarDeadLetterIT extends AbstractPulsarIT {
         runner.getFlowFilesForRelationship(ConsumePulsar.REL_SUCCESS).get(0).assertContentEquals("payload");
         // 10s is the Acknowledgment Timeout, the only redelivery mechanism before the negative
         // acknowledgement existed. Landing inside it is what proves the nack did the work.
-        org.junit.Assert.assertTrue(
-                "redelivery took " + elapsed + "s, which is not distinguishable from the Acknowledgment Timeout",
-                elapsed < 8);
+        Assertions.assertTrue(
+                elapsed < 8,
+                "redelivery took " + elapsed + "s, which is not distinguishable from the Acknowledgment Timeout");
     }
 
     /**
@@ -158,7 +159,7 @@ public class ConsumePulsarDeadLetterIT extends AbstractPulsarIT {
                 deadLettered = deadLetters.receive(2, TimeUnit.SECONDS);
             }
 
-            assertNotNull("the poison message never reached the dead letter topic", deadLettered);
+            assertNotNull(deadLettered, "the poison message never reached the dead letter topic");
             assertEquals("poison", new String(deadLettered.getValue(), UTF_8));
         }
     }

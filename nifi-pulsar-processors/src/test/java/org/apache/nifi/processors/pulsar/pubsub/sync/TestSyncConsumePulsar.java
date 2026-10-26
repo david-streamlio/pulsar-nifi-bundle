@@ -16,7 +16,7 @@
  */
 package org.apache.nifi.processors.pulsar.pubsub.sync;
 
-import static org.junit.Assert.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -29,7 +29,8 @@ import org.apache.nifi.processors.pulsar.pubsub.ConsumePulsar;
 import org.apache.nifi.processors.pulsar.pubsub.TestConsumePulsar;
 import org.apache.nifi.util.MockFlowFile;
 import org.apache.pulsar.client.api.PulsarClientException;
-import org.junit.Test;
+
+import org.junit.jupiter.api.Test;
 
 public class TestSyncConsumePulsar extends TestConsumePulsar {
 

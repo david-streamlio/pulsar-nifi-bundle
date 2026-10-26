@@ -17,9 +17,9 @@
 package org.apache.nifi.processors.pulsar.it;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -33,8 +33,8 @@ import org.apache.nifi.util.TestRunners;
 import org.apache.pulsar.client.api.Consumer;
 import org.apache.pulsar.client.api.Message;
 import org.apache.pulsar.client.api.Schema;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 /**
  * What actually lands on the topic when PublishPulsar sends: key, properties and content.
@@ -49,7 +49,7 @@ public class PublishPulsarMessageKeyIT extends AbstractPulsarIT {
 
     private TestRunner runner;
 
-    @Before
+    @BeforeEach
     public void init() throws InitializationException {
         runner = TestRunners.newTestRunner(PublishPulsar.class);
         addRealPulsarClientService(runner, "pulsar-client");
@@ -143,7 +143,7 @@ public class PublishPulsarMessageKeyIT extends AbstractPulsarIT {
 
     private static Message<byte[]> receive(final Consumer<byte[]> consumer) throws Exception {
         final Message<byte[]> message = consumer.receive(30, TimeUnit.SECONDS);
-        assertNotNull("no message arrived within 30s", message);
+        assertNotNull(message, "no message arrived within 30s");
         return message;
     }
 }

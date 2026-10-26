@@ -17,7 +17,7 @@
 package org.apache.nifi.processors.pulsar.pubsub;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
-import static org.junit.Assert.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 
@@ -31,8 +31,8 @@ import org.apache.nifi.processors.pulsar.AbstractPulsarProducerProcessor;
 import org.apache.nifi.reporting.InitializationException;
 import org.apache.nifi.util.TestRunners;
 import org.apache.pulsar.client.api.schema.GenericRecord;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 /**
  * Messages from one FlowFile must reach the producer in the order they appear in it (issue #173).
@@ -56,7 +56,7 @@ public class PublishPulsarOrderingTest extends AbstractPulsarProcessorTest<Gener
     /** The order in which message bodies actually reached the producer. */
     private final List<String> published = Collections.synchronizedList(new java.util.ArrayList<>());
 
-    @Before
+    @BeforeEach
     public void init() throws InitializationException {
         runner = TestRunners.newTestRunner(PublishPulsar.class);
         addPulsarClientService();
@@ -88,7 +88,7 @@ public class PublishPulsarOrderingTest extends AbstractPulsarProcessorTest<Gener
         runner.enqueue("m1\nm2\nm3".getBytes(UTF_8));
         runner.run(1, true);
 
-        assertEquals("messages reached the producer out of order", Arrays.asList("m1", "m2", "m3"), published);
+        assertEquals(Arrays.asList("m1", "m2", "m3"), published, "messages reached the producer out of order");
     }
 
     /** Asynchronous mode, which issues sendAsync on the calling thread and was already ordered. */
@@ -99,6 +99,6 @@ public class PublishPulsarOrderingTest extends AbstractPulsarProcessorTest<Gener
         runner.enqueue("m1\nm2\nm3".getBytes(UTF_8));
         runner.run(1, true);
 
-        assertEquals("messages reached the producer out of order", Arrays.asList("m1", "m2", "m3"), published);
+        assertEquals(Arrays.asList("m1", "m2", "m3"), published, "messages reached the producer out of order");
     }
 }

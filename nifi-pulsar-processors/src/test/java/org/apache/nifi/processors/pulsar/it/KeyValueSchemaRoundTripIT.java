@@ -17,8 +17,8 @@
 package org.apache.nifi.processors.pulsar.it;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.apache.nifi.json.JsonRecordSetWriter;
 import org.apache.nifi.json.JsonTreeReader;
@@ -38,7 +38,8 @@ import org.apache.pulsar.client.api.schema.RecordSchemaBuilder;
 import org.apache.pulsar.client.api.schema.SchemaBuilder;
 import org.apache.pulsar.common.schema.KeyValueEncodingType;
 import org.apache.pulsar.common.schema.SchemaType;
-import org.junit.Test;
+
+import org.junit.jupiter.api.Test;
 
 /**
  * Topics carrying a key schema and a value schema (#190), end to end through NiFi.
@@ -66,8 +67,8 @@ public class KeyValueSchemaRoundTripIT extends AbstractPulsarIT {
         consumer.assertTransferCount(ConsumePulsarRecord.REL_PARSE_FAILURE, 0);
 
         final String content = successContent(consumer);
-        assertTrue("the key should come back, from the message metadata: " + content, content.contains("device-1"));
-        assertTrue("and the value with it", content.contains("\"reading\""));
+        assertTrue(content.contains("device-1"), "the key should come back, from the message metadata: " + content);
+        assertTrue(content.contains("\"reading\""), "and the value with it");
     }
 
     /** INLINE, where both sides are length-prefixed into the payload instead. */
@@ -82,7 +83,7 @@ public class KeyValueSchemaRoundTripIT extends AbstractPulsarIT {
         consumer.assertTransferCount(ConsumePulsarRecord.REL_PARSE_FAILURE, 0);
 
         final String content = successContent(consumer);
-        assertTrue("the key should come back, from the payload: " + content, content.contains("device-1"));
+        assertTrue(content.contains("device-1"), "the key should come back, from the payload: " + content);
         assertTrue(content.contains("\"reading\""));
     }
 
@@ -110,7 +111,7 @@ public class KeyValueSchemaRoundTripIT extends AbstractPulsarIT {
         consumeRecords(consumer, RECORDS + 1);
 
         final String content = successContent(consumer);
-        assertTrue("fields should be named as configured, got " + content, content.contains("\"deviceId\""));
+        assertTrue(content.contains("\"deviceId\""), "fields should be named as configured, got " + content);
         assertTrue(content.contains("\"measurement\""));
     }
 

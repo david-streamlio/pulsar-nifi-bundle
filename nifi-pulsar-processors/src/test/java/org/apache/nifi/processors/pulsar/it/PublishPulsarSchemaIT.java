@@ -17,8 +17,8 @@
 package org.apache.nifi.processors.pulsar.it;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 import java.util.concurrent.TimeUnit;
 
@@ -37,8 +37,8 @@ import org.apache.pulsar.client.api.schema.GenericSchema;
 import org.apache.pulsar.client.api.schema.RecordSchemaBuilder;
 import org.apache.pulsar.client.api.schema.SchemaBuilder;
 import org.apache.pulsar.common.schema.SchemaType;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 /**
  * Publishing to a topic that carries a schema (issue #34).
@@ -60,7 +60,7 @@ public class PublishPulsarSchemaIT extends AbstractPulsarIT {
 
     private TestRunner runner;
 
-    @Before
+    @BeforeEach
     public void init() throws InitializationException {
         runner = TestRunners.newTestRunner(PublishPulsar.class);
         addRealPulsarClientService(runner, "pulsar-client");
@@ -97,13 +97,13 @@ public class PublishPulsarSchemaIT extends AbstractPulsarIT {
                 .subscriptionInitialPosition(SubscriptionInitialPosition.Earliest).subscribe()) {
 
             final Message<GenericRecord> first = consumer.receive(30, TimeUnit.SECONDS);
-            assertNotNull("the seeded record should still be readable", first);
+            assertNotNull(first, "the seeded record should still be readable");
             assertEquals("sensor-1", first.getValue().getField("id").toString());
             consumer.acknowledge(first);
 
             // nothing unreadable should have been written behind it
-            assertEquals("a rejected publish must not leave an undecodable message on the topic",
-                    null, consumer.receive(5, TimeUnit.SECONDS));
+            assertEquals(null,
+                    consumer.receive(5, TimeUnit.SECONDS), "a rejected publish must not leave an undecodable message on the topic");
         }
     }
 
@@ -131,7 +131,7 @@ public class PublishPulsarSchemaIT extends AbstractPulsarIT {
             consumer.acknowledge(consumer.receive(30, TimeUnit.SECONDS));   // the seeded record
 
             final Message<GenericRecord> published = consumer.receive(30, TimeUnit.SECONDS);
-            assertNotNull("the published record should have arrived", published);
+            assertNotNull(published, "the published record should have arrived");
             assertEquals("sensor-2", published.getValue().getField("id").toString());
             assertEquals(43, published.getValue().getField("reading"));
         }

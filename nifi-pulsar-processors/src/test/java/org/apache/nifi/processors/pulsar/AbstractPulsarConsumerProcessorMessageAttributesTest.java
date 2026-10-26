@@ -27,15 +27,17 @@ import org.apache.nifi.util.TestRunners;
 import org.apache.pulsar.client.api.Message;
 import org.apache.pulsar.client.api.MessageId;
 import org.apache.pulsar.client.api.schema.GenericRecord;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 
 import java.util.HashMap;
 import java.util.Map;
-
-import static org.junit.Assert.*;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 
@@ -62,7 +64,7 @@ public class AbstractPulsarConsumerProcessorMessageAttributesTest {
     private TestConsumerProcessor processor;
     private TestRunner testRunner;
 
-    @Before
+    @BeforeEach
     public void setUp() throws InitializationException {
         MockitoAnnotations.openMocks(this);
         processor = new TestConsumerProcessor();
@@ -91,9 +93,9 @@ public class AbstractPulsarConsumerProcessorMessageAttributesTest {
 
         Map<String, String> attributes = processor.testGetMappedFlowFileAttributes(testRunner.getProcessContext(), mockMessage);
 
-        assertFalse("The message id changes with every message and must not take part in the batch comparison",
-                attributes.containsKey(MessageBatchAttributes.MESSAGE_ID_ATTRIBUTE));
-        assertTrue("Without mappings the batch key must be empty but was " + attributes, attributes.isEmpty());
+        assertFalse(attributes.containsKey(MessageBatchAttributes.MESSAGE_ID_ATTRIBUTE),
+                "The message id changes with every message and must not take part in the batch comparison");
+        assertTrue(attributes.isEmpty(), "Without mappings the batch key must be empty but was " + attributes);
     }
 
     @Test
@@ -106,8 +108,8 @@ public class AbstractPulsarConsumerProcessorMessageAttributesTest {
 
         Map<String, String> attributes = processor.testGetMappedFlowFileAttributes(testRunner.getProcessContext(), mockMessage);
 
-        assertTrue("Unmapped message properties must not take part in the batch comparison but found " + attributes,
-                attributes.isEmpty());
+        assertTrue(attributes.isEmpty(),
+                "Unmapped message properties must not take part in the batch comparison but found " + attributes);
     }
 
     @Test
@@ -122,9 +124,9 @@ public class AbstractPulsarConsumerProcessorMessageAttributesTest {
 
         Map<String, String> attributes = processor.testGetMappedFlowFileAttributes(testRunner.getProcessContext(), mockMessage);
 
-        assertEquals("Only the configured mappings take part in the batch comparison: " + attributes, 2, attributes.size());
-        assertEquals("Message key should match", "test-key", attributes.get("message.key"));
-        assertEquals("Custom property should match", "custom-value", attributes.get("custom.attr"));
+        assertEquals(2, attributes.size(), "Only the configured mappings take part in the batch comparison: " + attributes);
+        assertEquals("test-key", attributes.get("message.key"), "Message key should match");
+        assertEquals("custom-value", attributes.get("custom.attr"), "Custom property should match");
         assertFalse(attributes.containsKey(MessageBatchAttributes.MESSAGE_ID_ATTRIBUTE));
         assertFalse(attributes.containsKey(MessageBatchAttributes.PROPERTY_ATTRIBUTE_PREFIX + "custom-prop"));
         assertFalse(attributes.containsKey(MessageBatchAttributes.PROPERTY_ATTRIBUTE_PREFIX + "other-prop"));

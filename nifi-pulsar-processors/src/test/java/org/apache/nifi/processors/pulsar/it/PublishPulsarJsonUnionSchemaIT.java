@@ -17,9 +17,9 @@
 package org.apache.nifi.processors.pulsar.it;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
 import java.util.concurrent.TimeUnit;
 
@@ -40,8 +40,8 @@ import org.apache.pulsar.client.api.schema.GenericSchema;
 import org.apache.pulsar.client.api.schema.RecordSchemaBuilder;
 import org.apache.pulsar.client.api.schema.SchemaBuilder;
 import org.apache.pulsar.common.schema.SchemaType;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 /**
  * Nullable fields on a JSON-schema topic.
@@ -56,7 +56,7 @@ public class PublishPulsarJsonUnionSchemaIT extends AbstractPulsarIT {
 
     private TestRunner runner;
 
-    @Before
+    @BeforeEach
     public void init() throws InitializationException {
         runner = TestRunners.newTestRunner(PublishPulsarRecord.class);
         addRealPulsarClientService(runner, "pulsar-client");
@@ -99,17 +99,17 @@ public class PublishPulsarJsonUnionSchemaIT extends AbstractPulsarIT {
             consumer.acknowledge(consumer.receive(30, TimeUnit.SECONDS));   // the seeded record
 
             final Message<GenericRecord> withValue = consumer.receive(30, TimeUnit.SECONDS);
-            assertNotNull("the record with an optional value should have arrived", withValue);
+            assertNotNull(withValue, "the record with an optional value should have arrived");
             assertEquals("sensor-2", withValue.getValue().getField("id").toString());
-            assertEquals("an optional field carrying a value decoded wrongly - the union encoding is off",
-                    "hello", String.valueOf(withValue.getValue().getField("note")));
+            assertEquals("hello",
+                    String.valueOf(withValue.getValue().getField("note")), "an optional field carrying a value decoded wrongly - the union encoding is off");
             assertEquals(43, withValue.getValue().getField("reading"));
             consumer.acknowledge(withValue);
 
             final Message<GenericRecord> withNull = consumer.receive(30, TimeUnit.SECONDS);
-            assertNotNull("the record with a null optional should have arrived", withNull);
+            assertNotNull(withNull, "the record with a null optional should have arrived");
             assertEquals("sensor-3", withNull.getValue().getField("id").toString());
-            assertNull("an absent optional field should decode as null", withNull.getValue().getField("note"));
+            assertNull(withNull.getValue().getField("note"), "an absent optional field should decode as null");
             assertEquals(44, withNull.getValue().getField("reading"));
         }
     }

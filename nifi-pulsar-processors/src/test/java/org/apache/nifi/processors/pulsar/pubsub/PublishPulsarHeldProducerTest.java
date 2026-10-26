@@ -16,8 +16,8 @@
  */
 package org.apache.nifi.processors.pulsar.pubsub;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -33,7 +33,8 @@ import org.apache.nifi.processors.pulsar.utils.PublisherUnavailableException;
 import org.apache.nifi.reporting.InitializationException;
 import org.apache.nifi.serialization.record.RecordFieldType;
 import org.apache.nifi.util.TestRunners;
-import org.junit.Test;
+
+import org.junit.jupiter.api.Test;
 
 /**
  * Under an exclusive access mode a topic has one producer, and a task that finds it held by another task waits a
@@ -75,9 +76,9 @@ public class PublishPulsarHeldProducerTest extends AbstractPulsarProcessorTest<b
     private void assertNothingFailedAndEverythingIsBackInTheQueue() {
         runner.assertTransferCount(AbstractPulsarProducerProcessor.REL_FAILURE, 0);
         runner.assertTransferCount(AbstractPulsarProducerProcessor.REL_SUCCESS, 0);
-        assertEquals("every FlowFile of the batch goes back to the queue, since none was attempted",
-                3, runner.getQueueSize().getObjectCount());
-        assertTrue("the processor yields so the next trigger does not spin on the held producer", runner.isYieldCalled());
+        assertEquals(3,
+                runner.getQueueSize().getObjectCount(), "every FlowFile of the batch goes back to the queue, since none was attempted");
+        assertTrue(runner.isYieldCalled(), "the processor yields so the next trigger does not spin on the held producer");
         assertEquals(1, runner.getLogger().getWarnMessages().size());
         assertEquals(0, runner.getLogger().getErrorMessages().size());
     }

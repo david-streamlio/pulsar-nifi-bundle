@@ -17,11 +17,11 @@
 package org.apache.nifi.processors.pulsar.utils;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertThrows;
-import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -32,7 +32,8 @@ import org.apache.avro.io.EncoderFactory;
 import org.apache.nifi.serialization.record.Record;
 import org.apache.pulsar.common.schema.SchemaInfo;
 import org.apache.pulsar.common.schema.SchemaType;
-import org.junit.Test;
+
+import org.junit.jupiter.api.Test;
 
 /** Decoding a message with the schema its topic carries, independently of a broker. */
 public class TopicSchemaRecordDecoderTest {
@@ -71,8 +72,8 @@ public class TopicSchemaRecordDecoderTest {
         final Record record = decoder.decode("{\"id\":\"sensor-3\",\"reading\":44}".getBytes(UTF_8),
                 schemaInfo(SchemaType.JSON));
 
-        assertTrue("reading should be an Integer, not a " + record.getValue("reading").getClass().getSimpleName(),
-                record.getValue("reading") instanceof Integer);
+        assertTrue(record.getValue("reading") instanceof Integer,
+                "reading should be an Integer, not a " + record.getValue("reading").getClass().getSimpleName());
     }
 
     /** The parsed schema is reused between messages, but a changed definition must not be served stale. */
@@ -95,12 +96,12 @@ public class TopicSchemaRecordDecoderTest {
     public void supportsTheStructAndPrimitiveTypes() {
         assertTrue(TopicSchemaRecordDecoder.supports(schemaInfo(SchemaType.AVRO)));
         assertTrue(TopicSchemaRecordDecoder.supports(schemaInfo(SchemaType.JSON)));
-        assertTrue("a primitive topic becomes a single-field record (#189)",
-                TopicSchemaRecordDecoder.supports(schemaInfo(SchemaType.STRING)));
-        assertFalse("KeyValue carries two schemas and needs its own handling (#190)",
-                TopicSchemaRecordDecoder.supports(schemaInfo(SchemaType.KEY_VALUE)));
-        assertFalse("a topic with no schema reports null, which is the #181 case",
-                TopicSchemaRecordDecoder.supports(null));
+        assertTrue(TopicSchemaRecordDecoder.supports(schemaInfo(SchemaType.STRING)),
+                "a primitive topic becomes a single-field record (#189)");
+        assertFalse(TopicSchemaRecordDecoder.supports(schemaInfo(SchemaType.KEY_VALUE)),
+                "KeyValue carries two schemas and needs its own handling (#190)");
+        assertFalse(TopicSchemaRecordDecoder.supports(null),
+                "a topic with no schema reports null, which is the #181 case");
     }
 
     /** Only the primitives need the reader-precedence rule, so struct types must not be flagged as such. */
@@ -162,8 +163,8 @@ public class TopicSchemaRecordDecoderTest {
         one.join();
         two.join();
 
-        assertEquals("records came back with the other thread's shape or value", 0, wrong.get());
-        assertEquals("decoding threw rather than returning a wrong record", 0, failed.get());
+        assertEquals(0, wrong.get(), "records came back with the other thread's shape or value");
+        assertEquals(0, failed.get(), "decoding threw rather than returning a wrong record");
     }
 
     private static Runnable decoding(final TopicSchemaRecordDecoder decoder, final SchemaInfo schemaInfo,

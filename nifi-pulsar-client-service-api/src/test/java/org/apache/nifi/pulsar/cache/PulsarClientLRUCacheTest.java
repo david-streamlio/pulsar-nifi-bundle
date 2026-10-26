@@ -18,12 +18,12 @@ package org.apache.nifi.pulsar.cache;
 
 import org.apache.pulsar.client.api.Producer;
 import org.apache.pulsar.client.api.PulsarClientException;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.Mock;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -34,7 +34,7 @@ public class PulsarClientLRUCacheTest {
     @Mock
     private Producer mockedPulsarProducer;
 
-    @Before
+    @BeforeEach
     public void setUp() throws InterruptedException {
       mockedPulsarProducer = mock(Producer.class);
     }

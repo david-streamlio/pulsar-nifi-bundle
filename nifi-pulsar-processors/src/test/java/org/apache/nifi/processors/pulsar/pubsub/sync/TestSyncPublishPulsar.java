@@ -29,7 +29,8 @@ import org.apache.nifi.processors.pulsar.pubsub.PublishPulsar;
 import org.apache.nifi.processors.pulsar.pubsub.TestPublishPulsar;
 import org.apache.nifi.util.MockFlowFile;
 import org.apache.pulsar.client.api.PulsarClientException;
-import org.junit.Test;
+
+import org.junit.jupiter.api.Test;
 
 public class TestSyncPublishPulsar extends TestPublishPulsar {
 

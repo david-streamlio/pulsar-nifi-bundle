@@ -17,15 +17,15 @@
 package org.apache.nifi.processors.pulsar.pubsub;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.apache.nifi.processors.pulsar.AbstractPulsarProcessorTest;
 import org.apache.nifi.processors.pulsar.AbstractPulsarProducerProcessor;
 import org.apache.nifi.reporting.InitializationException;
 import org.apache.nifi.util.TestRunners;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 /**
  * A trigger must claim a bounded batch of FlowFiles, not the whole queue.
@@ -40,7 +40,7 @@ public class PublishPulsarBatchBoundTest extends AbstractPulsarProcessorTest<byt
     /** The FlowFile ceiling in PublishPulsarUtils. */
     private static final int BATCH_LIMIT = 500;
 
-    @Before
+    @BeforeEach
     public void init() throws InitializationException {
         runner = TestRunners.newTestRunner(PublishPulsar.class);
         addPulsarClientService();
@@ -57,8 +57,8 @@ public class PublishPulsarBatchBoundTest extends AbstractPulsarProcessorTest<byt
         runner.run(1);
 
         final int published = runner.getFlowFilesForRelationship(PublishPulsar.REL_SUCCESS).size();
-        assertEquals("a single trigger should claim exactly one batch of " + BATCH_LIMIT, BATCH_LIMIT, published);
-        assertEquals("the rest of the backlog should still be queued", 1_200 - BATCH_LIMIT, runner.getQueueSize().getObjectCount());
+        assertEquals(BATCH_LIMIT, published, "a single trigger should claim exactly one batch of " + BATCH_LIMIT);
+        assertEquals(1_200 - BATCH_LIMIT, runner.getQueueSize().getObjectCount(), "the rest of the backlog should still be queued");
     }
 
     /** The backlog is still fully drained, just across triggers rather than in one session. */
@@ -98,8 +98,8 @@ public class PublishPulsarBatchBoundTest extends AbstractPulsarProcessorTest<byt
         runner.run(1);
 
         final int published = runner.getFlowFilesForRelationship(PublishPulsar.REL_SUCCESS).size();
-        assertTrue("1 MB of content should bound the batch well below the " + BATCH_LIMIT
-                + " FlowFile limit, but took " + published, published < 100);
-        assertTrue("the batch should still make progress, but took " + published, published > 0);
+        assertTrue(published < 100, "1 MB of content should bound the batch well below the " + BATCH_LIMIT
+                + " FlowFile limit, but took " + published);
+        assertTrue(published > 0, "the batch should still make progress, but took " + published);
     }
 }

@@ -16,9 +16,9 @@
  */
 package org.apache.nifi.processors.pulsar.utils;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 
 import java.io.ByteArrayInputStream;
@@ -37,7 +37,8 @@ import org.apache.nifi.util.MockComponentLog;
 import org.apache.nifi.util.MockFlowFile;
 import org.apache.pulsar.client.api.MessageId;
 import org.apache.pulsar.client.api.Producer;
-import org.junit.Test;
+
+import org.junit.jupiter.api.Test;
 
 /**
  * Regression test for the batching path of {@link PublisherLease}.
@@ -145,16 +146,16 @@ public class PublisherLeaseAwaitTest {
         // nothing is completed, so a correct lease is parked waiting for its first batch
         Thread.sleep(1500);
         final int issuedWhileBlocked = lease.issuedCount();
-        assertTrue("publish() issued " + issuedWhileBlocked + " of " + MESSAGE_COUNT + " sends without ever "
-                + "waiting for a batch to be confirmed - the batch boundary is not awaited",
-                issuedWhileBlocked < MESSAGE_COUNT);
+        assertTrue(issuedWhileBlocked < MESSAGE_COUNT,
+                "publish() issued " + issuedWhileBlocked + " of " + MESSAGE_COUNT + " sends without ever "
+                + "waiting for a batch to be confirmed - the batch boundary is not awaited");
 
         lease.releaseAll();
         publisher.join(30_000);
-        assertFalse("publish() did not return after all sends were confirmed", publisher.isAlive());
-        assertEquals("every message should have been sent", MESSAGE_COUNT, lease.issuedCount());
-        assertEquals("publish() must not return until every send has completed",
-                MESSAGE_COUNT, lease.completedCount());
+        assertFalse(publisher.isAlive(), "publish() did not return after all sends were confirmed");
+        assertEquals(MESSAGE_COUNT, lease.issuedCount(), "every message should have been sent");
+        assertEquals(MESSAGE_COUNT,
+                lease.completedCount(), "publish() must not return until every send has completed");
     }
 
     /** complete() must report what the broker confirmed, not how many records were read off the input. */

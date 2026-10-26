@@ -17,7 +17,7 @@
 package org.apache.nifi.processors.pulsar.pubsub;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
-import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.Arrays;
 import java.util.List;
@@ -31,8 +31,8 @@ import org.apache.nifi.reporting.InitializationException;
 import org.apache.nifi.util.TestRunners;
 import org.apache.pulsar.client.api.Message;
 import org.apache.pulsar.client.api.schema.GenericRecord;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 /**
  * When no record set is ever opened - every message in the batch fails to resolve a schema, so each one
@@ -44,7 +44,7 @@ public class ConsumePulsarRecordNoRecordSetTest extends AbstractPulsarProcessorT
 
     private static final String TOPIC = "persistent://public/default/events";
 
-    @Before
+    @BeforeEach
     public void init() throws InitializationException {
         runner = TestRunners.newTestRunner(ConsumePulsarRecord.class);
         addPulsarClientService();
@@ -77,9 +77,9 @@ public class ConsumePulsarRecordNoRecordSetTest extends AbstractPulsarProcessorT
         runner.assertTransferCount(ConsumePulsarRecord.REL_SUCCESS, 0);
         // the messages are not silently dropped: they are routed for inspection
         runner.assertTransferCount(ConsumePulsarRecord.REL_PARSE_FAILURE, 1);
-        assertTrue("the unparseable payloads should reach the parse_failure relationship",
-                new String(runner.getFlowFilesForRelationship(ConsumePulsarRecord.REL_PARSE_FAILURE)
-                        .get(0).toByteArray(), UTF_8).contains("Name1"));
+        assertTrue(new String(runner.getFlowFilesForRelationship(ConsumePulsarRecord.REL_PARSE_FAILURE)
+                        .get(0).toByteArray(), UTF_8).contains("Name1"),
+                "the unparseable payloads should reach the parse_failure relationship");
     }
 
     @Test

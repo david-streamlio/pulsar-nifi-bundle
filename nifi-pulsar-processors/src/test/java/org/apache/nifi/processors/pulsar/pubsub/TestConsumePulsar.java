@@ -24,14 +24,15 @@ import org.apache.pulsar.client.api.Message;
 import org.apache.pulsar.client.api.PulsarClientException;
 import org.apache.pulsar.client.api.SubscriptionType;
 import org.apache.pulsar.client.api.schema.GenericRecord;
-import org.junit.Before;
-import org.junit.Rule;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
-import org.mockito.junit.MockitoJUnit;
-import org.mockito.junit.MockitoRule;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.junit.jupiter.MockitoSettings;
+import org.mockito.quality.Strictness;
 
-import static org.junit.Assert.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -40,15 +41,15 @@ import static org.mockito.Mockito.when;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
+@ExtendWith(MockitoExtension.class)
+@MockitoSettings(strictness = Strictness.WARN)
 public class TestConsumePulsar extends AbstractPulsarProcessorTest<byte[]> {
 
     @Mock
     protected Message<GenericRecord> mockMessage;
 
-    @Rule public MockitoRule mockitoRule = MockitoJUnit.rule();
-
     @SuppressWarnings("unchecked")
-	@Before
+	@BeforeEach
     public void init() throws InitializationException {
         runner = TestRunners.newTestRunner(ConsumePulsar.class);
         mockMessage = mock(Message.class);

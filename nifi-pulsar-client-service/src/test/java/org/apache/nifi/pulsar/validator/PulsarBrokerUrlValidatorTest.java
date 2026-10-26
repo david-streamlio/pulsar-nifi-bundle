@@ -16,15 +16,15 @@
  */
 package org.apache.nifi.pulsar.validator;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.apache.nifi.components.ValidationContext;
 import org.apache.nifi.components.ValidationResult;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 
@@ -37,12 +37,12 @@ public class PulsarBrokerUrlValidatorTest {
 	private ValidationContext ctx;
 	private AutoCloseable closeable;
 	
-	@Before
+	@BeforeEach
 	public final void init() {
 		validator = new PulsarBrokerUrlValidator();
 		closeable = MockitoAnnotations.openMocks(this);
 	}
-	@After
+	@AfterEach
 	public final void cleanup() throws Exception {
 		closeable.close();
 	}
