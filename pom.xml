@@ -103,7 +103,7 @@
         <protobuf3.version>4.36.1</protobuf3.version>
         <pulsar.version>4.2.4</pulsar.version>
         <slf4j-simple.version>2.0.19</slf4j-simple.version>
-        <testcontainers.version>1.21.4</testcontainers.version>
+        <testcontainers.version>2.0.5</testcontainers.version>
         <!-- Pulsar broker image for the integration tests; kept in step with pulsar.version. -->
         <pulsar.image>apachepulsar/pulsar:4.2.4</pulsar.image>
         <!-- Docker API version the integration tests negotiate with. docker-java pins 1.32 by default,

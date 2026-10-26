@@ -29,7 +29,7 @@ import org.apache.pulsar.client.api.PulsarClientException;
 import org.apache.pulsar.client.api.Schema;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
-import org.testcontainers.containers.PulsarContainer;
+import org.testcontainers.pulsar.PulsarContainer;
 import org.testcontainers.utility.DockerImageName;
 
 /**
