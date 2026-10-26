@@ -152,7 +152,7 @@
 
         <dependency>
             <groupId>org.testcontainers</groupId>
-            <artifactId>pulsar</artifactId>
+            <artifactId>testcontainers-pulsar</artifactId>
             <scope>test</scope>
         </dependency>
 
