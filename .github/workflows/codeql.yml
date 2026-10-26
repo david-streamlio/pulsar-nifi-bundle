@@ -51,7 +51,7 @@ jobs:
       # analyze in it, and it would need a Docker daemon). Tests are skipped
       # because CodeQL only needs the main sources compiled.
       - name: Build
-        run: mvn -B -ntp clean package -DskipTests -Dgpg.skip=true -pl '!docker-image'
+        run: ./mvnw -B -ntp clean package -DskipTests -Dgpg.skip=true -pl '!docker-image'
 
       - name: Perform CodeQL analysis
         uses: github/codeql-action/analyze@v4

@@ -23,14 +23,17 @@ because the mock returned a `null` message id, or a fixed schema, where a real b
 So there are two layers:
 
 ```
-mvn test                   # unit tests. Fast, no Docker.
-mvn verify                 # unit + integration tests. Needs Docker.
-mvn verify -DskipITs       # unit only, from a verify build
+./mvnw test                   # unit tests. Fast, no Docker.
+./mvnw verify                 # unit + integration tests. Needs Docker.
+./mvnw verify -DskipITs       # unit only, from a verify build
 ```
 
+Use the Maven wrapper (`./mvnw`) rather than a system `mvn`: the NiFi parent POM's enforcer requires
+Maven 3.9.16 or newer, and the wrapper downloads that exact version (checksum-verified) on first use.
+
 Integration tests are named `*IT.java` and run against a real Pulsar broker started by
-Testcontainers. Surefire ignores the `*IT` suffix, so `mvn test` and `mvn package` stay fast and
-need no Docker; Failsafe runs them from `mvn verify`.
+Testcontainers. Surefire ignores the `*IT` suffix, so `./mvnw test` and `./mvnw package` stay fast and
+need no Docker; Failsafe runs them from `./mvnw verify`.
 
 **If you are changing anything that depends on broker behaviour, add or extend an integration
 test.** If you cannot run them locally, say so in the pull request so a reviewer knows to check.
@@ -49,7 +52,7 @@ It surfaces as a misleading `Could not find a valid Docker environment`. The bui
 an older daemon, override it:
 
 ```
-mvn verify -Ddocker.api.version=1.41
+./mvnw verify -Ddocker.api.version=1.41
 ```
 
 ## Writing a fix

@@ -38,12 +38,12 @@ jobs:
       # labeled to match the tag. On manual dispatch (no tag) the pom is left as-is.
       - name: Stamp version from tag
         if: github.ref_type == 'tag'
-        run: mvn -B -ntp versions:set -DnewVersion="${GITHUB_REF_NAME#v}" -DgenerateBackupPoms=false -DprocessAllModules=true
+        run: ./mvnw -B -ntp versions:set -DnewVersion="${GITHUB_REF_NAME#v}" -DgenerateBackupPoms=false -DprocessAllModules=true
 
       # Build the NAR artifacts. GPG signing and the docker-image module are skipped
       # here; enable the opt-in jobs below if you want signed Central deploys / images.
       - name: Build NAR artifacts
-        run: mvn -B -ntp clean package -Dgpg.skip=true -pl '!docker-image'
+        run: ./mvnw -B -ntp clean package -Dgpg.skip=true -pl '!docker-image'
 
       - name: Create GitHub Release and attach NARs
         uses: softprops/action-gh-release@v3
@@ -78,18 +78,18 @@ jobs:
       # Stamp the pom version from the tag so the image tag matches the release.
       - name: Stamp version from tag
         if: github.ref_type == 'tag'
-        run: mvn -B -ntp versions:set -DnewVersion="${GITHUB_REF_NAME#v}" -DgenerateBackupPoms=false -DprocessAllModules=true
+        run: ./mvnw -B -ntp versions:set -DnewVersion="${GITHUB_REF_NAME#v}" -DgenerateBackupPoms=false -DprocessAllModules=true
 
       # Full build including the docker-image module: the fabric8 plugin produces
       # the local image `streamnative/nifi:latest` during the package phase.
       - name: Build image
-        run: mvn -B -ntp clean package -Dgpg.skip=true
+        run: ./mvnw -B -ntp clean package -Dgpg.skip=true
 
       - name: Resolve image coordinates
         id: img
         run: |
           owner="${GITHUB_REPOSITORY_OWNER,,}"   # GHCR namespaces must be lowercase
-          version="$(mvn -q -N help:evaluate -Dexpression=project.version -DforceStdout)"
+          version="$(./mvnw -q -N help:evaluate -Dexpression=project.version -DforceStdout)"
           echo "image=ghcr.io/${owner}/nifi" >> "$GITHUB_OUTPUT"
           echo "version=${version}" >> "$GITHUB_OUTPUT"
 
@@ -132,7 +132,7 @@ jobs:
   #         gpg-private-key: ${{ secrets.MAVEN_GPG_PRIVATE_KEY }}
   #         gpg-passphrase: MAVEN_GPG_PASSPHRASE
   #     - name: Publish
-  #       run: mvn -B -ntp clean deploy -DskipTests
+  #       run: ./mvnw -B -ntp clean deploy -DskipTests
   #       env:
   #         OSSRH_USERNAME: ${{ secrets.OSSRH_USERNAME }}
   #         OSSRH_PASSWORD: ${{ secrets.OSSRH_PASSWORD }}

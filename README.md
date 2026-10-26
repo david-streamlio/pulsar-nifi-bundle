@@ -478,7 +478,7 @@ version 21, which is necessary since NiFi 2.x uses this version.
 
 ```
 export JAVA_HOME=`/usr/libexec/java_home -v 21`
-mvn clean package
+./mvnw clean package
 ```
 
 This will also generate a Docker image inside your local docker daemon with the tag `streamnative/nifi`
@@ -510,13 +510,13 @@ that drive the processors against a **real Pulsar broker**, started in Docker by
 [Testcontainers](https://java.testcontainers.org/). They cover behaviour the mocks cannot reach:
 real message ids, real acknowledgement semantics, subscription types and partitioned topics.
 
-They are named `*IT.java`, so Surefire ignores them - `mvn test` and `mvn package` stay fast and
-need no Docker. They run from `mvn verify`:
+They are named `*IT.java`, so Surefire ignores them - `./mvnw test` and `./mvnw package` stay fast and
+need no Docker. They run from `./mvnw verify`:
 
 ```
-mvn verify                 # unit tests + integration tests (needs Docker)
-mvn verify -DskipITs       # unit tests only
-mvn test                   # unit tests only, no Docker required
+./mvnw verify                 # unit tests + integration tests (needs Docker)
+./mvnw verify -DskipITs       # unit tests only
+./mvnw test                   # unit tests only, no Docker required
 ```
 
 The broker image is pinned by the `pulsar.image` property in the root pom and kept in step with
@@ -526,7 +526,7 @@ The broker image is pinned by the `pulsar.image` property in the root pom and ke
 > default, which Docker 29+ rejects with *"client version 1.32 is too old. Minimum supported API
 > version is 1.44"*. The build therefore passes `-Dapi.version=${docker.api.version}` (1.44) to the
 > integration tests. 1.44 requires Docker 25 or newer; on an older daemon override it, e.g.
-> `mvn verify -Ddocker.api.version=1.41`.
+> `./mvnw verify -Ddocker.api.version=1.41`.
 
 ## How to debug
 
