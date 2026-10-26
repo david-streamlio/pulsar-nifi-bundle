@@ -71,23 +71,20 @@
             </exclusions>
         </dependency>
 
-        <!-- Use newer versions of the bouncycastle artifacts -->
+        <!-- Use newer versions of the bouncycastle artifacts; versions are managed in the root pom -->
         <dependency>
             <groupId>org.bouncycastle</groupId>
             <artifactId>bcprov-jdk18on</artifactId>
-            <version>1.85.2</version>
         </dependency>
 
         <dependency>
             <groupId>org.bouncycastle</groupId>
             <artifactId>bcpkix-jdk18on</artifactId>
-            <version>1.85</version>
         </dependency>
         
         <dependency>
         	<groupId>com.fasterxml.jackson.core</groupId>
   		    <artifactId>jackson-core</artifactId>
-  		    <version>${jackson-core.version}</version>
         </dependency>
         
         <dependency>
