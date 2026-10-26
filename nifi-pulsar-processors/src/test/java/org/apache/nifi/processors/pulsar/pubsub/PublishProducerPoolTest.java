@@ -33,7 +33,8 @@ import org.apache.nifi.serialization.record.RecordFieldType;
 import org.apache.nifi.util.MockFlowFile;
 import org.apache.nifi.util.TestRunners;
 import org.apache.pulsar.client.api.PulsarClientException;
-import org.junit.Test;
+
+import org.junit.jupiter.api.Test;
 
 /**
  * The publishers must reuse one producer per topic across FlowFiles and close it when the processor stops.

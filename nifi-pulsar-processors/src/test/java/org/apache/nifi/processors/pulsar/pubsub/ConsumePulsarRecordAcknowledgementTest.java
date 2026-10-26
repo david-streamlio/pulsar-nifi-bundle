@@ -17,11 +17,10 @@
 package org.apache.nifi.processors.pulsar.pubsub;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
-import static org.junit.Assert.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 import java.io.IOException;
@@ -55,11 +54,8 @@ import org.apache.pulsar.client.api.Consumer;
 import org.apache.pulsar.client.api.Message;
 import org.apache.pulsar.client.api.PulsarClientException;
 import org.apache.pulsar.client.api.schema.GenericRecord;
-import org.junit.Before;
-import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.junit.runners.Parameterized;
-import org.junit.runners.Parameterized.Parameters;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 
 /**
  * The record processor has the same contract as {@link ConsumePulsarAcknowledgementTest}: a message is
@@ -71,29 +67,28 @@ import org.junit.runners.Parameterized.Parameters;
  * not be parsed at all, so the broker redelivered it - and the flow received it again on parse_failure -
  * forever.
  */
-@RunWith(Parameterized.class)
 public class ConsumePulsarRecordAcknowledgementTest extends AbstractPulsarProcessorTest<GenericRecord> {
 
     private static final String TOPIC = "persistent://public/default/record-acknowledgement";
 
-    @Parameters(name = "async={0}, subscription={1}")
     public static Collection<Object[]> parameters() {
         return Arrays.asList(new Object[][] {
             {false, "Exclusive"}, {false, "Shared"}, {true, "Exclusive"}, {true, "Shared"}});
     }
 
-    private final boolean async;
-    private final String subscriptionType;
-    private final boolean shared;
+    private boolean async;
+    private String subscriptionType;
+    private boolean shared;
 
-    public ConsumePulsarRecordAcknowledgementTest(final boolean async, final String subscriptionType) {
+    public void initConsumePulsarRecordAcknowledgementTest(final boolean async, final String subscriptionType) throws InitializationException {
         this.async = async;
         this.subscriptionType = subscriptionType;
         this.shared = isSharedSubType(subscriptionType);
+        init();
     }
 
-    @Before
-    public void init() throws InitializationException {
+    /** Called by each test once its parameters are set, as JUnit 4 ran @Before after the constructor. */
+    private void init() throws InitializationException {
         runner = TestRunners.newTestRunner(ConsumePulsarRecord.class);
         addPulsarClientService();
 
@@ -112,8 +107,10 @@ public class ConsumePulsarRecordAcknowledgementTest extends AbstractPulsarProces
     }
 
     /** The healthy case: records reach success, and the acknowledgement follows the commit. */
-    @Test
-    public void messagesAreAcknowledgedOnlyAfterTheirFlowFileIsCommitted() throws Exception {
+    @MethodSource("parameters")
+    @ParameterizedTest(name = "async={0}, subscription={1}")
+    public void messagesAreAcknowledgedOnlyAfterTheirFlowFileIsCommitted(final boolean async, final String subscriptionType) throws Exception {
+        initConsumePulsarRecordAcknowledgementTest(async, subscriptionType);
         useReader(parser());
         final List<String> statesAtAcknowledgement = recordSessionStateAtAcknowledgement(ConsumePulsarRecord.REL_SUCCESS);
         mockClientService.setMockMessageQueue(messages(3));
@@ -121,10 +118,10 @@ public class ConsumePulsarRecordAcknowledgementTest extends AbstractPulsarProces
         runner.run(1, true);
 
         runner.assertAllFlowFilesTransferred(ConsumePulsarRecord.REL_SUCCESS, 1);
-        assertEquals("one acknowledgement per message on a Shared subscription, one cumulative acknowledgement otherwise",
-                shared ? 3 : 1, statesAtAcknowledgement.size());
+        assertEquals(shared ? 3 : 1,
+                statesAtAcknowledgement.size(), "one acknowledgement per message on a Shared subscription, one cumulative acknowledgement otherwise");
         for (final String state : statesAtAcknowledgement) {
-            assertEquals("a message was acknowledged before the FlowFile carrying it was committed", ONE_COMMITTED_FLOWFILE, state);
+            assertEquals(ONE_COMMITTED_FLOWFILE, state, "a message was acknowledged before the FlowFile carrying it was committed");
         }
     }
 
@@ -133,8 +130,10 @@ public class ConsumePulsarRecordAcknowledgementTest extends AbstractPulsarProces
      * Before the fix a Shared subscription skipped the acknowledgement for them entirely, so the broker
      * redelivered them on every acknowledgement timeout.
      */
-    @Test
-    public void unparseableMessagesAreAcknowledgedOnlyAfterTheirParseFailureFlowFileIsCommitted() throws Exception {
+    @MethodSource("parameters")
+    @ParameterizedTest(name = "async={0}, subscription={1}")
+    public void unparseableMessagesAreAcknowledgedOnlyAfterTheirParseFailureFlowFileIsCommitted(final boolean async, final String subscriptionType) throws Exception {
+        initConsumePulsarRecordAcknowledgementTest(async, subscriptionType);
         useReader(new MockFailingRecordParser());
         final List<String> statesAtAcknowledgement = recordSessionStateAtAcknowledgement(ConsumePulsarRecord.REL_PARSE_FAILURE);
         mockClientService.setMockMessageQueue(messages(3));
@@ -143,10 +142,10 @@ public class ConsumePulsarRecordAcknowledgementTest extends AbstractPulsarProces
 
         runner.assertTransferCount(ConsumePulsarRecord.REL_SUCCESS, 0);
         runner.assertTransferCount(ConsumePulsarRecord.REL_PARSE_FAILURE, 1);
-        assertEquals("every unparseable message is acknowledged once its parse_failure FlowFile is committed",
-                shared ? 3 : 1, statesAtAcknowledgement.size());
+        assertEquals(shared ? 3 : 1,
+                statesAtAcknowledgement.size(), "every unparseable message is acknowledged once its parse_failure FlowFile is committed");
         for (final String state : statesAtAcknowledgement) {
-            assertEquals("a message was acknowledged before the FlowFile carrying it was committed", ONE_COMMITTED_FLOWFILE, state);
+            assertEquals(ONE_COMMITTED_FLOWFILE, state, "a message was acknowledged before the FlowFile carrying it was committed");
         }
     }
 
@@ -156,8 +155,10 @@ public class ConsumePulsarRecordAcknowledgementTest extends AbstractPulsarProces
      * messages were acknowledged anyway - before the write on a Shared subscription, after the failure on
      * an Exclusive one.
      */
-    @Test
-    public void nothingIsAcknowledgedWhenTheContentCannotBeWritten() throws Exception {
+    @MethodSource("parameters")
+    @ParameterizedTest(name = "async={0}, subscription={1}")
+    public void nothingIsAcknowledgedWhenTheContentCannotBeWritten(final boolean async, final String subscriptionType) throws Exception {
+        initConsumePulsarRecordAcknowledgementTest(async, subscriptionType);
         useReader(parser());
         // schedule the processor against the still-empty topic
         runner.run(1, false, true);

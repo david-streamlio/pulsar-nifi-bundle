@@ -16,22 +16,26 @@
  */
 package org.apache.nifi.pulsar.auth;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
 import org.apache.nifi.pulsar.TestProcessor;
 import org.apache.nifi.reporting.InitializationException;
 import org.apache.nifi.util.TestRunner;
 import org.apache.nifi.util.TestRunners;
 import org.apache.pulsar.client.api.Authentication;
-import org.junit.Before;
-import org.junit.Test;
-
-import static org.junit.Assert.*;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 public class PulsarClientOauthAuthenticationServiceTest {
 
     private TestRunner testRunner;
     private PulsarClientOauthAuthenticationService authService;
 
-    @Before
+    @BeforeEach
     public void setUp() throws InitializationException {
         testRunner = TestRunners.newTestRunner(TestProcessor.class);
         authService = new PulsarClientOauthAuthenticationService();
@@ -49,7 +53,7 @@ public class PulsarClientOauthAuthenticationServiceTest {
 
         // Verify that PRIVATE_KEY_FILE takes precedence
         Authentication auth = authService.getAuthentication();
-        assertNotNull("Authentication should not be null when PRIVATE_KEY_FILE is provided", auth);
+        assertNotNull(auth, "Authentication should not be null when PRIVATE_KEY_FILE is provided");
     }
 
     @Test
@@ -63,7 +67,7 @@ public class PulsarClientOauthAuthenticationServiceTest {
         testRunner.assertValid(authService);
 
         Authentication auth = authService.getAuthentication();
-        assertNotNull("Authentication should not be null when CLIENT_ID and CLIENT_SECRET are provided", auth);
+        assertNotNull(auth, "Authentication should not be null when CLIENT_ID and CLIENT_SECRET are provided");
     }
 
     @Test
@@ -79,7 +83,7 @@ public class PulsarClientOauthAuthenticationServiceTest {
 
         // When both are present, PRIVATE_KEY_FILE should take precedence
         Authentication auth = authService.getAuthentication();
-        assertNotNull("Authentication should not be null when both credentials are provided", auth);
+        assertNotNull(auth, "Authentication should not be null when both credentials are provided");
         // Note: The actual authentication method used is determined by the if-else logic in getAuthentication()
     }
 
@@ -92,7 +96,7 @@ public class PulsarClientOauthAuthenticationServiceTest {
         testRunner.assertValid(authService);
 
         Authentication auth = authService.getAuthentication();
-        assertNull("Authentication should be null when no credentials are provided", auth);
+        assertNull(auth, "Authentication should be null when no credentials are provided");
     }
 
     @Test
@@ -107,7 +111,7 @@ public class PulsarClientOauthAuthenticationServiceTest {
 
         // This should return null when not all three (CLIENT_ID, CLIENT_SECRET, ISSUER_URL) are provided
         Authentication auth = authService.getAuthentication();
-        assertNull("Authentication should be null when CLIENT_ID/CLIENT_SECRET are incomplete", auth);
+        assertNull(auth, "Authentication should be null when CLIENT_ID/CLIENT_SECRET are incomplete");
     }
 
     @Test
@@ -151,37 +155,37 @@ public class PulsarClientOauthAuthenticationServiceTest {
     @Test
     public void testSensitivePropertyConfiguration() {
         // Verify that CLIENT_ID and CLIENT_SECRET are marked as sensitive
-        assertTrue("CLIENT_ID should be marked as sensitive", 
-                   PulsarClientOauthAuthenticationService.CLIENT_ID.isSensitive());
-        assertTrue("CLIENT_SECRET should be marked as sensitive", 
-                   PulsarClientOauthAuthenticationService.CLIENT_SECRET.isSensitive());
+        assertTrue(PulsarClientOauthAuthenticationService.CLIENT_ID.isSensitive(), 
+                   "CLIENT_ID should be marked as sensitive");
+        assertTrue(PulsarClientOauthAuthenticationService.CLIENT_SECRET.isSensitive(), 
+                   "CLIENT_SECRET should be marked as sensitive");
         
         // Verify that PRIVATE_KEY_FILE is not marked as sensitive (it's just a file path)
-        assertFalse("PRIVATE_KEY_FILE should not be marked as sensitive", 
-                    PulsarClientOauthAuthenticationService.PRIVATE_KEY_FILE.isSensitive());
+        assertFalse(PulsarClientOauthAuthenticationService.PRIVATE_KEY_FILE.isSensitive(), 
+                    "PRIVATE_KEY_FILE should not be marked as sensitive");
     }
 
     @Test
     public void testClientCredentialsPropertyDescriptorConfiguration() {
         // Verify CLIENT_ID property descriptor configuration
-        assertEquals("Property name should match", "CLIENT_ID", 
-                     PulsarClientOauthAuthenticationService.CLIENT_ID.getName());
-        assertEquals("Property display name should be set", "Client ID", 
-                     PulsarClientOauthAuthenticationService.CLIENT_ID.getDisplayName());
-        assertFalse("Property should not be required", 
-                    PulsarClientOauthAuthenticationService.CLIENT_ID.isRequired());
-        assertTrue("Property should support expression language", 
-                   PulsarClientOauthAuthenticationService.CLIENT_ID.isExpressionLanguageSupported());
+        assertEquals("CLIENT_ID", PulsarClientOauthAuthenticationService.CLIENT_ID.getName(), 
+                     "Property name should match");
+        assertEquals("Client ID", PulsarClientOauthAuthenticationService.CLIENT_ID.getDisplayName(), 
+                     "Property display name should be set");
+        assertFalse(PulsarClientOauthAuthenticationService.CLIENT_ID.isRequired(), 
+                    "Property should not be required");
+        assertTrue(PulsarClientOauthAuthenticationService.CLIENT_ID.isExpressionLanguageSupported(), 
+                   "Property should support expression language");
         
         // Verify CLIENT_SECRET property descriptor configuration
-        assertEquals("Property name should match", "CLIENT_SECRET", 
-                     PulsarClientOauthAuthenticationService.CLIENT_SECRET.getName());
-        assertEquals("Property display name should be set", "Client Secret", 
-                     PulsarClientOauthAuthenticationService.CLIENT_SECRET.getDisplayName());
-        assertFalse("Property should not be required", 
-                    PulsarClientOauthAuthenticationService.CLIENT_SECRET.isRequired());
-        assertTrue("Property should support expression language", 
-                   PulsarClientOauthAuthenticationService.CLIENT_SECRET.isExpressionLanguageSupported());
+        assertEquals("CLIENT_SECRET", PulsarClientOauthAuthenticationService.CLIENT_SECRET.getName(), 
+                     "Property name should match");
+        assertEquals("Client Secret", PulsarClientOauthAuthenticationService.CLIENT_SECRET.getDisplayName(), 
+                     "Property display name should be set");
+        assertFalse(PulsarClientOauthAuthenticationService.CLIENT_SECRET.isRequired(), 
+                    "Property should not be required");
+        assertTrue(PulsarClientOauthAuthenticationService.CLIENT_SECRET.isExpressionLanguageSupported(), 
+                   "Property should support expression language");
     }
 
     @Test
@@ -196,7 +200,7 @@ public class PulsarClientOauthAuthenticationServiceTest {
         testRunner.assertValid(authService);
 
         Authentication auth = authService.getAuthentication();
-        assertNotNull("Authentication should not be null when all three client credential properties are provided", auth);
+        assertNotNull(auth, "Authentication should not be null when all three client credential properties are provided");
     }
 
     @Test
@@ -210,6 +214,6 @@ public class PulsarClientOauthAuthenticationServiceTest {
         testRunner.assertValid(authService);
 
         Authentication auth = authService.getAuthentication();
-        assertNull("Authentication should be null when CLIENT_SECRET is missing", auth);
+        assertNull(auth, "Authentication should be null when CLIENT_SECRET is missing");
     }
 }

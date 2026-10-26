@@ -17,7 +17,7 @@
 package org.apache.nifi.processors.pulsar.it;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
-import static org.junit.Assert.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import java.util.List;
 
@@ -31,7 +31,8 @@ import org.apache.nifi.util.TestRunner;
 import org.apache.nifi.util.TestRunners;
 import org.apache.pulsar.client.api.Producer;
 import org.apache.pulsar.client.api.Schema;
-import org.junit.Test;
+
+import org.junit.jupiter.api.Test;
 import org.testcontainers.containers.Container;
 
 /**
@@ -86,7 +87,7 @@ public class ConsumePulsarRecordIT extends AbstractPulsarIT {
     public void aPartitionedTopicIsReadAsOneLogicalTopic() throws Exception {
         final String topic = topic("partitioned");
         final Container.ExecResult result = PULSAR.execInContainer("bin/pulsar-admin", "topics", "create-partitioned-topic", topic, "-p", "3");
-        assertEquals("pulsar-admin failed: " + result.getStderr(), 0, result.getExitCode());
+        assertEquals(0, result.getExitCode(), "pulsar-admin failed: " + result.getStderr());
         publish(topic, messages());
 
         final TestRunner runner = consumer(topic);
@@ -94,7 +95,7 @@ public class ConsumePulsarRecordIT extends AbstractPulsarIT {
 
         assertEquals(MESSAGES, records);
         for (final MockFlowFile flowFile : runner.getFlowFilesForRelationship(ConsumePulsarRecord.REL_SUCCESS)) {
-            assertEquals("a partition must be reported as its logical topic", topic, flowFile.getAttribute("topicName"));
+            assertEquals(topic, flowFile.getAttribute("topicName"), "a partition must be reported as its logical topic");
         }
     }
 

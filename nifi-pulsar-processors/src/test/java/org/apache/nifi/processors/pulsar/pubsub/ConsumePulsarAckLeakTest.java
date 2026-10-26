@@ -17,7 +17,7 @@
 package org.apache.nifi.processors.pulsar.pubsub;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
-import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -31,8 +31,8 @@ import org.apache.nifi.reporting.InitializationException;
 import org.apache.nifi.util.TestRunners;
 import org.apache.pulsar.client.api.Message;
 import org.apache.pulsar.client.api.schema.GenericRecord;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 /**
  * Regression test for issue #53. Acknowledgements in async mode are submitted to an
@@ -89,7 +89,7 @@ public class ConsumePulsarAckLeakTest extends AbstractPulsarProcessorTest<Generi
 
     private AckProbeConsumePulsar processor;
 
-    @Before
+    @BeforeEach
     public void init() throws InitializationException {
         processor = new AckProbeConsumePulsar();
         runner = TestRunners.newTestRunner(processor);
@@ -111,10 +111,10 @@ public class ConsumePulsarAckLeakTest extends AbstractPulsarProcessorTest<Generi
         runner.run(TRIGGERS, false);
 
         final int retained = processor.countRetainedAcks();
-        assertTrue("Acknowledgement Futures are being retained: " + retained + " left after " + TRIGGERS
+        assertTrue(retained <= inFlightAllowance(TRIGGERS),
+                "Acknowledgement Futures are being retained: " + retained + " left after " + TRIGGERS
                 + " triggers. The leak produced one per acknowledgement; anything near the trigger count "
-                + "is that leak, not acks in flight (see issue #53)",
-                retained <= inFlightAllowance(TRIGGERS));
+                + "is that leak, not acks in flight (see issue #53)");
     }
 
     /** Exclusive subscriptions acknowledge cumulatively, once per batch. */
@@ -126,10 +126,10 @@ public class ConsumePulsarAckLeakTest extends AbstractPulsarProcessorTest<Generi
         runner.run(TRIGGERS, false);
 
         final int retained = processor.countRetainedAcks();
-        assertTrue("Acknowledgement Futures are being retained: " + retained + " left after " + TRIGGERS
+        assertTrue(retained <= inFlightAllowance(TRIGGERS),
+                "Acknowledgement Futures are being retained: " + retained + " left after " + TRIGGERS
                 + " triggers. The leak produced one per acknowledgement; anything near the trigger count "
-                + "is that leak, not acks in flight (see issue #53)",
-                retained <= inFlightAllowance(TRIGGERS));
+                + "is that leak, not acks in flight (see issue #53)");
     }
 
     /**
@@ -149,14 +149,14 @@ public class ConsumePulsarAckLeakTest extends AbstractPulsarProcessorTest<Generi
         final int afterFew = retainedAfter(fewTriggers);
         final int afterMany = retainedAfter(manyTriggers);
 
-        assertTrue("Retained acknowledgements track the trigger count: " + afterMany + " left after "
+        assertTrue(afterMany <= inFlightAllowance(manyTriggers), "Retained acknowledgements track the trigger count: " + afterMany + " left after "
                 + manyTriggers + " triggers, which is the one-Future-per-acknowledgement leak rather than "
-                + "acks in flight (see issue #53)", afterMany <= inFlightAllowance(manyTriggers));
+                + "acks in flight (see issue #53)");
 
         // 4x the triggers must not mean anything like 4x the retained futures
-        assertTrue("Retained acknowledgements scaled with the trigger count: " + afterFew + " after "
+        assertTrue(afterMany < afterFew + (manyTriggers - fewTriggers) / 4, "Retained acknowledgements scaled with the trigger count: " + afterFew + " after "
                 + fewTriggers + " triggers but " + afterMany + " after " + manyTriggers
-                + " (see issue #53)", afterMany < afterFew + (manyTriggers - fewTriggers) / 4);
+                + " (see issue #53)");
     }
 
     /** Runs a fresh processor for the given number of triggers and returns what it left queued. */
@@ -191,8 +191,8 @@ public class ConsumePulsarAckLeakTest extends AbstractPulsarProcessorTest<Generi
 
         runner.assertTransferCount(ConsumePulsar.REL_SUCCESS, 0);
         final int retained = processor.countRetainedAcks();
-        assertTrue("An idle topic queued " + retained + " acknowledgement Futures over " + TRIGGERS
-                + " triggers; it should queue none (see issue #53)", retained == 0);
+        assertTrue(retained == 0, "An idle topic queued " + retained + " acknowledgement Futures over " + TRIGGERS
+                + " triggers; it should queue none (see issue #53)");
     }
 
     private static List<Message<GenericRecord>> messages(final int count) {

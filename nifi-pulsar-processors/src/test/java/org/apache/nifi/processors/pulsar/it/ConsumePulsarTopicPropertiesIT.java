@@ -16,12 +16,12 @@
  */
 package org.apache.nifi.processors.pulsar.it;
 
-import static org.junit.Assert.assertTrue;
-
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 import org.apache.nifi.processors.pulsar.AbstractPulsarConsumerProcessor;
+
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import org.apache.nifi.processors.pulsar.pubsub.ConsumePulsar;
 import org.apache.nifi.reporting.InitializationException;
 import org.apache.nifi.util.MockFlowFile;
@@ -29,8 +29,8 @@ import org.apache.nifi.util.TestRunner;
 import org.apache.nifi.util.TestRunners;
 import org.apache.pulsar.client.api.Producer;
 import org.apache.pulsar.client.api.Schema;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 /**
  * Read Compacted and the Topics Pattern match mode, against a real broker.
@@ -43,7 +43,7 @@ public class ConsumePulsarTopicPropertiesIT extends AbstractPulsarIT {
 
     private TestRunner runner;
 
-    @Before
+    @BeforeEach
     public void init() throws InitializationException {
         runner = TestRunners.newTestRunner(ConsumePulsar.class);
         addRealPulsarClientService(runner, "pulsar-client");
@@ -84,9 +84,9 @@ public class ConsumePulsarTopicPropertiesIT extends AbstractPulsarIT {
         }
 
         final List<MockFlowFile> flowFiles = runner.getFlowFilesForRelationship(ConsumePulsar.REL_SUCCESS);
-        assertTrue("nothing was consumed from the non-persistent topic", !flowFiles.isEmpty());
-        assertTrue("the consumed content did not come from the non-persistent topic",
-                new String(flowFiles.get(0).toByteArray()).contains("non-persistent-payload"));
+        assertTrue(!flowFiles.isEmpty(), "nothing was consumed from the non-persistent topic");
+        assertTrue(new String(flowFiles.get(0).toByteArray()).contains("non-persistent-payload"),
+                "the consumed content did not come from the non-persistent topic");
     }
 
     /**
@@ -120,9 +120,9 @@ public class ConsumePulsarTopicPropertiesIT extends AbstractPulsarIT {
                 producer.send("non-persistent-payload".getBytes());
                 runner.run(1, false, false);
 
-                assertTrue("the non-persistent topic was consumed under PersistentOnly, so the match mode "
-                        + "is not what decides the domain a pattern matches",
-                        runner.getFlowFilesForRelationship(ConsumePulsar.REL_SUCCESS).isEmpty());
+                assertTrue(runner.getFlowFilesForRelationship(ConsumePulsar.REL_SUCCESS).isEmpty(),
+                        "the non-persistent topic was consumed under PersistentOnly, so the match mode "
+                        + "is not what decides the domain a pattern matches");
 
                 Thread.sleep(250);
             }
@@ -175,9 +175,9 @@ public class ConsumePulsarTopicPropertiesIT extends AbstractPulsarIT {
         final String content = new String(
                 runner.getFlowFilesForRelationship(ConsumePulsar.REL_SUCCESS).get(0).toByteArray());
 
-        assertTrue("the latest value for the key was not delivered: " + content, content.contains("v2-new"));
-        assertTrue("the superseded value was delivered, so this was not a compacted read: " + content,
-                !content.contains("v1-old"));
+        assertTrue(content.contains("v2-new"), "the latest value for the key was not delivered: " + content);
+        assertTrue(!content.contains("v1-old"),
+                "the superseded value was delivered, so this was not a compacted read: " + content);
     }
 
     /** Runs a command inside the broker container and returns its combined output. */

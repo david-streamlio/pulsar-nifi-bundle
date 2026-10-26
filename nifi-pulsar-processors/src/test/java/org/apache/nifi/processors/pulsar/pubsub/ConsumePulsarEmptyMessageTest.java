@@ -17,7 +17,7 @@
 package org.apache.nifi.processors.pulsar.pubsub;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
-import static org.junit.Assert.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -31,11 +31,8 @@ import org.apache.nifi.reporting.InitializationException;
 import org.apache.nifi.util.TestRunners;
 import org.apache.pulsar.client.api.Message;
 import org.apache.pulsar.client.api.schema.GenericRecord;
-import org.junit.Before;
-import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.junit.runners.Parameterized;
-import org.junit.runners.Parameterized.Parameters;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 
 /**
  * Messages with an empty payload must not produce an empty FlowFile.
@@ -45,24 +42,23 @@ import org.junit.runners.Parameterized.Parameters;
  * message had an empty payload emitted a FlowFile with no content and {@code message.count} of 0. The two
  * paths disagreed; this pins them to the same behaviour.
  */
-@RunWith(Parameterized.class)
 public class ConsumePulsarEmptyMessageTest extends AbstractPulsarProcessorTest<GenericRecord> {
 
     private static final String TOPIC = "persistent://public/default/empty-payloads";
 
-    @Parameters(name = "async={0}")
     public static Collection<Object[]> parameters() {
         return Arrays.asList(new Object[][] {{false}, {true}});
     }
 
-    private final boolean async;
+    private boolean async;
 
-    public ConsumePulsarEmptyMessageTest(final boolean async) {
+    public void initConsumePulsarEmptyMessageTest(final boolean async) throws InitializationException {
         this.async = async;
+        init();
     }
 
-    @Before
-    public void init() throws InitializationException {
+    /** Called by each test once its parameters are set, as JUnit 4 ran @Before after the constructor. */
+    private void init() throws InitializationException {
         runner = TestRunners.newTestRunner(ConsumePulsar.class);
         addPulsarClientService();
         runner.setProperty(AbstractPulsarConsumerProcessor.TOPICS, TOPIC);
@@ -74,8 +70,10 @@ public class ConsumePulsarEmptyMessageTest extends AbstractPulsarProcessorTest<G
     }
 
     /** A batch of nothing but empty payloads should emit nothing at all. */
-    @Test
-    public void allEmptyPayloadsProduceNoFlowFile() {
+    @MethodSource("parameters")
+    @ParameterizedTest(name = "async={0}")
+    public void allEmptyPayloadsProduceNoFlowFile(final boolean async) throws InitializationException {
+        initConsumePulsarEmptyMessageTest(async);
         mockClientService.setMockMessageQueue(messages(new byte[0], new byte[0], new byte[0]));
 
         runner.run(1, true);
@@ -84,8 +82,10 @@ public class ConsumePulsarEmptyMessageTest extends AbstractPulsarProcessorTest<G
     }
 
     /** A null payload is the same case and must be treated the same way. */
-    @Test
-    public void nullPayloadsProduceNoFlowFile() {
+    @MethodSource("parameters")
+    @ParameterizedTest(name = "async={0}")
+    public void nullPayloadsProduceNoFlowFile(final boolean async) throws InitializationException {
+        initConsumePulsarEmptyMessageTest(async);
         mockClientService.setMockMessageQueue(messages(null, null));
 
         runner.run(1, true);
@@ -94,8 +94,10 @@ public class ConsumePulsarEmptyMessageTest extends AbstractPulsarProcessorTest<G
     }
 
     /** Mixed content still comes through, carrying only the messages that had a payload. */
-    @Test
-    public void emptyPayloadsAreSkippedButRealOnesArrive() {
+    @MethodSource("parameters")
+    @ParameterizedTest(name = "async={0}")
+    public void emptyPayloadsAreSkippedButRealOnesArrive(final boolean async) throws InitializationException {
+        initConsumePulsarEmptyMessageTest(async);
         mockClientService.setMockMessageQueue(messages(
                 "one".getBytes(UTF_8), new byte[0], "two".getBytes(UTF_8)));
 

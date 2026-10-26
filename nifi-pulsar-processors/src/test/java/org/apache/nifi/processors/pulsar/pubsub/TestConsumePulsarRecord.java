@@ -18,8 +18,7 @@ package org.apache.nifi.processors.pulsar.pubsub;
 
 import static org.apache.nifi.processors.pulsar.pubsub.ConsumePulsarRecord.RECORD_READER;
 import static org.apache.nifi.processors.pulsar.pubsub.ConsumePulsarRecord.RECORD_WRITER;
-
-import static org.junit.Assert.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -39,8 +38,8 @@ import org.apache.nifi.util.TestRunners;
 import org.apache.pulsar.client.api.Message;
 import org.apache.pulsar.client.api.PulsarClientException;
 import org.apache.pulsar.client.api.schema.GenericRecord;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.Mock;
 
 public class TestConsumePulsarRecord extends AbstractPulsarProcessorTest<byte[]> {
@@ -58,7 +57,7 @@ public class TestConsumePulsarRecord extends AbstractPulsarProcessorTest<byte[]>
     protected MockRecordWriter writerService;
 
     @SuppressWarnings("unchecked")
-	@Before
+	@BeforeEach
     public void setup() throws InitializationException {
 
         mockMessage = mock(Message.class);

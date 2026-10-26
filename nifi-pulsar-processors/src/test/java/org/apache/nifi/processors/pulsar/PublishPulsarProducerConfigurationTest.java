@@ -16,10 +16,10 @@
  */
 package org.apache.nifi.processors.pulsar;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.Map;
 
@@ -31,8 +31,8 @@ import org.apache.pulsar.client.api.HashingScheme;
 import org.apache.pulsar.client.api.ProducerAccessMode;
 import org.apache.pulsar.client.impl.conf.ConfigurationDataUtils;
 import org.apache.pulsar.client.impl.conf.ProducerConfigurationData;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 /**
  * Every producer property must actually reach the producer.
@@ -53,7 +53,7 @@ public class PublishPulsarProducerConfigurationTest extends AbstractPulsarProces
     private AbstractPulsarProducerProcessor<byte[]> processor;
 
     @SuppressWarnings("unchecked")
-    @Before
+    @BeforeEach
     public void init() throws InitializationException {
         runner = TestRunners.newTestRunner(PublishPulsar.class);
         addPulsarClientService();
@@ -88,7 +88,7 @@ public class PublishPulsarProducerConfigurationTest extends AbstractPulsarProces
     public void theDeclaredDefaultsReachTheProducerConfiguration() {
         final ProducerConfigurationData conf = producerConfiguration();
 
-        assertEquals("Send Timeout defaults to 30 sec", 30000L, conf.getSendTimeoutMs());
+        assertEquals(30000L, conf.getSendTimeoutMs(), "Send Timeout defaults to 30 sec");
         assertEquals(ProducerAccessMode.Shared, conf.getAccessMode());
         assertEquals(HashingScheme.JavaStringHash, conf.getHashingScheme());
     }
@@ -112,8 +112,8 @@ public class PublishPulsarProducerConfigurationTest extends AbstractPulsarProces
         runner.setProperty(AbstractPulsarProducerProcessor.BATCHER_BUILDER, "Key based");
 
         assertEquals(BatcherBuilder.KEY_BASED, processor.getBatcherBuilder(runner.getProcessContext()));
-        assertTrue("a BatcherBuilder in the configuration map would be dropped by loadConf without an error",
-                !configurationMap().containsKey("batcherBuilder"));
+        assertTrue(!configurationMap().containsKey("batcherBuilder"),
+                "a BatcherBuilder in the configuration map would be dropped by loadConf without an error");
     }
 
     @Test

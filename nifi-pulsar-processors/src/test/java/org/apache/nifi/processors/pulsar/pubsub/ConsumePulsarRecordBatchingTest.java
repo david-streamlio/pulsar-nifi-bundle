@@ -43,35 +43,31 @@ import org.apache.nifi.util.MockFlowFile;
 import org.apache.nifi.util.TestRunners;
 import org.apache.pulsar.client.api.Message;
 import org.apache.pulsar.client.api.schema.GenericRecord;
-import org.junit.Before;
-import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.junit.runners.Parameterized;
-import org.junit.runners.Parameterized.Parameters;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 
 /**
  * Regression tests for "Consumer Message Batch Size" on {@link ConsumePulsarRecord}, which shares the batching logic
  * (and shared the bug) of {@link ConsumePulsar}: records from a batch of compatible messages must be written to ONE
  * FlowFile even though every message carries a unique message id. Runs with Async Enabled = false and = true.
  */
-@RunWith(Parameterized.class)
 public class ConsumePulsarRecordBatchingTest extends AbstractPulsarProcessorTest<GenericRecord> {
 
     private static final String TOPIC = "persistent://public/default/records";
 
-    @Parameters(name = "async={0}")
     public static Collection<Object[]> parameters() {
         return Arrays.asList(new Object[][] {{false}, {true}});
     }
 
-    private final boolean async;
+    private boolean async;
 
-    public ConsumePulsarRecordBatchingTest(final boolean async) {
+    public void initConsumePulsarRecordBatchingTest(final boolean async) throws InitializationException {
         this.async = async;
+        init();
     }
 
-    @Before
-    public void init() throws InitializationException {
+    /** Called by each test once its parameters are set, as JUnit 4 ran @Before after the constructor. */
+    private void init() throws InitializationException {
         runner = TestRunners.newTestRunner(ConsumePulsarRecord.class);
         addPulsarClientService();
 
@@ -96,8 +92,10 @@ public class ConsumePulsarRecordBatchingTest extends AbstractPulsarProcessorTest
         runner.setProperty(ConsumePulsarRecord.MAX_WAIT_TIME, async ? "1 sec" : "0 sec");
     }
 
-    @Test
-    public void tenMessagesWithUniqueMessageIdsProduceOneFlowFile() {
+    @MethodSource("parameters")
+    @ParameterizedTest(name = "async={0}")
+    public void tenMessagesWithUniqueMessageIdsProduceOneFlowFile(final boolean async) throws InitializationException {
+        initConsumePulsarRecordBatchingTest(async);
         mockClientService.setMockMessageQueue(messages(1, 10, null));
 
         runner.run(1, true);
@@ -107,8 +105,10 @@ public class ConsumePulsarRecordBatchingTest extends AbstractPulsarProcessorTest
         flowFile.assertAttributeEquals("topicName", TOPIC);
     }
 
-    @Test
-    public void partialBatchProducesOneFlowFileWithTheAvailableRecords() {
+    @MethodSource("parameters")
+    @ParameterizedTest(name = "async={0}")
+    public void partialBatchProducesOneFlowFileWithTheAvailableRecords(final boolean async) throws InitializationException {
+        initConsumePulsarRecordBatchingTest(async);
         mockClientService.setMockMessageQueue(messages(1, 4, null));
 
         runner.run(1, true);
@@ -116,8 +116,10 @@ public class ConsumePulsarRecordBatchingTest extends AbstractPulsarProcessorTest
         assertBatch(successFlowFiles(1).get(0), 1, 4);
     }
 
-    @Test
-    public void moreMessagesThanBatchSizeProduceOneFlowFilePerBatch() {
+    @MethodSource("parameters")
+    @ParameterizedTest(name = "async={0}")
+    public void moreMessagesThanBatchSizeProduceOneFlowFilePerBatch(final boolean async) throws InitializationException {
+        initConsumePulsarRecordBatchingTest(async);
         mockClientService.setMockMessageQueue(messages(1, 25, null));
 
         runner.run(3, true);
@@ -128,8 +130,10 @@ public class ConsumePulsarRecordBatchingTest extends AbstractPulsarProcessorTest
         assertBatch(flowFiles.get(2), 21, 25);
     }
 
-    @Test
-    public void uniquePerMessagePropertiesDoNotSplitTheBatch() {
+    @MethodSource("parameters")
+    @ParameterizedTest(name = "async={0}")
+    public void uniquePerMessagePropertiesDoNotSplitTheBatch(final boolean async) throws InitializationException {
+        initConsumePulsarRecordBatchingTest(async);
         List<Message<GenericRecord>> messages = new ArrayList<>();
         for (int n = 1; n <= 10; n++) {
             Map<String, String> properties = new HashMap<>();
@@ -147,8 +151,10 @@ public class ConsumePulsarRecordBatchingTest extends AbstractPulsarProcessorTest
         flowFile.assertAttributeNotExists(PROPERTY_ATTRIBUTE_PREFIX + "trace-id");
     }
 
-    @Test
-    public void singleMessageFlowFileKeepsThePreviousAttributeContract() {
+    @MethodSource("parameters")
+    @ParameterizedTest(name = "async={0}")
+    public void singleMessageFlowFileKeepsThePreviousAttributeContract(final boolean async) throws InitializationException {
+        initConsumePulsarRecordBatchingTest(async);
         mockClientService.setMockMessageQueue(messages(5, 5, Collections.singletonMap("source", "crm")));
 
         runner.run(1, true);
@@ -159,8 +165,10 @@ public class ConsumePulsarRecordBatchingTest extends AbstractPulsarProcessorTest
         flowFile.assertAttributeEquals(PROPERTY_ATTRIBUTE_PREFIX + "source", "crm");
     }
 
-    @Test
-    public void identicalMappedAttributeKeepsMessagesInOneFlowFile() {
+    @MethodSource("parameters")
+    @ParameterizedTest(name = "async={0}")
+    public void identicalMappedAttributeKeepsMessagesInOneFlowFile(final boolean async) throws InitializationException {
+        initConsumePulsarRecordBatchingTest(async);
         runner.setProperty(AbstractPulsarConsumerProcessor.MAPPED_FLOWFILE_ATTRIBUTES, "tenant");
         mockClientService.setMockMessageQueue(messages(1, 3, Collections.singletonMap("tenant", "A")));
 
@@ -171,8 +179,10 @@ public class ConsumePulsarRecordBatchingTest extends AbstractPulsarProcessorTest
         flowFile.assertAttributeEquals("tenant", "A");
     }
 
-    @Test
-    public void changedMappedAttributeStartsANewFlowFile() {
+    @MethodSource("parameters")
+    @ParameterizedTest(name = "async={0}")
+    public void changedMappedAttributeStartsANewFlowFile(final boolean async) throws InitializationException {
+        initConsumePulsarRecordBatchingTest(async);
         runner.setProperty(AbstractPulsarConsumerProcessor.MAPPED_FLOWFILE_ATTRIBUTES, "tenant");
         List<Message<GenericRecord>> messages = new ArrayList<>();
         messages.addAll(messages(1, 2, Collections.singletonMap("tenant", "A")));

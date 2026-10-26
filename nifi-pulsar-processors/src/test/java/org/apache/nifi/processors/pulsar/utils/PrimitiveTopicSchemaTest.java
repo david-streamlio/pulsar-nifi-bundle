@@ -17,16 +17,17 @@
 package org.apache.nifi.processors.pulsar.utils;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertThrows;
-import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
 
 import org.apache.pulsar.client.api.Schema;
 import org.apache.pulsar.common.schema.SchemaType;
-import org.junit.Test;
+
+import org.junit.jupiter.api.Test;
 
 /**
  * Encoding and decoding the single value a primitive topic carries (#189).
@@ -73,8 +74,8 @@ public class PrimitiveTopicSchemaTest {
     @Test
     public void aValueThatCannotBeRepresentedFails() {
         assertThrows(IOException.class, () -> PrimitiveTopicSchema.encode(SchemaType.INT32, "not a number", "reading"));
-        assertThrows("null has no representation on a primitive topic", IOException.class,
-                () -> PrimitiveTopicSchema.encode(SchemaType.INT32, null, "reading"));
+        assertThrows(IOException.class, () -> PrimitiveTopicSchema.encode(SchemaType.INT32, null, "reading"),
+                "null has no representation on a primitive topic");
     }
 
     /**
@@ -108,13 +109,13 @@ public class PrimitiveTopicSchemaTest {
     public void theDateAndTimeSchemasAreNotSupportedYet() {
         assertTrue(PrimitiveTopicSchema.supports(SchemaType.STRING));
         assertTrue(PrimitiveTopicSchema.supports(SchemaType.INT32));
-        assertFalse("BYTES is how the client reports a topic with no schema at all, so treating it as a "
-                + "primitive would capture every schema-less topic",
-                PrimitiveTopicSchema.supports(SchemaType.BYTES));
-        assertFalse("deliberately deferred, along with AVRO logical types",
-                PrimitiveTopicSchema.supports(SchemaType.TIMESTAMP));
+        assertFalse(PrimitiveTopicSchema.supports(SchemaType.BYTES),
+                "BYTES is how the client reports a topic with no schema at all, so treating it as a "
+                + "primitive would capture every schema-less topic");
+        assertFalse(PrimitiveTopicSchema.supports(SchemaType.TIMESTAMP),
+                "deliberately deferred, along with AVRO logical types");
         assertFalse(PrimitiveTopicSchema.supports(SchemaType.LOCAL_DATE_TIME));
-        assertFalse("a record type is not a primitive", PrimitiveTopicSchema.supports(SchemaType.AVRO));
+        assertFalse(PrimitiveTopicSchema.supports(SchemaType.AVRO), "a record type is not a primitive");
         assertFalse(PrimitiveTopicSchema.supports(null));
     }
 }

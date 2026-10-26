@@ -16,8 +16,8 @@
  */
 package org.apache.nifi.processors.pulsar.it;
 
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
 
 import org.apache.nifi.processors.pulsar.AbstractPulsarProducerProcessor;
 import org.apache.nifi.processors.pulsar.pubsub.PublishPulsar;
@@ -28,8 +28,8 @@ import org.apache.pulsar.client.api.Producer;
 import org.apache.pulsar.client.api.ProducerAccessMode;
 import org.apache.pulsar.client.api.PulsarClientException;
 import org.apache.pulsar.client.api.Schema;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 /**
  * Producer configuration that only a broker can confirm.
@@ -43,7 +43,7 @@ public class PublishPulsarProducerConfigurationIT extends AbstractPulsarIT {
 
     private TestRunner runner;
 
-    @Before
+    @BeforeEach
     public void init() throws InitializationException {
         runner = TestRunners.newTestRunner(PublishPulsar.class);
         addRealPulsarClientService(runner, "pulsar-client");

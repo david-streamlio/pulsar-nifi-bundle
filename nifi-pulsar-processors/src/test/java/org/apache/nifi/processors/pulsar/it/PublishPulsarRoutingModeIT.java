@@ -17,8 +17,8 @@
 package org.apache.nifi.processors.pulsar.it;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -35,7 +35,8 @@ import org.apache.pulsar.client.api.Consumer;
 import org.apache.pulsar.client.api.Message;
 import org.apache.pulsar.client.api.Schema;
 import org.apache.pulsar.client.api.SubscriptionInitialPosition;
-import org.junit.Test;
+
+import org.junit.jupiter.api.Test;
 import org.testcontainers.containers.Container;
 
 /**
@@ -63,8 +64,8 @@ public class PublishPulsarRoutingModeIT extends AbstractPulsarIT {
 
             final List<Message<byte[]>> received = receive(consumer, MESSAGES);
             assertEquals(MESSAGES, received.size());
-            assertEquals("SinglePartition must route every unkeyed message to the same partition, but they arrived on "
-                    + partitionsOf(received), 1, partitionsOf(received).size());
+            assertEquals(1, partitionsOf(received).size(), "SinglePartition must route every unkeyed message to the same partition, but they arrived on "
+                    + partitionsOf(received));
         }
     }
 
@@ -81,8 +82,8 @@ public class PublishPulsarRoutingModeIT extends AbstractPulsarIT {
 
             final List<Message<byte[]>> received = receive(consumer, MESSAGES);
             assertEquals(MESSAGES, received.size());
-            assertEquals("round robin should use every partition, but used " + partitionsOf(received),
-                    PARTITIONS, partitionsOf(received).size());
+            assertEquals(PARTITIONS,
+                    partitionsOf(received).size(), "round robin should use every partition, but used " + partitionsOf(received));
         }
     }
 
@@ -100,12 +101,12 @@ public class PublishPulsarRoutingModeIT extends AbstractPulsarIT {
 
                 final List<Message<byte[]>> received = receive(consumer, MESSAGES);
                 assertEquals(MESSAGES, received.size());
-                assertEquals(mode + ": one key must map to one partition, got " + partitionsOf(received), 1, partitionsOf(received).size());
+                assertEquals(1, partitionsOf(received).size(), mode + ": one key must map to one partition, got " + partitionsOf(received));
 
                 int last = 0;
                 for (final Message<byte[]> message : received) {
                     final int seq = Integer.parseInt(new String(message.getValue(), UTF_8).replaceAll("\\D", ""));
-                    assertTrue(mode + ": out of order, " + last + " then " + seq, seq > last);
+                    assertTrue(seq > last, mode + ": out of order, " + last + " then " + seq);
                     last = seq;
                 }
             }
@@ -118,7 +119,7 @@ public class PublishPulsarRoutingModeIT extends AbstractPulsarIT {
         final String topic = "persistent://public/default/routing-" + (topicCounter++) + "-" + System.nanoTime();
         final Container.ExecResult result = PULSAR.execInContainer("bin/pulsar-admin", "topics", "create-partitioned-topic",
                 topic, "-p", String.valueOf(PARTITIONS));
-        assertEquals("pulsar-admin failed: " + result.getStderr(), 0, result.getExitCode());
+        assertEquals(0, result.getExitCode(), "pulsar-admin failed: " + result.getStderr());
         return topic;
     }
 

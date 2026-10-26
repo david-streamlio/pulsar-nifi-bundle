@@ -27,9 +27,8 @@ import org.apache.pulsar.client.api.Producer;
 import org.apache.pulsar.client.api.PulsarClient;
 import org.apache.pulsar.client.api.PulsarClientException;
 import org.apache.pulsar.client.api.Schema;
-import org.junit.AfterClass;
-import org.junit.BeforeClass;
-import org.junit.ClassRule;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
 import org.testcontainers.containers.PulsarContainer;
 import org.testcontainers.utility.DockerImageName;
 
@@ -41,7 +40,7 @@ import org.testcontainers.utility.DockerImageName;
  * behaviour - acknowledgement semantics, subscription types, partitioned topics, schemas - is currently
  * unverified. These integration tests close that gap.
  * <p>
- * One broker is started per test class ({@code @ClassRule}) and shared by its tests, since container
+ * One broker is started per test class (in {@code @BeforeAll}) and shared by its tests, since container
  * startup dominates the runtime. The image is pinned by the {@code pulsar.image} property in the parent
  * pom so it stays in step with the Pulsar client version the bundle builds against.
  * <p>
@@ -55,22 +54,33 @@ public abstract class AbstractPulsarIT {
             .parse(System.getProperty("pulsar.image", "apachepulsar/pulsar:4.2.4"))
             .asCompatibleSubstituteFor("apachepulsar/pulsar");
 
-    @ClassRule
-    public static final PulsarContainer PULSAR = new PulsarContainer(PULSAR_IMAGE)
-            .withStartupTimeout(java.time.Duration.ofMinutes(3));
+    /**
+     * Started and stopped by hand rather than through a JUnit rule or extension: Testcontainers 2.x drops
+     * JUnit 4 rule support, and managing it here keeps the lifecycle independent of the test framework.
+     */
+    protected static PulsarContainer PULSAR;
 
     private static PulsarClient client;
 
-    @BeforeClass
-    public static void startClient() throws PulsarClientException {
+    @BeforeAll
+    public static void startBroker() throws PulsarClientException {
+        PULSAR = new PulsarContainer(PULSAR_IMAGE).withStartupTimeout(java.time.Duration.ofMinutes(3));
+        PULSAR.start();
         client = PulsarClient.builder().serviceUrl(PULSAR.getPulsarBrokerUrl()).build();
     }
 
-    @AfterClass
-    public static void stopClient() throws PulsarClientException {
-        if (client != null) {
-            client.close();
-            client = null;
+    @AfterAll
+    public static void stopBroker() throws PulsarClientException {
+        try {
+            if (client != null) {
+                client.close();
+                client = null;
+            }
+        } finally {
+            if (PULSAR != null) {
+                PULSAR.stop();
+                PULSAR = null;
+            }
         }
     }
 

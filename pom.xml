@@ -98,7 +98,6 @@
         <jackson.version>2.22.4</jackson.version>
         <!-- Since 2.20 jackson-annotations is released per minor version only (2.22, not 2.22.4). -->
         <jackson-annotations.version>2.22</jackson-annotations.version>
-        <junit.version>4.13.2</junit.version>
         <mockito-core.version>5.23.0</mockito-core.version>
         <nifi.version>2.11.0</nifi.version>
         <protobuf3.version>4.36.1</protobuf3.version>

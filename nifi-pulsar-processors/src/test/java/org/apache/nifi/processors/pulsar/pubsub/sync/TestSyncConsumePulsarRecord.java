@@ -20,10 +20,10 @@ import org.apache.nifi.processors.pulsar.pubsub.ConsumePulsarRecord;
 import org.apache.nifi.processors.pulsar.pubsub.TestConsumePulsarRecord;
 import org.apache.nifi.util.MockFlowFile;
 import org.apache.pulsar.client.api.PulsarClientException;
-import org.junit.Test;
 
-import static org.junit.Assert.assertEquals;
+import org.junit.jupiter.api.Test;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;

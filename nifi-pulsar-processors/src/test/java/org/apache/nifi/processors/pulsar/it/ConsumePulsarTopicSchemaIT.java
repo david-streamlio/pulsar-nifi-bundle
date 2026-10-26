@@ -17,8 +17,8 @@
 package org.apache.nifi.processors.pulsar.it;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.apache.nifi.json.JsonRecordSetWriter;
 import org.apache.nifi.json.JsonTreeReader;
@@ -37,7 +37,8 @@ import org.apache.pulsar.client.api.schema.GenericSchema;
 import org.apache.pulsar.client.api.schema.RecordSchemaBuilder;
 import org.apache.pulsar.client.api.schema.SchemaBuilder;
 import org.apache.pulsar.common.schema.SchemaType;
-import org.junit.Test;
+
+import org.junit.jupiter.api.Test;
 
 /**
  * Consuming with the topic's own schema instead of a configured Record Reader (#185).
@@ -63,7 +64,7 @@ public class ConsumePulsarTopicSchemaIT extends AbstractPulsarIT {
         final TestRunner consumer = topicSchemaConsumer(topic, "avro-ts");
         assertEquals(RECORDS + 1, consumeRecords(consumer));
         consumer.assertTransferCount(ConsumePulsarRecord.REL_PARSE_FAILURE, 0);
-        assertTrue("the decoded field values should be present", successContent(consumer).contains("sensor-1"));
+        assertTrue(successContent(consumer).contains("sensor-1"), "the decoded field values should be present");
     }
 
     /** JSON goes through the same strategy, so the two encodings become indistinguishable to the user. */
@@ -75,7 +76,7 @@ public class ConsumePulsarTopicSchemaIT extends AbstractPulsarIT {
         final TestRunner consumer = topicSchemaConsumer(topic, "json-ts");
         assertEquals(RECORDS + 1, consumeRecords(consumer));
         consumer.assertTransferCount(ConsumePulsarRecord.REL_PARSE_FAILURE, 0);
-        assertTrue("the decoded field values should be present", successContent(consumer).contains("sensor-1"));
+        assertTrue(successContent(consumer).contains("sensor-1"), "the decoded field values should be present");
     }
 
     /**
@@ -93,8 +94,8 @@ public class ConsumePulsarTopicSchemaIT extends AbstractPulsarIT {
         consumer.enableControllerService(reader);
         consumer.setProperty(ConsumePulsarRecord.RECORD_READER, "record-reader");
 
-        assertEquals("the reader should have handled what the topic schema could not",
-                RECORDS, consumeRecordsExpecting(consumer, RECORDS));
+        assertEquals(RECORDS,
+                consumeRecordsExpecting(consumer, RECORDS), "the reader should have handled what the topic schema could not");
     }
 
     /** Without a reader to fall back to, those messages are routed rather than silently dropped. */
@@ -129,7 +130,7 @@ public class ConsumePulsarTopicSchemaIT extends AbstractPulsarIT {
         final TestRunner consumer = topicSchemaConsumer(topic, "avro-e2e");
         assertEquals(RECORDS + 1, consumeRecords(consumer));
         consumer.assertTransferCount(ConsumePulsarRecord.REL_PARSE_FAILURE, 0);
-        assertTrue("the decoded values should survive the round trip", successContent(consumer).contains("sensor-1"));
+        assertTrue(successContent(consumer).contains("sensor-1"), "the decoded values should survive the round trip");
     }
 
     /** The same on JSON, so the two encodings are indistinguishable once the topic's schema drives both ends. */
@@ -141,7 +142,7 @@ public class ConsumePulsarTopicSchemaIT extends AbstractPulsarIT {
         final TestRunner consumer = topicSchemaConsumer(topic, "json-e2e");
         assertEquals(RECORDS + 1, consumeRecords(consumer));
         consumer.assertTransferCount(ConsumePulsarRecord.REL_PARSE_FAILURE, 0);
-        assertTrue("the decoded values should survive the round trip", successContent(consumer).contains("sensor-1"));
+        assertTrue(successContent(consumer).contains("sensor-1"), "the decoded values should survive the round trip");
     }
 
     // ------------------------------------------------------------------ helpers

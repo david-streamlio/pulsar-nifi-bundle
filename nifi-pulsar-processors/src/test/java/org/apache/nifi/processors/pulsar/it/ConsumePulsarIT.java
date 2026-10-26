@@ -16,8 +16,8 @@
  */
 package org.apache.nifi.processors.pulsar.it;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
 import java.util.stream.Collectors;
@@ -29,8 +29,8 @@ import org.apache.nifi.reporting.InitializationException;
 import org.apache.nifi.util.MockFlowFile;
 import org.apache.nifi.util.TestRunner;
 import org.apache.nifi.util.TestRunners;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 /**
  * Exercises {@link ConsumePulsar} against a real broker. These cover the behaviour that the mocked unit
@@ -40,7 +40,7 @@ public class ConsumePulsarIT extends AbstractPulsarIT {
 
     private TestRunner runner;
 
-    @Before
+    @BeforeEach
     public void init() throws InitializationException {
         runner = TestRunners.newTestRunner(ConsumePulsar.class);
         addRealPulsarClientService(runner, "pulsar-client");
@@ -79,7 +79,7 @@ public class ConsumePulsarIT extends AbstractPulsarIT {
         publish(topic, IntStream.rangeClosed(1, 10).mapToObj(n -> "m" + n).toArray(String[]::new));
 
         final List<MockFlowFile> flowFiles = runUntilTransferred(1);
-        assertEquals("10 messages with a batch size of 10 must produce a single FlowFile", 1, flowFiles.size());
+        assertEquals(1, flowFiles.size(), "10 messages with a batch size of 10 must produce a single FlowFile");
         flowFiles.get(0).assertAttributeEquals(ConsumePulsar.MSG_COUNT, "10");
         flowFiles.get(0).assertContentEquals(IntStream.rangeClosed(1, 10)
                 .mapToObj(n -> "m" + n).collect(Collectors.joining("\n")));
@@ -87,9 +87,9 @@ public class ConsumePulsarIT extends AbstractPulsarIT {
         // real ids, so the first/last batch attributes are meaningful and distinct
         final String first = flowFiles.get(0).getAttribute("pulsar.message.id.first");
         final String last = flowFiles.get(0).getAttribute("pulsar.message.id.last");
-        assertTrue("expected a real first message id, got " + first, first != null && !first.isEmpty());
-        assertTrue("expected a real last message id, got " + last, last != null && !last.isEmpty());
-        assertTrue("first and last ids should differ across a 10 message batch", !first.equals(last));
+        assertTrue(first != null && !first.isEmpty(), "expected a real first message id, got " + first);
+        assertTrue(last != null && !last.isEmpty(), "expected a real last message id, got " + last);
+        assertTrue(!first.equals(last), "first and last ids should differ across a 10 message batch");
         flowFiles.get(0).assertAttributeNotExists("pulsar.message.id");
     }
 

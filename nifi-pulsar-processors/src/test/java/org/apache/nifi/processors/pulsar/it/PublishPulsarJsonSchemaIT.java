@@ -17,8 +17,8 @@
 package org.apache.nifi.processors.pulsar.it;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 import java.util.concurrent.TimeUnit;
 
@@ -40,8 +40,8 @@ import org.apache.pulsar.client.api.schema.GenericSchema;
 import org.apache.pulsar.client.api.schema.RecordSchemaBuilder;
 import org.apache.pulsar.client.api.schema.SchemaBuilder;
 import org.apache.pulsar.common.schema.SchemaType;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 /**
  * Publishing NiFi records to a topic carrying a JSON schema (issue #34, phase three).
@@ -54,7 +54,7 @@ public class PublishPulsarJsonSchemaIT extends AbstractPulsarIT {
 
     private TestRunner runner;
 
-    @Before
+    @BeforeEach
     public void init() throws InitializationException {
         runner = TestRunners.newTestRunner(PublishPulsarRecord.class);
         addRealPulsarClientService(runner, "pulsar-client");
@@ -95,7 +95,7 @@ public class PublishPulsarJsonSchemaIT extends AbstractPulsarIT {
             consumer.acknowledge(consumer.receive(30, TimeUnit.SECONDS));   // the seeded record
 
             final Message<GenericRecord> published = consumer.receive(30, TimeUnit.SECONDS);
-            assertNotNull("the published record should have arrived", published);
+            assertNotNull(published, "the published record should have arrived");
             assertEquals("sensor-2", published.getValue().getField("id").toString());
             assertEquals(43, published.getValue().getField("reading"));
         }

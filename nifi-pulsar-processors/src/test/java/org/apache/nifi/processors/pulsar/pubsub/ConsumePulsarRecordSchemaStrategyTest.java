@@ -23,8 +23,8 @@ import org.apache.nifi.processors.pulsar.pubsub.mocks.MockRecordParser;
 import org.apache.nifi.processors.pulsar.pubsub.mocks.MockRecordWriter;
 import org.apache.nifi.util.TestRunners;
 import org.apache.pulsar.client.api.schema.GenericRecord;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 /**
  * The Record Reader is required under the default strategy and optional under 'Topic Schema' (#185).
@@ -34,7 +34,7 @@ import org.junit.Test;
  */
 public class ConsumePulsarRecordSchemaStrategyTest extends AbstractPulsarProcessorTest<GenericRecord> {
 
-    @Before
+    @BeforeEach
     public void init() throws InitializationException {
         runner = TestRunners.newTestRunner(ConsumePulsarRecord.class);
         addPulsarClientService();
