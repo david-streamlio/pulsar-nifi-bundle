@@ -27,7 +27,6 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -65,7 +64,6 @@ public class PublisherLeaseAwaitTest {
 
         private final java.util.List<CompletableFuture<MessageId>> issued =
                 Collections.synchronizedList(new java.util.ArrayList<>());
-        private final AtomicInteger completed = new AtomicInteger();
 
         ControllablePublisherLease(final Producer producer, final ComponentLog logger) {
             super(producer, logger);
@@ -76,7 +74,6 @@ public class PublisherLeaseAwaitTest {
                                                     final java.util.Map<String, String> properties,
                                                     final byte[] value) {
             final CompletableFuture<MessageId> future = new CompletableFuture<>();
-            future.thenRun(completed::incrementAndGet);
             issued.add(future);
             return future;
         }
@@ -107,8 +104,18 @@ public class PublisherLeaseAwaitTest {
             return issued.size();
         }
 
+        /**
+         * Counts the issued sends that are done, which is exactly what {@code publish()} waits on.
+         * <p>
+         * This used to count with {@code future.thenRun(completed::incrementAndGet)}, which raced: completing
+         * a future wakes threads blocked in {@code get()} and runs dependent actions in the same pass, and
+         * the publisher's waiter, registered last, is released first. {@code publish()} could return and the
+         * test read the counter before the last increment ran, failing with 349 of 350 in CI.
+         */
         int completedCount() {
-            return completed.get();
+            synchronized (issued) {
+                return (int) issued.stream().filter(CompletableFuture::isDone).count();
+            }
         }
     }
 
