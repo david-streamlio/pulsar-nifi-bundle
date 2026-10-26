@@ -20,7 +20,7 @@
     <parent>
       <groupId>org.apache.nifi</groupId>
       <artifactId>nifi-extension-bundles</artifactId>
-      <version>2.1.0</version>
+      <version>2.11.0</version>
     </parent>
     
     <groupId>io.streamnative.connectors</groupId>
@@ -87,7 +87,6 @@
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <!-- Dependency versions -->
-        <bouncycastle.version>1.86</bouncycastle.version>
         <commons-collections4.version>4.6.0</commons-collections4.version>
         <commons-compress.version>1.28.0</commons-compress.version>
         <commons-lang3.version>3.20.0</commons-lang3.version>
@@ -121,7 +120,6 @@
         <nifi-nar-maven-plugin.version>2.4.0</nifi-nar-maven-plugin.version>
         <nexus-staging-maven-plugin.version>1.7.0</nexus-staging-maven-plugin.version>
         <maven-versions-plugin.version>2.5</maven-versions-plugin.version>
-        <maven-failsafe-plugin.version>3.6.0</maven-failsafe-plugin.version>
 
         <maven.deploy.skip>true</maven.deploy.skip>
     </properties>
@@ -144,9 +142,11 @@
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
-            <!-- The nifi-extension-bundles parent manages Jackson at 2.18.2 and Bouncy Castle at 1.79,
-                 both with HIGH/CRITICAL CVEs. Explicit entries here outrank the parent's; the Jackson BOM
-                 alone would not, because an imported BOM loses to versions the parent already manages. -->
+            <!-- The nifi-extension-bundles 2.11.0 parent manages Jackson at 2.22.1, which has HIGH CVEs fixed
+                 in 2.22.3 (CVE-2026-89407, -89425, -91776, -91777). Explicit entries here outrank the parent's;
+                 the Jackson BOM alone would not, because an imported BOM loses to versions the parent already
+                 manages. Drop this block once the parent manages a fixed Jackson. Bouncy Castle needs no
+                 override: the parent's 1.85 already carries the fixes. -->
             <dependency>
                 <groupId>com.fasterxml.jackson</groupId>
                 <artifactId>jackson-bom</artifactId>
@@ -168,21 +168,6 @@
                 <groupId>com.fasterxml.jackson.core</groupId>
                 <artifactId>jackson-databind</artifactId>
                 <version>${jackson.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>org.bouncycastle</groupId>
-                <artifactId>bcprov-jdk18on</artifactId>
-                <version>${bouncycastle.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>org.bouncycastle</groupId>
-                <artifactId>bcpkix-jdk18on</artifactId>
-                <version>${bouncycastle.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>org.bouncycastle</groupId>
-                <artifactId>bcutil-jdk18on</artifactId>
-                <version>${bouncycastle.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>

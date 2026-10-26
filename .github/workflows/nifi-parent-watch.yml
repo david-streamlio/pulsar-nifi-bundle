@@ -1,13 +1,12 @@
 name: NiFi Parent Watch
 
-# Reports what the pinned NiFi parent POM is holding back (#206).
+# Reports what the NiFi parent POM is holding back (#206).
 #
-# The parent org.apache.nifi:nifi-extension-bundles is pinned, and .github/dependabot.yml
-# ignores minor and major updates to it, because a newer parent bans JUnit 4 and forces a
-# JUnit 4 -> 5 migration (see #107). That reasoning is sound. The consequence is that the
-# parent became the one input to this build with nothing watching it - the ignore rule exists
-# precisely to silence the thing that would otherwise report on it - so "we deferred this" and
-# "we forgot this" stopped being distinguishable from outside.
+# Written while the parent org.apache.nifi:nifi-extension-bundles was pinned at 2.1.0 and
+# Dependabot ignored it, because a newer parent banned JUnit 4 (#107). That pin is gone (#248):
+# the tests are on JUnit 5, Dependabot proposes parent updates again, and CI fails when the
+# parent and nifi.version differ. The report stays useful as a running view of how far the
+# parent trails the latest NiFi release and which advisories that leaves unfixed.
 #
 # This is a report, never a gate. It maintains ONE issue rather than opening a new one each
 # week, so the history is a single thread rather than a pile nobody reads.

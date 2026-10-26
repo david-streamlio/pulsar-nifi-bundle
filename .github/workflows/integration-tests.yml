@@ -59,7 +59,7 @@ jobs:
       - name: Pre-pull the Pulsar image
         continue-on-error: true
         run: |
-          IMAGE="$(mvn -B -ntp help:evaluate -Dexpression=pulsar.image -q -DforceStdout 2>/dev/null | tail -n 1 | tr -d '[:space:]')"
+          IMAGE="$(./mvnw -B -ntp help:evaluate -Dexpression=pulsar.image -q -DforceStdout 2>/dev/null | tail -n 1 | tr -d '[:space:]')"
           echo "Resolved Pulsar image: '$IMAGE'"
 
           if [ -z "$IMAGE" ] || printf '%s' "$IMAGE" | grep -qv '^[a-z0-9._/-]\+:[A-Za-z0-9._-]\+$'; then
@@ -71,7 +71,7 @@ jobs:
 
       # `verify` is what runs Failsafe; `package` (used by the CI workflow) stops short of it.
       - name: Run integration tests
-        run: mvn -B -ntp verify -Dgpg.skip=true -pl nifi-pulsar-processors -am
+        run: ./mvnw -B -ntp verify -Dgpg.skip=true -pl nifi-pulsar-processors -am
 
       - name: Upload failsafe reports
         if: always()

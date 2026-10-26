@@ -71,7 +71,7 @@
             </exclusions>
         </dependency>
 
-        <!-- Use newer versions of the bouncycastle artifacts; versions are managed in the root pom -->
+        <!-- Use the jdk18on bouncycastle artifacts; versions come from the NiFi parent -->
         <dependency>
             <groupId>org.bouncycastle</groupId>
             <artifactId>bcprov-jdk18on</artifactId>

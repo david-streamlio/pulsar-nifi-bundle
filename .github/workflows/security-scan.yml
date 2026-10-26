@@ -89,7 +89,7 @@ jobs:
       # the local image `streamnative/nifi:latest` during the package phase. This
       # is the same image the release workflow pushes to GHCR.
       - name: Build image
-        run: mvn -B -ntp clean package -Dgpg.skip=true -DskipTests
+        run: ./mvnw -B -ntp clean package -Dgpg.skip=true -DskipTests
 
       - name: Scan image (SARIF)
         uses: aquasecurity/trivy-action@v0.36.0
