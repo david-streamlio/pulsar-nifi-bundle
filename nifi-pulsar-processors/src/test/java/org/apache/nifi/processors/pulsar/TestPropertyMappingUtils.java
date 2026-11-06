@@ -22,11 +22,10 @@ import java.util.Map;
 import java.util.function.Function;
 
 import static org.apache.nifi.processors.pulsar.utils.PropertyMappingUtils.getMappedValues;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
-import org.junit.Before;
-import org.junit.Test;
-
-import static org.junit.Assert.assertEquals;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 public class TestPropertyMappingUtils {
     private Map<String, String> values = new HashMap<>();    
@@ -36,7 +35,7 @@ public class TestPropertyMappingUtils {
         }
     };
 
-    @Before
+    @BeforeEach
     public void setUp() {
         values.clear();
     }

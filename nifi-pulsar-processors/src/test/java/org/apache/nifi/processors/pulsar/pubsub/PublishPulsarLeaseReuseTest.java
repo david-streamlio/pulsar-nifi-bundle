@@ -16,6 +16,10 @@
  */
 package org.apache.nifi.processors.pulsar.pubsub;
 
+import java.io.InputStream;
+
+import org.apache.nifi.flowfile.FlowFile;
+
 import org.apache.nifi.processors.pulsar.AbstractPulsarProcessorTest;
 import org.apache.nifi.processors.pulsar.AbstractPulsarProducerProcessor;
 import org.apache.nifi.processors.pulsar.utils.PublisherLease;
@@ -24,8 +28,8 @@ import org.apache.nifi.reporting.InitializationException;
 import org.apache.nifi.util.MockFlowFile;
 import org.apache.nifi.util.TestRunner;
 import org.apache.nifi.util.TestRunners;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 
@@ -33,8 +37,9 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.List;
 
-import static org.junit.Assert.*;
-import static org.mockito.ArgumentMatchers.anyString;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.mockito.Mockito.*;
 
 public class PublishPulsarLeaseReuseTest extends AbstractPulsarProcessorTest<byte[]> {
@@ -50,7 +55,7 @@ public class PublishPulsarLeaseReuseTest extends AbstractPulsarProcessorTest<byt
 
     private PublishPulsar processor;
 
-    @Before
+    @BeforeEach
     public void setUp() throws InitializationException, Exception {
         MockitoAnnotations.openMocks(this);
 
@@ -101,13 +106,13 @@ public class PublishPulsarLeaseReuseTest extends AbstractPulsarProcessorTest<byt
         
         // First call should create new lease
         PublisherLease lease1 = callObtainPublisherLease("topic1");
-        assertSame("First call should return the mock lease", mockLease1, lease1);
-        assertSame("Current lease should be set", mockLease1, getCurrentLease());
+        assertSame(mockLease1, lease1, "First call should return the mock lease");
+        assertSame(mockLease1, getCurrentLease(), "Current lease should be set");
         
         // Second call with same topic should reuse existing lease
         PublisherLease lease2 = callObtainPublisherLease("topic1");
-        assertSame("Second call should return the same lease", mockLease1, lease2);
-        assertSame("Current lease should still be the same", mockLease1, getCurrentLease());
+        assertSame(mockLease1, lease2, "Second call should return the same lease");
+        assertSame(mockLease1, getCurrentLease(), "Current lease should still be the same");
         
         // Verify pool was only called once
         verify(mockPublisherPool, times(1)).obtainPublisher("topic1");
@@ -124,12 +129,12 @@ public class PublishPulsarLeaseReuseTest extends AbstractPulsarProcessorTest<byt
         
         // First call creates lease for topic1
         PublisherLease lease1 = callObtainPublisherLease("topic1");
-        assertSame("First lease should be mockLease1", mockLease1, lease1);
+        assertSame(mockLease1, lease1, "First lease should be mockLease1");
         
         // Second call with different topic should close old lease and create new one
         PublisherLease lease2 = callObtainPublisherLease("topic2");
-        assertSame("Second lease should be mockLease2", mockLease2, lease2);
-        assertSame("Current lease should be updated", mockLease2, getCurrentLease());
+        assertSame(mockLease2, lease2, "Second lease should be mockLease2");
+        assertSame(mockLease2, getCurrentLease(), "Current lease should be updated");
         
         // Verify old lease was closed and new lease was created
         verify(mockLease1, times(1)).close();
@@ -145,12 +150,12 @@ public class PublishPulsarLeaseReuseTest extends AbstractPulsarProcessorTest<byt
         
         // First call with real topic
         PublisherLease lease1 = callObtainPublisherLease("topic1");
-        assertSame("First lease should be mockLease1", mockLease1, lease1);
+        assertSame(mockLease1, lease1, "First lease should be mockLease1");
         
         // Second call with same topic should not reuse because lease returns null topic
         when(mockPublisherPool.obtainPublisher("topic1")).thenReturn(mockLease2);
         PublisherLease lease2 = callObtainPublisherLease("topic1");
-        assertSame("Second lease should be mockLease2", mockLease2, lease2);
+        assertSame(mockLease2, lease2, "Second lease should be mockLease2");
         
         // Verify old lease was closed because topic comparison failed
         verify(mockLease1, times(1)).close();
@@ -165,12 +170,12 @@ public class PublishPulsarLeaseReuseTest extends AbstractPulsarProcessorTest<byt
         
         // First call with real topic
         PublisherLease lease1 = callObtainPublisherLease("topic1");
-        assertSame("First lease should be mockLease1", mockLease1, lease1);
+        assertSame(mockLease1, lease1, "First lease should be mockLease1");
         
         // Second call with null topic should not reuse lease
         when(mockPublisherPool.obtainPublisher(null)).thenReturn(mockLease2);
         PublisherLease lease2 = callObtainPublisherLease(null);
-        assertSame("Second lease should be mockLease2", mockLease2, lease2);
+        assertSame(mockLease2, lease2, "Second lease should be mockLease2");
         
         // Verify old lease was closed
         verify(mockLease1, times(1)).close();
@@ -186,12 +191,12 @@ public class PublishPulsarLeaseReuseTest extends AbstractPulsarProcessorTest<byt
         
         // First call with null topic
         PublisherLease lease1 = callObtainPublisherLease(null);
-        assertSame("First lease should be mockLease1", mockLease1, lease1);
+        assertSame(mockLease1, lease1, "First lease should be mockLease1");
         
         // Second call with null topic should not reuse because both are null
         when(mockPublisherPool.obtainPublisher(null)).thenReturn(mockLease2);
         PublisherLease lease2 = callObtainPublisherLease(null);
-        assertSame("Second lease should be mockLease2", mockLease2, lease2);
+        assertSame(mockLease2, lease2, "Second lease should be mockLease2");
         
         // Verify old lease was closed
         verify(mockLease1, times(1)).close();
@@ -205,8 +210,8 @@ public class PublishPulsarLeaseReuseTest extends AbstractPulsarProcessorTest<byt
         
         // Call should return null and not crash
         PublisherLease lease = callObtainPublisherLease("topic1");
-        assertNull("Lease should be null when pool returns null", lease);
-        assertNull("Current lease should remain null", getCurrentLease());
+        assertNull(lease, "Lease should be null when pool returns null");
+        assertNull(getCurrentLease(), "Current lease should remain null");
         
         verify(mockPublisherPool, times(1)).obtainPublisher("topic1");
     }
@@ -219,14 +224,14 @@ public class PublishPulsarLeaseReuseTest extends AbstractPulsarProcessorTest<byt
         
         // Create a lease
         callObtainPublisherLease("topic1");
-        assertSame("Current lease should be set", mockLease1, getCurrentLease());
+        assertSame(mockLease1, getCurrentLease(), "Current lease should be set");
         
         // Call onUnscheduled
         processor.onUnscheduled();
         
         // Verify lease was closed and cleared
         verify(mockLease1, times(1)).close();
-        assertNull("Current lease should be null after onUnscheduled", getCurrentLease());
+        assertNull(getCurrentLease(), "Current lease should be null after onUnscheduled");
     }
 
     @Test
@@ -237,26 +242,26 @@ public class PublishPulsarLeaseReuseTest extends AbstractPulsarProcessorTest<byt
         
         // Create a lease
         callObtainPublisherLease("topic1");
-        assertSame("Current lease should be set", mockLease1, getCurrentLease());
+        assertSame(mockLease1, getCurrentLease(), "Current lease should be set");
         
         // Call onUnscheduled - should not crash despite null topic name
         processor.onUnscheduled();
         
         // Verify lease was closed and cleared
         verify(mockLease1, times(1)).close();
-        assertNull("Current lease should be null after onUnscheduled", getCurrentLease());
+        assertNull(getCurrentLease(), "Current lease should be null after onUnscheduled");
     }
 
     @Test
     public void testOnUnscheduledWithNoCurrentLease() throws Exception {
         // Ensure no current lease
-        assertNull("Current lease should be null initially", getCurrentLease());
+        assertNull(getCurrentLease(), "Current lease should be null initially");
         
         // Call onUnscheduled - should not crash
         processor.onUnscheduled();
         
         // Should still be null and no interactions with mocks
-        assertNull("Current lease should still be null", getCurrentLease());
+        assertNull(getCurrentLease(), "Current lease should still be null");
         verifyNoInteractions(mockLease1, mockLease2);
     }
 
@@ -274,12 +279,12 @@ public class PublishPulsarLeaseReuseTest extends AbstractPulsarProcessorTest<byt
         
         // Verify the lease was obtained and used
         verify(mockPublisherPool, times(1)).obtainPublisher("test-topic");
-        verify(mockLease1, times(1)).publish(any(), any(), any(), any(), any(), anyBoolean());
+        verify(mockLease1, times(1)).publish(any(FlowFile.class), any(InputStream.class), any(), any(), any(), any(), anyBoolean());
         
         // Verify FlowFile was transferred successfully
         runner.assertAllFlowFilesTransferred(AbstractPulsarProducerProcessor.REL_SUCCESS, 1);
         List<MockFlowFile> successFlowFiles = runner.getFlowFilesForRelationship(AbstractPulsarProducerProcessor.REL_SUCCESS);
-        assertEquals("Should have one success FlowFile", 1, successFlowFiles.size());
+        assertEquals(1, successFlowFiles.size(), "Should have one success FlowFile");
     }
 
     @Test
@@ -299,7 +304,7 @@ public class PublishPulsarLeaseReuseTest extends AbstractPulsarProcessorTest<byt
 
         // Verify the lease was obtained only once and reused
         verify(mockPublisherPool, times(1)).obtainPublisher("test-topic");
-        verify(mockLease1, times(3)).publish(any(), any(), any(), any(), any(), anyBoolean());
+        verify(mockLease1, times(3)).publish(any(FlowFile.class), any(InputStream.class), any(), any(), any(), any(), anyBoolean());
         verify(mockLease1, never()).close(); // Should not be closed during processing
         
         // Verify all FlowFiles were transferred successfully

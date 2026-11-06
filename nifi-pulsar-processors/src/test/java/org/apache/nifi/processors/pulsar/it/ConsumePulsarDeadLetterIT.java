@@ -1,0 +1,221 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package org.apache.nifi.processors.pulsar.it;
+
+import static java.nio.charset.StandardCharsets.UTF_8;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+
+import java.io.IOException;
+import java.io.OutputStream;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
+
+import org.apache.nifi.flowfile.FlowFile;
+import org.apache.nifi.processor.Processor;
+import org.apache.nifi.processors.pulsar.AbstractPulsarConsumerProcessor;
+import org.apache.nifi.processors.pulsar.pubsub.ConsumePulsar;
+import org.apache.nifi.reporting.InitializationException;
+import org.apache.nifi.state.MockStateManager;
+import org.apache.nifi.util.MockProcessSession;
+import org.apache.nifi.util.SharedSessionState;
+import org.apache.nifi.util.TestRunner;
+import org.apache.nifi.util.TestRunners;
+import org.apache.pulsar.client.api.Consumer;
+import org.apache.pulsar.client.api.Message;
+import org.apache.pulsar.client.api.Schema;
+import org.apache.pulsar.client.api.SubscriptionInitialPosition;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+/**
+ * Negative acknowledgement and the dead letter policy, against a real broker.
+ * <p>
+ * Neither can be proven with a mocked client: both are broker-side behaviour. A mock can show that
+ * {@code negativeAcknowledge} was called - {@code ConsumePulsarNegativeAcknowledgementTest} does - but only
+ * a broker decides whether that produces a redelivery, and only a broker moves a message to the dead letter
+ * topic once the redelivery count is exceeded.
+ */
+public class ConsumePulsarDeadLetterIT extends AbstractPulsarIT {
+
+    private TestRunner runner;
+
+    @BeforeEach
+    public void init() throws InitializationException {
+        runner = TestRunners.newTestRunner(ConsumePulsar.class);
+        addRealPulsarClientService(runner, "pulsar-client");
+        runner.setProperty(AbstractPulsarConsumerProcessor.PULSAR_CLIENT_SERVICE, "pulsar-client");
+        // The dead letter policy is built only for Shared and Key_Shared subscriptions.
+        runner.setProperty(AbstractPulsarConsumerProcessor.SUBSCRIPTION_TYPE, "Shared");
+        runner.setProperty(AbstractPulsarConsumerProcessor.ASYNC_ENABLED, "false");
+        runner.setProperty(AbstractPulsarConsumerProcessor.MESSAGE_DEMARCATOR, "\n");
+        runner.setProperty(AbstractPulsarConsumerProcessor.SUBSCRIPTION_INITIAL_POSITION, "Earliest");
+        runner.setProperty(AbstractPulsarConsumerProcessor.CONSUMER_BATCH_SIZE, "1");
+        // Negative Acknowledgment Redelivery Delay is deliberately not set here. The redelivery test is about
+        // what a flow that never set it gets, so there the default is the value under test; the dead letter
+        // test sets it explicitly, because its pace depends on the delay and not on whatever the default is.
+
+        // Acknowledgment Timeout at the floor the validator allows. The point of the redelivery test is that
+        // it completes well inside this, which is the only thing that could have redelivered the message before.
+        runner.setProperty(AbstractPulsarConsumerProcessor.ACK_TIMEOUT, "10 sec");
+    }
+
+    /**
+     * A message the processor could not write is redelivered promptly, rather than after the Acknowledgment
+     * Timeout. The assertion is the timing: the redelivery has to arrive inside the timeout that would
+     * otherwise have been the only thing to produce it.
+     * <p>
+     * Runs at the default Negative Acknowledgment Redelivery Delay on purpose. A nacked message is redelivered
+     * by that delay alone - the client drops it from the acknowledgment-timeout tracker - so with a default
+     * longer than the timeout this test fails, and a default flow waits longer than it did before (#218).
+     */
+    @Test
+    public void aMessageThatCouldNotBeWrittenIsRedeliveredWithoutWaitingOutTheAckTimeout() throws Exception {
+        final String topic = topic("nack-redelivery");
+        runner.setProperty(AbstractPulsarConsumerProcessor.TOPICS, topic);
+        runner.setProperty(AbstractPulsarConsumerProcessor.SUBSCRIPTION_NAME, "nack-sub");
+
+        // Subscribe on an empty topic first. Publishing before the initialising pass let that pass - which
+        // runs with a healthy session - consume the message itself, and the test then passed without any
+        // negative acknowledgement ever happening.
+        runner.run(1, false, true);
+        publish(topic, "payload");
+
+        // First real pass: the content repository rejects the write, so the batch is rolled back and nacked.
+        // Repeated until the message has actually arrived in the receiver queue and been refused.
+        final long nackedAt = failWriteOfNextMessage();
+        runner.assertTransferCount(ConsumePulsar.REL_SUCCESS, 0);
+
+        // Second pass with a healthy session: the broker should hand the message back.
+        await("the negatively acknowledged message to be redelivered", () -> {
+            runner.run(1, false, false);
+            return !runner.getFlowFilesForRelationship(ConsumePulsar.REL_SUCCESS).isEmpty();
+        });
+
+        final long elapsed = TimeUnit.NANOSECONDS.toSeconds(System.nanoTime() - nackedAt);
+        runner.assertTransferCount(ConsumePulsar.REL_SUCCESS, 1);
+        runner.getFlowFilesForRelationship(ConsumePulsar.REL_SUCCESS).get(0).assertContentEquals("payload");
+        // 10s is the Acknowledgment Timeout, the only redelivery mechanism before the negative
+        // acknowledgement existed. Landing inside it is what proves the nack did the work.
+        Assertions.assertTrue(
+                elapsed < 8,
+                "redelivery took " + elapsed + "s, which is not distinguishable from the Acknowledgment Timeout");
+    }
+
+    /**
+     * Once a message has been redelivered more times than Max Redelivery Count, the broker moves it to the
+     * dead letter topic instead of delivering it again - so a message the flow can never accept stops
+     * blocking the subscription, and is still available to look at.
+     */
+    @Test
+    public void aRepeatedlyUndeliverableMessageEndsUpOnTheDeadLetterTopic() throws Exception {
+        final String topic = topic("dead-letter");
+        final String deadLetterTopic = topic + "-DLQ";
+        runner.setProperty(AbstractPulsarConsumerProcessor.TOPICS, topic);
+        runner.setProperty(AbstractPulsarConsumerProcessor.SUBSCRIPTION_NAME, "dlq-sub");
+        runner.setProperty(AbstractPulsarConsumerProcessor.MAX_REDELIVER_COUNT, "2");
+        runner.setProperty(AbstractPulsarConsumerProcessor.DEAD_LETTER_TOPIC, deadLetterTopic);
+        // Explicit, because this test is not about the default: each redelivery has to happen inside the
+        // receive window of the polling loop below, whatever the default is set to.
+        runner.setProperty(AbstractPulsarConsumerProcessor.NEGATIVE_ACK_REDELIVERY_DELAY, "1 sec");
+
+        // Subscribe to the dead letter topic before anything is published to it, so the message cannot be
+        // missed by a subscription that starts at the latest position.
+        try (Consumer<byte[]> deadLetters = getClient().newConsumer(Schema.BYTES)
+                .topic(deadLetterTopic)
+                .subscriptionName("dlq-reader")
+                .subscriptionInitialPosition(SubscriptionInitialPosition.Earliest)
+                .subscribe()) {
+
+            publish(topic, "poison");
+
+            runner.run(1, false, true);
+
+            // Each pass receives the message, fails to write it, rolls back and negatively acknowledges it.
+            // The passes have to be spaced: redelivery is what increments the count the dead letter policy
+            // measures, and it does not happen until Negative Acknowledgment Redelivery Delay has elapsed.
+            // Triggering in a tight loop just finds an empty receiver queue every time after the first.
+            Message<byte[]> deadLettered = null;
+            final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(60);
+
+            while (deadLettered == null && System.nanoTime() < deadline) {
+                ((ConsumePulsar) runner.getProcessor()).onTrigger(runner.getProcessContext(), failingSession());
+                // Long enough for the negative acknowledgement tracker to fire and the broker to redeliver.
+                deadLettered = deadLetters.receive(2, TimeUnit.SECONDS);
+            }
+
+            assertNotNull(deadLettered, "the poison message never reached the dead letter topic");
+            assertEquals("poison", new String(deadLettered.getValue(), UTF_8));
+        }
+    }
+
+    /** What the processor logs when a received message could not be written and was rolled back and nacked. */
+    private static final String WRITE_FAILED = "Unable to write the received messages";
+
+    /**
+     * Triggers the processor with a session that cannot be written until the message is received and refused,
+     * so the returned instant is when it was negatively acknowledged - not when the test happened to run.
+     * <p>
+     * "Refused" is a new write-failure error logged by one of these passes. The logger's error list is
+     * cumulative for the whole test and other errors are possible - a client hiccup during the initialising
+     * pass is logged and swallowed - so an unspecific "any error" check could return before the message was
+     * ever received, and the test would then pass without a negative acknowledgement having happened.
+     */
+    private long failWriteOfNextMessage() throws InterruptedException {
+        final long writeFailuresBefore = writeFailuresLogged();
+        final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
+        while (System.nanoTime() < deadline) {
+            ((ConsumePulsar) runner.getProcessor()).onTrigger(runner.getProcessContext(), failingSession());
+            if (writeFailuresLogged() > writeFailuresBefore) {
+                return System.nanoTime();
+            }
+            Thread.sleep(100);
+        }
+        throw new AssertionError("the message never reached the pass whose write fails");
+    }
+
+    private long writeFailuresLogged() {
+        return runner.getLogger().getErrorMessages().stream()
+                .filter(message -> message.getMsg().contains(WRITE_FAILED))
+                .count();
+    }
+
+    private static String topic(final String name) {
+        return "persistent://public/default/" + name + "-" + System.nanoTime();
+    }
+
+    /**
+     * A session whose FlowFile content cannot be written - what a full or read-only content repository
+     * looks like to the processor.
+     */
+    private MockProcessSession failingSession() {
+        final Processor processor = runner.getProcessor();
+
+        return new MockProcessSession(new SharedSessionState(processor, new AtomicLong(0L)), processor, new MockStateManager(processor)) {
+            @Override
+            public OutputStream write(final FlowFile flowFile) {
+                return new OutputStream() {
+                    @Override
+                    public void write(final int b) throws IOException {
+                        throw new IOException("Intentional Integration Test Exception: the content repository cannot be written");
+                    }
+                };
+            }
+        };
+    }
+}

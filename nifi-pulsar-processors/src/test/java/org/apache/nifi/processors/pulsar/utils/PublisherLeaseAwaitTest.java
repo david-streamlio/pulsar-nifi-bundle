@@ -16,9 +16,9 @@
  */
 package org.apache.nifi.processors.pulsar.utils;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 
 import java.io.ByteArrayInputStream;
@@ -27,7 +27,6 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -37,7 +36,8 @@ import org.apache.nifi.util.MockComponentLog;
 import org.apache.nifi.util.MockFlowFile;
 import org.apache.pulsar.client.api.MessageId;
 import org.apache.pulsar.client.api.Producer;
-import org.junit.Test;
+
+import org.junit.jupiter.api.Test;
 
 /**
  * Regression test for the batching path of {@link PublisherLease}.
@@ -64,7 +64,6 @@ public class PublisherLeaseAwaitTest {
 
         private final java.util.List<CompletableFuture<MessageId>> issued =
                 Collections.synchronizedList(new java.util.ArrayList<>());
-        private final AtomicInteger completed = new AtomicInteger();
 
         ControllablePublisherLease(final Producer producer, final ComponentLog logger) {
             super(producer, logger);
@@ -75,7 +74,6 @@ public class PublisherLeaseAwaitTest {
                                                     final java.util.Map<String, String> properties,
                                                     final byte[] value) {
             final CompletableFuture<MessageId> future = new CompletableFuture<>();
-            future.thenRun(completed::incrementAndGet);
             issued.add(future);
             return future;
         }
@@ -106,8 +104,18 @@ public class PublisherLeaseAwaitTest {
             return issued.size();
         }
 
+        /**
+         * Counts the issued sends that are done, which is exactly what {@code publish()} waits on.
+         * <p>
+         * This used to count with {@code future.thenRun(completed::incrementAndGet)}, which raced: completing
+         * a future wakes threads blocked in {@code get()} and runs dependent actions in the same pass, and
+         * the publisher's waiter, registered last, is released first. {@code publish()} could return and the
+         * test read the counter before the last increment ran, failing with 349 of 350 in CI.
+         */
         int completedCount() {
-            return completed.get();
+            synchronized (issued) {
+                return (int) issued.stream().filter(CompletableFuture::isDone).count();
+            }
         }
     }
 
@@ -145,16 +153,16 @@ public class PublisherLeaseAwaitTest {
         // nothing is completed, so a correct lease is parked waiting for its first batch
         Thread.sleep(1500);
         final int issuedWhileBlocked = lease.issuedCount();
-        assertTrue("publish() issued " + issuedWhileBlocked + " of " + MESSAGE_COUNT + " sends without ever "
-                + "waiting for a batch to be confirmed - the batch boundary is not awaited",
-                issuedWhileBlocked < MESSAGE_COUNT);
+        assertTrue(issuedWhileBlocked < MESSAGE_COUNT,
+                "publish() issued " + issuedWhileBlocked + " of " + MESSAGE_COUNT + " sends without ever "
+                + "waiting for a batch to be confirmed - the batch boundary is not awaited");
 
         lease.releaseAll();
         publisher.join(30_000);
-        assertFalse("publish() did not return after all sends were confirmed", publisher.isAlive());
-        assertEquals("every message should have been sent", MESSAGE_COUNT, lease.issuedCount());
-        assertEquals("publish() must not return until every send has completed",
-                MESSAGE_COUNT, lease.completedCount());
+        assertFalse(publisher.isAlive(), "publish() did not return after all sends were confirmed");
+        assertEquals(MESSAGE_COUNT, lease.issuedCount(), "every message should have been sent");
+        assertEquals(MESSAGE_COUNT,
+                lease.completedCount(), "publish() must not return until every send has completed");
     }
 
     /** complete() must report what the broker confirmed, not how many records were read off the input. */

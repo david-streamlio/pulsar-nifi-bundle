@@ -29,19 +29,18 @@ import org.apache.pulsar.client.api.Message;
 import org.apache.pulsar.client.api.MessageId;
 import org.apache.pulsar.client.api.PulsarClientException;
 import org.apache.pulsar.client.api.schema.GenericRecord;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.Mock;
 
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
-
-import static org.junit.Assert.*;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.when;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 public class ConsumePulsarRecordMessageAttributesTest extends AbstractPulsarProcessorTest<GenericRecord> {
 
@@ -54,7 +53,7 @@ public class ConsumePulsarRecordMessageAttributesTest extends AbstractPulsarProc
     private MockRecordParser recordParser;
     private MockRecordWriter recordWriter;
 
-    @Before
+    @BeforeEach
     public void init() throws Exception {
         runner = TestRunners.newTestRunner(ConsumePulsarRecord.class);
         addPulsarClientService();
@@ -112,32 +111,32 @@ public class ConsumePulsarRecordMessageAttributesTest extends AbstractPulsarProc
         MockFlowFile flowFile = flowFiles.get(0);
 
         // Verify message ID attribute
-        assertTrue("FlowFile should have pulsar.message.id attribute", 
-                   flowFile.getAttributes().containsKey("pulsar.message.id"));
-        assertEquals("Message ID should match", testMessageId, 
-                     flowFile.getAttribute("pulsar.message.id"));
+        assertTrue(flowFile.getAttributes().containsKey("pulsar.message.id"), 
+                   "FlowFile should have pulsar.message.id attribute");
+        assertEquals(testMessageId, flowFile.getAttribute("pulsar.message.id"), 
+                     "Message ID should match");
 
         // Verify all message properties are present with proper prefix
-        assertTrue("FlowFile should have record-source property", 
-                   flowFile.getAttributes().containsKey("pulsar.property.record-source"));
-        assertEquals("Record-source property should match", "user-database", 
-                     flowFile.getAttribute("pulsar.property.record-source"));
+        assertTrue(flowFile.getAttributes().containsKey("pulsar.property.record-source"), 
+                   "FlowFile should have record-source property");
+        assertEquals("user-database", flowFile.getAttribute("pulsar.property.record-source"), 
+                     "Record-source property should match");
 
-        assertTrue("FlowFile should have record-timestamp property", 
-                   flowFile.getAttributes().containsKey("pulsar.property.record-timestamp"));
-        assertEquals("Record-timestamp property should match", "2023-01-01T12:00:00Z", 
-                     flowFile.getAttribute("pulsar.property.record-timestamp"));
+        assertTrue(flowFile.getAttributes().containsKey("pulsar.property.record-timestamp"), 
+                   "FlowFile should have record-timestamp property");
+        assertEquals("2023-01-01T12:00:00Z", flowFile.getAttribute("pulsar.property.record-timestamp"), 
+                     "Record-timestamp property should match");
 
-        assertTrue("FlowFile should have record-version property", 
-                   flowFile.getAttributes().containsKey("pulsar.property.record-version"));
-        assertEquals("Record-version property should match", "v2.1", 
-                     flowFile.getAttribute("pulsar.property.record-version"));
+        assertTrue(flowFile.getAttributes().containsKey("pulsar.property.record-version"), 
+                   "FlowFile should have record-version property");
+        assertEquals("v2.1", flowFile.getAttribute("pulsar.property.record-version"), 
+                     "Record-version property should match");
 
         // Verify record count attribute
-        assertEquals("Record count should be 1", "1", flowFile.getAttribute("record.count"));
+        assertEquals("1", flowFile.getAttribute("record.count"), "Record count should be 1");
         
         // Verify topic name attribute is added
-        assertEquals("Topic name should be present", "test-topic", flowFile.getAttribute("topicName"));
+        assertEquals("test-topic", flowFile.getAttribute("topicName"), "Topic name should be present");
     }
 
     @Test
@@ -180,15 +179,15 @@ public class ConsumePulsarRecordMessageAttributesTest extends AbstractPulsarProc
         MockFlowFile flowFile = flowFiles.get(0);
 
         // Verify message ID and properties are present
-        assertEquals("Message ID should match", testMessageId, 
-                     flowFile.getAttribute("pulsar.message.id"));
-        assertEquals("Batch-id property should match", "batch-001", 
-                     flowFile.getAttribute("pulsar.property.batch-id"));
-        assertEquals("Processing-time property should match", "2023-01-01T15:30:00Z", 
-                     flowFile.getAttribute("pulsar.property.processing-time"));
+        assertEquals(testMessageId, flowFile.getAttribute("pulsar.message.id"), 
+                     "Message ID should match");
+        assertEquals("batch-001", flowFile.getAttribute("pulsar.property.batch-id"), 
+                     "Batch-id property should match");
+        assertEquals("2023-01-01T15:30:00Z", flowFile.getAttribute("pulsar.property.processing-time"), 
+                     "Processing-time property should match");
 
         // Verify record count reflects all records processed
-        assertEquals("Record count should be 3", "3", flowFile.getAttribute("record.count"));
+        assertEquals("3", flowFile.getAttribute("record.count"), "Record count should be 3");
     }
 
     @Test
@@ -219,8 +218,8 @@ public class ConsumePulsarRecordMessageAttributesTest extends AbstractPulsarProc
         MockFlowFile flowFile = flowFiles.get(0);
 
         // Verify message ID attribute is not present when null
-        assertFalse("FlowFile should not have pulsar.message.id attribute when message ID is null", 
-                    flowFile.getAttributes().containsKey("pulsar.message.id"));
+        assertFalse(flowFile.getAttributes().containsKey("pulsar.message.id"), 
+                    "FlowFile should not have pulsar.message.id attribute when message ID is null");
 
         // Verify no property attributes are present (except topicName which is always added)
         for (String attributeName : flowFile.getAttributes().keySet()) {
@@ -230,8 +229,8 @@ public class ConsumePulsarRecordMessageAttributesTest extends AbstractPulsarProc
         }
 
         // Verify basic attributes are still correct
-        assertEquals("Record count should be 1", "1", flowFile.getAttribute("record.count"));
-        assertEquals("Topic name should be present", "test-topic", flowFile.getAttribute("topicName"));
+        assertEquals("1", flowFile.getAttribute("record.count"), "Record count should be 1");
+        assertEquals("test-topic", flowFile.getAttribute("topicName"), "Topic name should be present");
     }
 
     @Test
@@ -273,21 +272,21 @@ public class ConsumePulsarRecordMessageAttributesTest extends AbstractPulsarProc
         MockFlowFile flowFile = flowFiles.get(0);
 
         // Verify custom mappings work
-        assertEquals("Custom key mapping should work", messageKey, 
-                     flowFile.getAttribute("user.key"));
-        assertEquals("Custom property mapping should work", "crm", 
-                     flowFile.getAttribute("system.source"));
+        assertEquals(messageKey, flowFile.getAttribute("user.key"), 
+                     "Custom key mapping should work");
+        assertEquals("crm", flowFile.getAttribute("system.source"), 
+                     "Custom property mapping should work");
 
         // Verify automatic attributes are also present
-        assertEquals("Message ID should be present", testMessageId, 
-                     flowFile.getAttribute("pulsar.message.id"));
-        assertEquals("Source system property should be present with prefix", "crm", 
-                     flowFile.getAttribute("pulsar.property.source-system"));
-        assertEquals("Data classification property should be present with prefix", "sensitive", 
-                     flowFile.getAttribute("pulsar.property.data-classification"));
+        assertEquals(testMessageId, flowFile.getAttribute("pulsar.message.id"), 
+                     "Message ID should be present");
+        assertEquals("crm", flowFile.getAttribute("pulsar.property.source-system"), 
+                     "Source system property should be present with prefix");
+        assertEquals("sensitive", flowFile.getAttribute("pulsar.property.data-classification"), 
+                     "Data classification property should be present with prefix");
 
         // Verify record processing worked correctly
-        assertEquals("Record count should be 1", "1", flowFile.getAttribute("record.count"));
+        assertEquals("1", flowFile.getAttribute("record.count"), "Record count should be 1");
     }
 
     @Test
@@ -324,24 +323,24 @@ public class ConsumePulsarRecordMessageAttributesTest extends AbstractPulsarProc
         MockFlowFile flowFile = flowFiles.get(0);
 
         // Verify all properties are preserved with their original names
-        assertTrue("Property with dashes should be present", 
-                   flowFile.getAttributes().containsKey("pulsar.property.property-with-dashes"));
-        assertEquals("Property with dashes should have correct value", "value1",
-                     flowFile.getAttribute("pulsar.property.property-with-dashes"));
+        assertTrue(flowFile.getAttributes().containsKey("pulsar.property.property-with-dashes"), 
+                   "Property with dashes should be present");
+        assertEquals("value1", flowFile.getAttribute("pulsar.property.property-with-dashes"),
+                     "Property with dashes should have correct value");
                      
-        assertTrue("Property with dots should be present", 
-                   flowFile.getAttributes().containsKey("pulsar.property.property.with.dots"));
-        assertEquals("Property with dots should have correct value", "value2",
-                     flowFile.getAttribute("pulsar.property.property.with.dots"));
+        assertTrue(flowFile.getAttributes().containsKey("pulsar.property.property.with.dots"), 
+                   "Property with dots should be present");
+        assertEquals("value2", flowFile.getAttribute("pulsar.property.property.with.dots"),
+                     "Property with dots should have correct value");
                      
-        assertTrue("Property with underscores should be present", 
-                   flowFile.getAttributes().containsKey("pulsar.property.property_with_underscores"));
-        assertEquals("Property with underscores should have correct value", "value3",
-                     flowFile.getAttribute("pulsar.property.property_with_underscores"));
+        assertTrue(flowFile.getAttributes().containsKey("pulsar.property.property_with_underscores"), 
+                   "Property with underscores should be present");
+        assertEquals("value3", flowFile.getAttribute("pulsar.property.property_with_underscores"),
+                     "Property with underscores should have correct value");
                      
-        assertTrue("Property with spaces should be present", 
-                   flowFile.getAttributes().containsKey("pulsar.property.property with spaces"));
-        assertEquals("Property with spaces should have correct value", "value4",
-                     flowFile.getAttribute("pulsar.property.property with spaces"));
+        assertTrue(flowFile.getAttributes().containsKey("pulsar.property.property with spaces"), 
+                   "Property with spaces should be present");
+        assertEquals("value4", flowFile.getAttribute("pulsar.property.property with spaces"),
+                     "Property with spaces should have correct value");
     }
 }

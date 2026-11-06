@@ -16,15 +16,12 @@
  */
 package org.apache.nifi.processors.pulsar.utils;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotSame;
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotSame;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertSame;
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.RETURNS_SELF;
 import static org.mockito.Mockito.doAnswer;
@@ -42,12 +39,13 @@ import java.util.List;
 
 import org.apache.nifi.logging.ComponentLog;
 import org.apache.pulsar.client.api.Producer;
+import org.apache.pulsar.client.api.BatcherBuilder;
 import org.apache.pulsar.client.api.ProducerBuilder;
 import org.apache.pulsar.client.api.PulsarClient;
 import org.apache.pulsar.client.api.Schema;
 import org.apache.pulsar.client.api.PulsarClientException;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 /**
@@ -63,7 +61,7 @@ public class PublisherPoolTest {
     private final List<String> requestedTopics = new ArrayList<>();
     private PublisherPool pool;
 
-    @Before
+    @BeforeEach
     public void setUp() throws PulsarClientException {
         client = mock(PulsarClient.class);
         builder = mock(ProducerBuilder.class, RETURNS_SELF);
@@ -86,6 +84,31 @@ public class PublisherPoolTest {
     }
 
     /**
+     * The Batch Builder has to reach the producer through the builder, because it cannot reach it through
+     * the configuration map: {@code loadConf} maps the configuration through Jackson, and
+     * {@code ProducerConfigurationData.batcherBuilder} is annotated {@code @JsonIgnore(true)}, so a builder
+     * placed there is dropped without an error and the producer batches with the default one. This is the link nothing else covers - the processor's own test
+     * proves only which builder it chose, not that the pool passes it on.
+     */
+    @Test
+    public void theBatchBuilderIsSetOnTheProducerBuilder() {
+        final PublisherPool keyBased = new PublisherPool(
+                mock(ComponentLog.class), Collections.emptyMap(), client, BatcherBuilder.KEY_BASED);
+
+        keyBased.obtainPublisher("persistent://public/default/key-based");
+
+        verify(builder).batcherBuilder(BatcherBuilder.KEY_BASED);
+    }
+
+    /** No builder chosen means the client keeps its own default, not a null handed to the builder. */
+    @Test
+    public void noBatchBuilderIsSetWhenNoneWasChosen() {
+        pool.obtainPublisher("persistent://public/default/no-batcher");
+
+        verify(builder, never()).batcherBuilder(any());
+    }
+
+    /**
      * Producers must be created with AUTO_PRODUCE_BYTES so the broker validates each payload against the
      * schema the topic currently carries. With the default BYTES schema a topic with, say, an AVRO schema
      * accepted arbitrary content: the message landed looking valid and every schema-aware consumer then
@@ -99,11 +122,11 @@ public class PublisherPoolTest {
         verify(client).newProducer(schema.capture());
 
         // getSchemaInfo() throws until the schema is bound to a topic, so identify it by what it is
-        assertNotSame("producers must not write opaque bytes past the topic's schema",
-                Schema.BYTES, schema.getValue());
-        assertTrue("expected an AUTO_PRODUCE_BYTES schema so the broker validates the payload, but got "
-                        + schema.getValue().getClass().getName(),
-                schema.getValue().getClass().getSimpleName().contains("AutoProduceBytes"));
+        assertNotSame(Schema.BYTES,
+                schema.getValue(), "producers must not write opaque bytes past the topic's schema");
+        assertTrue(schema.getValue().getClass().getSimpleName().contains("AutoProduceBytes"),
+                "expected an AUTO_PRODUCE_BYTES schema so the broker validates the payload, but got "
+                        + schema.getValue().getClass().getName());
     }
 
     @Test
@@ -112,7 +135,7 @@ public class PublisherPoolTest {
         first.close();
         final PublisherLease second = pool.obtainPublisher("topic-a");
 
-        assertSame("an idle lease for the same topic must be handed out again", first, second);
+        assertSame(first, second, "an idle lease for the same topic must be handed out again");
         verify(builder, times(1)).create();
         verify(producers.get(0), never()).close();
         assertEquals(1, pool.getOpenProducerCount());

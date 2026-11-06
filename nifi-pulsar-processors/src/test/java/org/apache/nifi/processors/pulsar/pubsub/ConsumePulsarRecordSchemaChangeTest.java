@@ -17,9 +17,9 @@
 package org.apache.nifi.processors.pulsar.pubsub;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -36,8 +36,8 @@ import org.apache.nifi.util.MockFlowFile;
 import org.apache.nifi.util.TestRunners;
 import org.apache.pulsar.client.api.Message;
 import org.apache.pulsar.client.api.schema.GenericRecord;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 /**
  * A record set is written with the schema it was opened with, so a message whose schema differs has to
@@ -61,7 +61,7 @@ public class ConsumePulsarRecordSchemaChangeTest extends AbstractPulsarProcessor
 
     private JsonTreeReader reader;
 
-    @Before
+    @BeforeEach
     public void init() throws InitializationException {
         runner = TestRunners.newTestRunner(ConsumePulsarRecord.class);
         addPulsarClientService();
@@ -102,12 +102,12 @@ public class ConsumePulsarRecordSchemaChangeTest extends AbstractPulsarProcessor
         }
 
         final String second = new String(flowFiles.get(1).toByteArray(), UTF_8);
-        assertTrue("a top-level field the first message lacks was dropped: " + second, second.contains("\"extra\":\"only-in-2\""));
-        assertTrue("a nested field the first message lacks was dropped: " + second, second.contains("\"q\":\"only-in-2\""));
-        assertTrue("an array element field the first message lacks was dropped: " + second, second.contains("\"m\":true"));
+        assertTrue(second.contains("\"extra\":\"only-in-2\""), "a top-level field the first message lacks was dropped: " + second);
+        assertTrue(second.contains("\"q\":\"only-in-2\""), "a nested field the first message lacks was dropped: " + second);
+        assertTrue(second.contains("\"m\":true"), "an array element field the first message lacks was dropped: " + second);
         final String third = new String(flowFiles.get(2).toByteArray(), UTF_8);
-        assertTrue("a field only the last message has was dropped: " + third, third.contains("\"b\":true"));
-        assertFalse("a field the last message does not have was invented: " + third, third.contains("\"a\""));
+        assertTrue(third.contains("\"b\":true"), "a field only the last message has was dropped: " + third);
+        assertFalse(third.contains("\"a\""), "a field the last message does not have was invented: " + third);
     }
 
     /**

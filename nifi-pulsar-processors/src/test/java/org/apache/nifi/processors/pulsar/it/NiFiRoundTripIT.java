@@ -17,8 +17,8 @@
 package org.apache.nifi.processors.pulsar.it;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -36,7 +36,8 @@ import org.apache.nifi.reporting.InitializationException;
 import org.apache.nifi.util.MockFlowFile;
 import org.apache.nifi.util.TestRunner;
 import org.apache.nifi.util.TestRunners;
-import org.junit.Test;
+
+import org.junit.jupiter.api.Test;
 import org.testcontainers.containers.Container;
 
 /**
@@ -92,8 +93,8 @@ public class NiFiRoundTripIT extends AbstractPulsarIT {
             return received.size();
         });
 
-        assertEquals("every published message should come back", MESSAGES, received.size());
-        assertEquals("and each exactly once", MESSAGES, new TreeSet<>(received).size());
+        assertEquals(MESSAGES, received.size(), "every published message should come back");
+        assertEquals(MESSAGES, new TreeSet<>(received).size(), "and each exactly once");
     }
 
     /**
@@ -171,8 +172,8 @@ public class NiFiRoundTripIT extends AbstractPulsarIT {
     private static void assertNoSchemaWasRegistered(final String topic) throws Exception {
         final Container.ExecResult result = PULSAR.execInContainer("bin/pulsar-admin", "schemas", "get", topic);
         final String output = result.getStdout() + result.getStderr();
-        assertTrue("publishing through this bundle should leave the topic without a schema, but got:\n" + output,
-                output.contains("Schema not found"));
+        assertTrue(output.contains("Schema not found"),
+                "publishing through this bundle should leave the topic without a schema, but got:\n" + output);
     }
 
     /** Runs {@link ConsumePulsarRecord} over {@code topic} and returns how many records it produced. */

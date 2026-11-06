@@ -16,8 +16,8 @@
  */
 package org.apache.nifi.processors.pulsar.it;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -31,8 +31,8 @@ import org.apache.nifi.processors.pulsar.pubsub.PublishPulsar;
 import org.apache.nifi.reporting.InitializationException;
 import org.apache.nifi.util.TestRunner;
 import org.apache.nifi.util.TestRunners;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 /**
  * Producer lifecycle against a real broker.
@@ -49,7 +49,7 @@ public class PublishPulsarLifecycleIT extends AbstractPulsarIT {
 
     private TestRunner runner;
 
-    @Before
+    @BeforeEach
     public void init() throws InitializationException {
         runner = TestRunners.newTestRunner(PublishPulsar.class);
         addRealPulsarClientService(runner, "pulsar-client");
@@ -73,8 +73,8 @@ public class PublishPulsarLifecycleIT extends AbstractPulsarIT {
         runner.assertAllFlowFilesTransferred(PublishPulsar.REL_SUCCESS, 25);
 
         final int producers = connectedProducers(topic);
-        assertTrue("25 FlowFiles opened " + producers + " producers on the broker; a pool should hold one "
-                + "per topic, not one per FlowFile", producers <= 2);
+        assertTrue(producers <= 2, "25 FlowFiles opened " + producers + " producers on the broker; a pool should hold one "
+                + "per topic, not one per FlowFile");
     }
 
     /** Stopping the processor must hand every producer back to the broker, not abandon it. */
@@ -85,7 +85,7 @@ public class PublishPulsarLifecycleIT extends AbstractPulsarIT {
 
         runner.enqueue("hello".getBytes());
         runner.run(1, false);
-        assertTrue("expected a producer while running", connectedProducers(topic) >= 1);
+        assertTrue(connectedProducers(topic) >= 1, "expected a producer while running");
 
         // stopOnFinish runs @OnUnscheduled and @OnStopped, which is where the pool is closed
         runner.run(1, true);
@@ -106,7 +106,7 @@ public class PublishPulsarLifecycleIT extends AbstractPulsarIT {
             await("producers released after round " + round, () -> connectedProducers(topic) == 0);
         }
 
-        assertEquals("three start/stop rounds should leave nothing connected", 0, connectedProducers(topic));
+        assertEquals(0, connectedProducers(topic), "three start/stop rounds should leave nothing connected");
     }
 
     /** Publishing to several topics keeps one producer each, not one per FlowFile per topic. */
@@ -124,8 +124,8 @@ public class PublishPulsarLifecycleIT extends AbstractPulsarIT {
 
         for (int partition = 0; partition < 3; partition++) {
             final int producers = connectedProducers(topic + "-" + partition);
-            assertTrue("topic " + partition + " has " + producers + " producers for 4 FlowFiles",
-                    producers <= 2);
+            assertTrue(producers <= 2,
+                    "topic " + partition + " has " + producers + " producers for 4 FlowFiles");
         }
     }
 

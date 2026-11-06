@@ -28,8 +28,8 @@ import org.apache.nifi.util.MockFlowFile;
 import org.apache.nifi.util.TestRunner;
 import org.apache.nifi.util.TestRunners;
 import org.apache.pulsar.client.api.PulsarClientException;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
@@ -46,7 +46,7 @@ public class TestAsyncPublishJsonRecordAsBytes {
 
     protected MockPulsarClientService mockClientService;
 
-    @Before
+    @BeforeEach
     public void setup() throws InitializationException {
 
         runner = TestRunners.newTestRunner(PublishPulsarRecord.class);

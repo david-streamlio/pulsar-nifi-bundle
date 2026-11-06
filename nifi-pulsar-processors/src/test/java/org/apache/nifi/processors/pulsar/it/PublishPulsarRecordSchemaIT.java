@@ -17,8 +17,8 @@
 package org.apache.nifi.processors.pulsar.it;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 import java.util.concurrent.TimeUnit;
 
@@ -40,8 +40,8 @@ import org.apache.pulsar.client.api.schema.GenericSchema;
 import org.apache.pulsar.client.api.schema.RecordSchemaBuilder;
 import org.apache.pulsar.client.api.schema.SchemaBuilder;
 import org.apache.pulsar.common.schema.SchemaType;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 /**
  * Publishing NiFi records to a topic that carries a schema (issue #34, phase two).
@@ -58,7 +58,7 @@ public class PublishPulsarRecordSchemaIT extends AbstractPulsarIT {
 
     private TestRunner runner;
 
-    @Before
+    @BeforeEach
     public void init() throws InitializationException {
         runner = TestRunners.newTestRunner(PublishPulsarRecord.class);
         addRealPulsarClientService(runner, "pulsar-client");
@@ -103,16 +103,16 @@ public class PublishPulsarRecordSchemaIT extends AbstractPulsarIT {
 
             for (int n = 1; n <= 3; n++) {
                 final Message<GenericRecord> msg = consumer.receive(30, TimeUnit.SECONDS);
-                assertNotNull("expected 3 decodable messages, got " + received.size(), msg);
+                assertNotNull(msg, "expected 3 decodable messages, got " + received.size());
                 received.add(msg.getValue().getField("id") + "=" + msg.getValue().getField("reading"));
                 consumer.acknowledge(msg);
             }
         }
 
-        assertEquals("every record should have been encoded with the topic's schema and decoded by a "
-                        + "schema-aware consumer",
-                new java.util.HashSet<>(java.util.Arrays.asList("sensor-1=42", "sensor-2=43", "sensor-3=44")),
-                received);
+        assertEquals(new java.util.HashSet<>(java.util.Arrays.asList("sensor-1=42", "sensor-2=43", "sensor-3=44")),
+                received,
+                "every record should have been encoded with the topic's schema and decoded by a "
+                        + "schema-aware consumer");
     }
 
     /**

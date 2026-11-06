@@ -71,23 +71,20 @@
             </exclusions>
         </dependency>
 
-        <!-- Use newer versions of the bouncycastle artifacts -->
+        <!-- Use the jdk18on bouncycastle artifacts; versions come from the NiFi parent -->
         <dependency>
             <groupId>org.bouncycastle</groupId>
             <artifactId>bcprov-jdk18on</artifactId>
-            <version>1.85.2</version>
         </dependency>
 
         <dependency>
             <groupId>org.bouncycastle</groupId>
             <artifactId>bcpkix-jdk18on</artifactId>
-            <version>1.85</version>
         </dependency>
         
         <dependency>
         	<groupId>com.fasterxml.jackson.core</groupId>
   		    <artifactId>jackson-core</artifactId>
-  		    <version>${jackson-core.version}</version>
         </dependency>
         
         <dependency>
@@ -101,20 +98,6 @@
   			<artifactId>conscrypt-openjdk-uber</artifactId>
   			<version>${conscrypt-openjdk.version}</version>
 		</dependency>
-
-		<dependency>
-            <groupId>junit</groupId>
-            <artifactId>junit</artifactId>
-             <version>${junit.version}</version>
-            <scope>test</scope>
-        </dependency>
-        <!-- Runs the JUnit 4 tests on the JUnit Platform surefire (version
-             managed by the NiFi parent's org.junit:junit-bom import). -->
-        <dependency>
-            <groupId>org.junit.vintage</groupId>
-            <artifactId>junit-vintage-engine</artifactId>
-            <scope>test</scope>
-        </dependency>
 
         <dependency>
   			<groupId>org.mockito</groupId>

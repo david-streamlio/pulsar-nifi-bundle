@@ -48,18 +48,24 @@ import org.apache.nifi.processors.pulsar.utils.PropertyMappingUtils;
 import org.apache.nifi.pulsar.PulsarClientService;
 import org.apache.nifi.pulsar.cache.PulsarConsumerLRUCache;
 import org.apache.pulsar.client.api.Consumer;
+import org.apache.pulsar.client.api.DeadLetterPolicy;
 import org.apache.pulsar.client.api.ConsumerBuilder;
 import org.apache.pulsar.client.api.ConsumerCryptoFailureAction;
 import org.apache.pulsar.client.api.Message;
 import org.apache.pulsar.client.api.PulsarClientException;
 import org.apache.pulsar.client.api.Schema;
 import org.apache.pulsar.common.schema.SchemaInfo;
+import org.apache.pulsar.client.api.RegexSubscriptionMode;
 import org.apache.pulsar.client.api.SubscriptionInitialPosition;
+import org.apache.pulsar.client.api.SubscriptionMode;
 import org.apache.pulsar.client.api.SubscriptionType;
 import org.apache.pulsar.client.api.schema.GenericRecord;
 
 public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcessor {
     protected static final String PULSAR_MESSAGE_KEY = "__KEY__";
+
+    /** Pulsar's non-persistent topic domain. A compacted view exists only in the persistent domain. */
+    protected static final String NON_PERSISTENT_PREFIX = "non-persistent://";
 
     protected static final AllowableValue EXCLUSIVE = new AllowableValue("Exclusive", "Exclusive", "There can be only 1 consumer on the same topic with the same subscription name");
     protected static final AllowableValue KEY_SHARED = new AllowableValue("Key_Shared", "Key_Shared", "Multiple consumers will be able to use the same subscription name and messages "
@@ -162,7 +168,9 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
             .name("AUTO_UPDATE_PARTITION_INTERVAL")
             .displayName("Auto Update Partition Interval")
             .description("Set the interval of updating partitions (default: 1 minute). This only works if " +
-                    "autoUpdatePartitions is enabled.")
+                    "autoUpdatePartitions is enabled. The Pulsar client keeps this interval as a whole number of " +
+                    "seconds, so the value must be a whole number of seconds between 1 second and 2147483647 seconds; " +
+                    "anything else is rejected at validation rather than silently applied as something different.")
             .addValidator(StandardValidators.TIME_PERIOD_VALIDATOR)
             .defaultValue("1 min")
             .required(false)
@@ -201,11 +209,115 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
             .required(false)
             .build();
 
+    public static final PropertyDescriptor READ_COMPACTED = new PropertyDescriptor.Builder()
+            .name("READ_COMPACTED")
+            .displayName("Read Compacted")
+            .description("Read the compacted view of the topic - the latest value for each key - rather than "
+                    + "its full backlog. Only the most recent message per key is delivered, and messages with "
+                    + "no key are not delivered at all. The topic must have compaction running for there to be "
+                    + "a compacted view to read; without it the subscription reads the normal backlog. Pulsar "
+                    + "permits this only on a persistent topic with a single active consumer, so the "
+                    + "Subscription Type must be Exclusive or Failover. Set Subscription Initial Position to "
+                    + "Earliest: the compacted view is the history of the topic, so a new subscription left at "
+                    + "the default of Latest starts at the tail and delivers nothing at all.")
+            .required(false)
+            .allowableValues("true", "false")
+            .defaultValue("false")
+            .build();
+
+    public static final PropertyDescriptor SUBSCRIPTION_MODE = new PropertyDescriptor.Builder()
+            .name("SUBSCRIPTION_MODE")
+            .displayName("Subscription Mode")
+            .description("Whether the subscription's cursor is persisted by the broker. 'Durable' keeps a "
+                    + "cursor, so the subscription survives a restart and resumes where it left off - which is "
+                    + "what a flow that must not miss messages needs. 'NonDurable' leaves no cursor behind: the "
+                    + "subscription exists only while the consumer is connected and is forgotten afterwards, "
+                    + "which is what tailing a topic wants, and it does not accumulate a backlog on the broker "
+                    + "when the flow is stopped. What it gives up is delivery across restarts: with no cursor "
+                    + "there is nothing to resume from, so the flow does not pick up where it left off, and "
+                    + "with Subscription Initial Position set to Earliest it re-reads the topic from the "
+                    + "beginning every time it is scheduled.")
+            .required(false)
+            .allowableValues(SubscriptionMode.Durable.name(), SubscriptionMode.NonDurable.name())
+            .defaultValue(SubscriptionMode.Durable.name())
+            .build();
+
+    public static final PropertyDescriptor REGEX_SUBSCRIPTION_MODE = new PropertyDescriptor.Builder()
+            .name("REGEX_SUBSCRIPTION_MODE")
+            .displayName("Topics Pattern Match Mode")
+            .description("Which topics a Topics Pattern is allowed to match: persistent only, non-persistent "
+                    + "only, or all. This only applies when Topics Pattern is used, and its default is why a "
+                    + "pattern that plainly matches a non-persistent topic silently does not consume from it - "
+                    + "the default has always been persistent-only, and there was previously no way to say "
+                    + "otherwise. Ignored when Topics is used instead.")
+            .required(false)
+            .allowableValues(RegexSubscriptionMode.PersistentOnly.name(),
+                    RegexSubscriptionMode.NonPersistentOnly.name(), RegexSubscriptionMode.AllTopics.name())
+            .defaultValue(RegexSubscriptionMode.PersistentOnly.name())
+            .build();
+
+    public static final PropertyDescriptor PATTERN_AUTO_DISCOVERY_PERIOD = new PropertyDescriptor.Builder()
+            .name("PATTERN_AUTO_DISCOVERY_PERIOD")
+            .displayName("Topics Pattern Discovery Interval")
+            .description("How often the client re-evaluates a Topics Pattern to pick up topics created since "
+                    + "it subscribed. A topic that starts matching is not consumed until the next sweep, so "
+                    + "this is the worst-case delay before a newly created topic is read. Only applies when "
+                    + "Topics Pattern is used; ignored when Topics is used instead - except that the value "
+                    + "must be a whole number of seconds within int range either way, because the client "
+                    + "checks that when it builds any consumer.")
+            .addValidator(StandardValidators.TIME_PERIOD_VALIDATOR)
+            .defaultValue("60 sec")
+            .required(false)
+            .build();
+
+    public static final PropertyDescriptor NEGATIVE_ACK_REDELIVERY_DELAY = new PropertyDescriptor.Builder()
+            .name("NEGATIVE_ACK_REDELIVERY_DELAY")
+            .displayName("Negative Acknowledgment Redelivery Delay")
+            .description("How long the broker waits before redelivering a message this processor could not hand "
+                    + "to the flow. A message whose FlowFile could not be written is negatively acknowledged "
+                    + "rather than left to expire, and from that moment this delay is the only thing that "
+                    + "redelivers it: a negatively acknowledged message is no longer subject to the Acknowledgment "
+                    + "Timeout. The default is therefore kept under the shortest Acknowledgment Timeout allowed, "
+                    + "and a delay longer than the Acknowledgment Timeout is logged as a warning when the processor "
+                    + "starts. Each redelivery also counts against Max Redelivery Count, so a shorter delay reaches "
+                    + "the dead letter topic sooner. The Acknowledgment Timeout remains the ceiling for a message "
+                    + "that was never acted on at all.")
+            .addValidator(StandardValidators.TIME_PERIOD_VALIDATOR)
+            .defaultValue("5 sec")
+            .required(false)
+            .build();
+
+    public static final PropertyDescriptor MAX_REDELIVER_COUNT = new PropertyDescriptor.Builder()
+            .name("MAX_REDELIVER_COUNT")
+            .displayName("Max Redelivery Count")
+            .description("Enables a dead letter policy: once a message has been redelivered this many times the "
+                    + "broker moves it to the dead letter topic instead of delivering it again. Leave unset to "
+                    + "let the broker redeliver indefinitely, which is the previous behaviour. This governs only "
+                    + "messages the processor could not deliver into the flow at all - a message that reached a "
+                    + "FlowFile and was then routed to a failure relationship has been acknowledged, and never "
+                    + "reaches the dead letter topic. Pulsar supports a dead letter policy only on Shared and "
+                    + "Key_Shared subscriptions.")
+            .addValidator(StandardValidators.POSITIVE_INTEGER_VALIDATOR)
+            .required(false)
+            .build();
+
+    public static final PropertyDescriptor DEAD_LETTER_TOPIC = new PropertyDescriptor.Builder()
+            .name("DEAD_LETTER_TOPIC")
+            .displayName("Dead Letter Topic")
+            .description("The topic messages are moved to once they exceed Max Redelivery Count. Defaults to the "
+                    + "broker's own naming, '<topic>-<subscription>-DLQ'. Has no effect unless Max Redelivery "
+                    + "Count is set.")
+            .addValidator(StandardValidators.NON_BLANK_VALIDATOR)
+            .required(false)
+            .build();
+
     public static final PropertyDescriptor EXPIRE_TIME_OF_INCOMPLETE_CHUNKED_MESSAGE = new PropertyDescriptor.Builder()
             .name("EXPIRE_TIME_OF_INCOMPLETE_CHUNKED_MESSAGE")
             .displayName("Expire Time of Incomplete Chunked Message")
             .description("If producer fails to publish all the chunks of a message then consumer can expire incomplete" +
-                    " chunks if consumer won't be able to receive all chunks in expire times (default 1 minute).")
+                    " chunks if consumer won't be able to receive all chunks in expire times (default 1 minute). " +
+                    "The Pulsar client keeps this as a whole number of milliseconds, so the value must be one; " +
+                    "0 disables the expiry, and incomplete chunks are then kept until the pending-chunk queue evicts them.")
             .addValidator(StandardValidators.TIME_PERIOD_VALIDATOR)
             .defaultValue("60 sec")
             .required(false)
@@ -360,7 +472,9 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
         descriptorList.add(ASYNC_ENABLED);
         descriptorList.add(MAX_ASYNC_REQUESTS);
         descriptorList.add(ACK_TIMEOUT);
-        descriptorList.add(MAX_PENDING_CHUNKED_MESSAGE);
+        descriptorList.add(NEGATIVE_ACK_REDELIVERY_DELAY);
+        descriptorList.add(MAX_REDELIVER_COUNT);
+        descriptorList.add(DEAD_LETTER_TOPIC);
         descriptorList.add(AUTO_ACK_OLDEST_CHUNKED_ON_QUEUE_FULL);
         descriptorList.add(EXPIRE_TIME_OF_INCOMPLETE_CHUNKED_MESSAGE);
         descriptorList.add(MAX_PENDING_CHUNKED_MESSAGE);
@@ -369,6 +483,10 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
         descriptorList.add(PRIORITY_LEVEL);
         descriptorList.add(RECEIVER_QUEUE_SIZE);
         descriptorList.add(SUBSCRIPTION_TYPE);
+        descriptorList.add(SUBSCRIPTION_MODE);
+        descriptorList.add(READ_COMPACTED);
+        descriptorList.add(REGEX_SUBSCRIPTION_MODE);
+        descriptorList.add(PATTERN_AUTO_DISCOVERY_PERIOD);
         descriptorList.add(CONSUMER_BATCH_SIZE);
         descriptorList.add(MESSAGE_DEMARCATOR);
         descriptorList.add(MAPPED_FLOWFILE_ATTRIBUTES);
@@ -418,11 +536,234 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
                "Acknowledgment Timeout needs to be greater than 10 seconds.").build());
         }
 
+        // Two time properties are handed to the client in a coarser unit than NiFi lets the user type, and
+        // the rule for each is the same: the value must be representable in the granularity the client
+        // stores it in, or it is rejected - never silently applied as something else (#225).
+        //
+        // The partition update interval is an int of whole seconds on the client, which also refuses zero
+        // ("interval needs to be > 0"). So a value under a second reached it as 0 and the consumer could
+        // not be created; a fraction of a second was dropped; and a value past Integer.MAX_VALUE seconds
+        // wrapped in intValue() - negative, and refused, or positive and silently far shorter than asked.
+        //
+        // Unconditional on purpose, whatever Auto Update Partitions says: the client's precondition runs
+        // when the consumer is BUILT, for every consumer, while the value is only read at runtime under
+        // that flag. TIME_PERIOD_VALIDATOR already guarantees a non-negative duration, so the int overflow
+        // is the only way the builder can be handed a negative interval - which makes the upper bound a
+        // correctness requirement, not a sanity limit. The floor stays at one second, not zero, because
+        // that is what this setter enforces; the sibling Topics Pattern Discovery Interval accepts zero.
+        final long partitionUpdateIntervalMillis = validationContext.getProperty(AUTO_UPDATE_PARTITION_INTERVAL)
+                .asTimePeriod(TimeUnit.MILLISECONDS);
+        if (partitionUpdateIntervalMillis < TimeUnit.SECONDS.toMillis(1)
+                || partitionUpdateIntervalMillis % TimeUnit.SECONDS.toMillis(1) != 0
+                || TimeUnit.MILLISECONDS.toSeconds(partitionUpdateIntervalMillis) > Integer.MAX_VALUE) {
+            results.add(new ValidationResult.Builder().valid(false).subject(AUTO_UPDATE_PARTITION_INTERVAL.getDisplayName())
+                .explanation("the Pulsar client keeps this interval as a whole number of seconds between 1 and "
+                    + Integer.MAX_VALUE + "; " + validationContext.getProperty(AUTO_UPDATE_PARTITION_INTERVAL).getValue()
+                    + " is not one, and would be applied as a different interval or refused by the client")
+                .build());
+        }
+
+        // The chunk expiry is a long of whole milliseconds on the client, and 0 means "never expire". A value
+        // between 0 and 1 ms would truncate to that 0 and disable the expiry for someone who asked for the
+        // shortest one; a fraction of a millisecond would be dropped.
+        final long expireTimeNanos = validationContext.getProperty(EXPIRE_TIME_OF_INCOMPLETE_CHUNKED_MESSAGE)
+                .asTimePeriod(TimeUnit.NANOSECONDS);
+        if (expireTimeNanos % TimeUnit.MILLISECONDS.toNanos(1) != 0) {
+            results.add(new ValidationResult.Builder().valid(false).subject(EXPIRE_TIME_OF_INCOMPLETE_CHUNKED_MESSAGE.getDisplayName())
+                .explanation("the Pulsar client keeps this as a whole number of milliseconds; "
+                    + validationContext.getProperty(EXPIRE_TIME_OF_INCOMPLETE_CHUNKED_MESSAGE).getValue()
+                    + " is not one (0 disables the expiry)")
+                .build());
+        }
+
+        final boolean deadLetterEnabled = validationContext.getProperty(MAX_REDELIVER_COUNT).isSet();
+        final boolean readCompacted = validationContext.getProperty(READ_COMPACTED).asBoolean();
+        final String subscriptionType = validationContext.getProperty(SUBSCRIPTION_TYPE).getValue();
+
+        // The client builds a dead letter policy only for Shared and Key_Shared subscriptions. On the other
+        // two the consumer is accepted and simply never dead-letters anything, so a flow would sit waiting on
+        // a dead letter topic that can never receive a message. Reject it here instead, as CustomPartition is
+        // rejected on the producer side, rather than let the configuration look like it took effect.
+        // Not when a compacted read is also on: the combination has its own message below, and this one
+        // would send the user to Shared, which that message has just told them cannot work either.
+        if (deadLetterEnabled && !readCompacted && !SHARED.getValue().equals(subscriptionType)
+                && !KEY_SHARED.getValue().equals(subscriptionType)) {
+            results.add(new ValidationResult.Builder().valid(false).subject(MAX_REDELIVER_COUNT.getDisplayName())
+                .explanation("a dead letter policy is supported only on Shared and Key_Shared subscriptions, but "
+                    + "the Subscription Type is " + subscriptionType).build());
+        }
+
+        // The client's precondition has TWO halves, and the message it throws states both: "Read compacted
+        // can only be used with exclusive or failover PERSISTENT subscriptions". PulsarClientImpl checks the
+        // subscription type and that every topic is in the persistent domain. Enforcing only the first half
+        // leaves exactly the failure this validation exists to prevent - valid on the canvas, then throwing
+        // on every schedule - for a non-persistent topic.
+        // Said once, because each half on its own sends the user in a circle: on Shared the compacted read
+        // complains and points at Exclusive, on Exclusive the dead letter policy complains and points back
+        // at Shared. The docs state that no subscription type satisfies both; the validation messages are
+        // the only place the user actually looks.
+        if (readCompacted && deadLetterEnabled) {
+            results.add(new ValidationResult.Builder().valid(false).subject(READ_COMPACTED.getDisplayName())
+                .explanation("Read Compacted and Max Redelivery Count cannot both be set: a compacted read "
+                    + "needs a single active consumer (Exclusive or Failover) and a dead letter policy needs "
+                    + "competing consumers (Shared or Key_Shared), so no Subscription Type satisfies both")
+                .build());
+        }
+
+        if (readCompacted) {
+            // Half one: a compacted read needs a single active consumer. This is the mirror of the dead
+            // letter policy's constraint, which needs competing consumers, so the two can never both be on.
+            // Suppressed when the dead letter policy is on, which is what makes "said once" true rather
+            // than aspirational: this message names Exclusive, the dead letter rule above names Shared, and
+            // a user alternating between them never reaches a valid state. The combined message is the only
+            // one that describes the actual situation. Half two below is not suppressed - it names no
+            // subscription type, so it is not part of that circle, and a non-persistent topic is a second
+            // independent problem worth hearing about.
+            if (!deadLetterEnabled
+                    && (SHARED.getValue().equals(subscriptionType) || KEY_SHARED.getValue().equals(subscriptionType))) {
+                results.add(new ValidationResult.Builder().valid(false).subject(READ_COMPACTED.getDisplayName())
+                    .explanation("a compacted read needs a single active consumer, so it is supported only on "
+                        + "Exclusive and Failover subscriptions, but the Subscription Type is " + subscriptionType).build());
+            }
+
+            // Half two: only a persistent topic has a compacted view. A non-persistent topic is refused
+            // outright when named directly, and - worse - is accepted and silently served uncompacted when
+            // it arrives through a pattern, because the client's check reads the topic list, which a pattern
+            // subscription leaves empty.
+            if (validationContext.getProperty(TOPICS).isSet()) {
+                for (final String topic : validationContext.getProperty(TOPICS).getValue().split("[, ]")) {
+                    // An expression cannot be resolved here, so it is left to the client to refuse.
+                    if (topic.trim().startsWith(NON_PERSISTENT_PREFIX)) {
+                        results.add(new ValidationResult.Builder().valid(false).subject(READ_COMPACTED.getDisplayName())
+                            .explanation("only a persistent topic has a compacted view, but Topics names the "
+                                + "non-persistent topic " + topic.trim()).build());
+                        break;
+                    }
+                }
+            } else if (validationContext.getProperty(TOPICS_PATTERN).isSet()) {
+                final String matchMode = validationContext.getProperty(REGEX_SUBSCRIPTION_MODE).getValue();
+
+                // Only the match mode is checked, never the pattern's own scheme: TopicsPatternFactory
+                // runs the pattern through TopicList.removeTopicDomainScheme(), and matching strips the
+                // scheme from every candidate topic too, so a "non-persistent://" prefix on the pattern
+                // selects nothing - the domain comes from RegexSubscriptionMode alone. Rejecting on the
+                // prefix would fail a working configuration.
+                //
+                // The client cannot catch the real hazard: with a pattern its topic list is empty, so its
+                // persistent-domain check passes vacuously and the non-persistent topics the pattern matches
+                // are subscribed and served as a live stream. The flow then reads a full stream while its
+                // configuration says it is reading the latest value per key, and nothing reports it.
+                if (!RegexSubscriptionMode.PersistentOnly.name().equals(matchMode)) {
+                    results.add(new ValidationResult.Builder().valid(false).subject(READ_COMPACTED.getDisplayName())
+                        .explanation("a Topics Pattern that can match non-persistent topics cannot be read "
+                            + "compacted - those topics would be served uncompacted with no error - so Topics "
+                            + "Pattern Match Mode must be " + RegexSubscriptionMode.PersistentOnly.name()
+                            + ", not " + matchMode).build());
+                }
+            }
+        }
+
+        final long discoveryPeriodMillis = validationContext.getProperty(PATTERN_AUTO_DISCOVERY_PERIOD)
+                .asTimePeriod(TimeUnit.MILLISECONDS);
+
+        // Not gated on TOPICS_PATTERN, unlike the granularity rule below, because the two are enforced by
+        // different things. ConsumerBuilderImpl.patternAutoDiscoveryPeriod checks "interval needs to be >= 0"
+        // when the consumer is BUILT, for every consumer, whether or not a pattern was given - while the value
+        // itself is only READ, by PatternMultiTopicsConsumerImpl, when one was. TIME_PERIOD_VALIDATOR already
+        // guarantees a non-negative duration, so an int overflow in the intValue() below is the only way the
+        // builder can see a negative interval, and a topic-list flow would hit that precondition too: without
+        // this bound "30000 days" is accepted here and then throws on every schedule.
+        if (TimeUnit.MILLISECONDS.toSeconds(discoveryPeriodMillis) > Integer.MAX_VALUE) {
+            results.add(new ValidationResult.Builder().valid(false)
+                .subject(PATTERN_AUTO_DISCOVERY_PERIOD.getDisplayName())
+                .explanation("the client keeps this as an int number of seconds, so it cannot exceed "
+                    + Integer.MAX_VALUE + " seconds (about 68 years), but "
+                    + validationContext.getProperty(PATTERN_AUTO_DISCOVERY_PERIOD).getValue() + " is "
+                    + TimeUnit.MILLISECONDS.toSeconds(discoveryPeriodMillis) + " seconds").build());
+        }
+
+        // Only when a pattern is actually in use: the client reads this property nowhere else, so failing a
+        // topic-list flow over it would reject a configuration the property has no effect on - which is what
+        // the inertness documented on the property, and asserted in the tests, means.
+        if (validationContext.getProperty(TOPICS_PATTERN).isSet()) {
+            // The value reaches the client as whole seconds - asTimePeriod truncates and the client then
+            // clamps 0 to 1 - so any fraction of a second is silently discarded, not just a sub-second
+            // value: "1500 millis" would run as a one-second sweep and "500 millis" as one per second.
+            // Rejecting only the sub-second case would leave the same silent rounding one step up.
+            // Stricter than the sibling time properties (Auto Update Partition Interval, Expire Time of
+            // Incomplete Chunked Message), which truncate the same way and accept a fraction in silence.
+            // That inconsistency is real, but the fix for it is to tighten those, not to loosen this one -
+            // and tightening them would invalidate flows that are running today, so it belongs in its own
+            // change. Tracked as #225.
+            if (discoveryPeriodMillis < 1000L || discoveryPeriodMillis % 1000L != 0L) {
+                results.add(new ValidationResult.Builder().valid(false)
+                    .subject(PATTERN_AUTO_DISCOVERY_PERIOD.getDisplayName())
+                    .explanation("the client takes this as whole seconds, so it must be a whole number of "
+                        + "seconds and at least 1; anything else is silently rounded down").build());
+            }
+        }
+
+        if (validationContext.getProperty(DEAD_LETTER_TOPIC).isSet() && !deadLetterEnabled) {
+            results.add(new ValidationResult.Builder().valid(false).subject(DEAD_LETTER_TOPIC.getDisplayName())
+                .explanation("Dead Letter Topic has no effect unless Max Redelivery Count is set").build());
+        }
+
         return results;
     }
 
     @OnScheduled
     public void init(ProcessContext context) {
+        warnIfNegativeAckDelayExceedsAckTimeout(context);
+
+        // Not a validation error: on a live topic this configuration does deliver - new messages arrive and
+        // are read compacted - so it is unusual rather than invalid, and rejecting it would fail a flow that
+        // works. On an idle topic it delivers nothing at all, because the compacted view is the topic's
+        // history and a subscription at the tail has none of it, which is indistinguishable from a broken
+        // flow. Said once per start, where it is seen, rather than never.
+        // Validation reads the raw property, so an expression hides a non-persistent topic from it. This
+        // catches the expressions that resolve without a FlowFile - environment variables and system
+        // properties - which is the last point before the client throws on every schedule.
+        //
+        // It does NOT catch a topic taken from FlowFile attributes, and cannot: there is no FlowFile at
+        // @OnScheduled, so such an expression resolves to an empty string here. That case is not silently
+        // unprotected so much as already broken - getConsumerBuilder resolves TOPICS without a FlowFile
+        // too, so the subscription is built from the same empty value, while getConsumerId resolves it
+        // with one. That asymmetry predates this property and is tracked as #232.
+        if (context.getProperty(READ_COMPACTED).asBoolean() && context.getProperty(TOPICS).isSet()) {
+            for (final String topic : context.getProperty(TOPICS).evaluateAttributeExpressions().getValue().split("[, ]")) {
+                if (topic.trim().startsWith(NON_PERSISTENT_PREFIX)) {
+                    getLogger().warn("Read Compacted is enabled but Topics resolves to the non-persistent "
+                            + "topic {}: only a persistent topic has a compacted view, and the client will "
+                            + "refuse this subscription.", topic.trim());
+                    break;
+                }
+            }
+        }
+
+        if (context.getProperty(READ_COMPACTED).asBoolean()
+                && OFFSET_LATEST.getValue().equals(context.getProperty(SUBSCRIPTION_INITIAL_POSITION).getValue())) {
+            getLogger().warn("Read Compacted is enabled with Subscription Initial Position {}: the compacted "
+                    + "view is this topic's history, and a new subscription starting at the tail will not see "
+                    + "any of it. Set Subscription Initial Position to {} to read the compacted view.",
+                    OFFSET_LATEST.getValue(), OFFSET_EARLIEST.getValue());
+        }
+
+        // The mirror of the warning above, and the reason it is worth saying: the Read Compacted guidance
+        // sends users to Earliest, and Earliest on a NonDurable subscription re-reads the whole topic every
+        // time the consumer subscribes. The broker keeps no cursor for a NonDurable subscription, so there
+        // is no resume point - newNonDurableCursor resolves Earliest to the first position in the ledger.
+        // That is every stop/start, and every eviction from the consumer cache too, since removeLRU closes
+        // the consumer it drops and getConsumerId varies with the incoming FlowFile's attributes.
+        if (SubscriptionMode.NonDurable.name().equals(context.getProperty(SUBSCRIPTION_MODE).getValue())
+                && OFFSET_EARLIEST.getValue().equals(context.getProperty(SUBSCRIPTION_INITIAL_POSITION).getValue())) {
+            getLogger().warn("Subscription Mode is {} with Subscription Initial Position {}: the broker keeps "
+                    + "no cursor for a non-durable subscription, so this flow re-reads the topic from the "
+                    + "beginning every time it is scheduled and every time a consumer is evicted from the "
+                    + "cache, rather than resuming. Use {} to resume where it left off, or {} to tail.",
+                    SubscriptionMode.NonDurable.name(), OFFSET_EARLIEST.getValue(),
+                    SubscriptionMode.Durable.name(), OFFSET_LATEST.getValue());
+        }
+
         // Record the size only. Replacing the cache here would abandon the consumers the previous one
         // holds without closing them, and the broker then refuses the replacement consumer on an
         // Exclusive subscription with "Exclusive consumer is already connected". The cache is built
@@ -437,6 +778,24 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
         }
 
         setPulsarClientService(context.getProperty(PULSAR_CLIENT_SERVICE).asControllerService(PulsarClientService.class));
+    }
+
+    /**
+     * Once a message is negatively acknowledged the client stops tracking it for the Acknowledgment Timeout, so
+     * the redelivery delay is the only thing that brings it back. A delay longer than the timeout therefore makes
+     * a message the processor could not write wait longer than a plain rollback did (#218). That can be a
+     * deliberate backoff, so it is allowed - but it is worth a warning, because nothing else connects the two.
+     */
+    private void warnIfNegativeAckDelayExceedsAckTimeout(final ProcessContext context) {
+        final long ackTimeoutMillis = context.getProperty(ACK_TIMEOUT).asTimePeriod(TimeUnit.MILLISECONDS);
+        final long negativeAckDelayMillis = context.getProperty(NEGATIVE_ACK_REDELIVERY_DELAY).asTimePeriod(TimeUnit.MILLISECONDS);
+        if (negativeAckDelayMillis > ackTimeoutMillis) {
+            getLogger().warn("{} ({}) is longer than {} ({}). A negatively acknowledged message is redelivered by that "
+                    + "delay alone, so a message this processor cannot write will wait longer than it would have with "
+                    + "no negative acknowledgement at all. Lower the delay unless the longer wait is intended.",
+                    NEGATIVE_ACK_REDELIVERY_DELAY.getDisplayName(), context.getProperty(NEGATIVE_ACK_REDELIVERY_DELAY).getValue(),
+                    ACK_TIMEOUT.getDisplayName(), context.getProperty(ACK_TIMEOUT).getValue());
+        }
     }
 
     @OnUnscheduled
@@ -563,19 +922,45 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
             builder = builder.consumerName(context.getProperty(CONSUMER_NAME).getValue());
         }
 
+        // Only built when Max Redelivery Count is set: the policy's redeliver count has no "unlimited"
+        // value, so attaching one unconditionally would impose a ceiling no flow asked for.
+        if (context.getProperty(MAX_REDELIVER_COUNT).isSet()) {
+            final DeadLetterPolicy.DeadLetterPolicyBuilder deadLetterPolicy = DeadLetterPolicy.builder()
+                    .maxRedeliverCount(context.getProperty(MAX_REDELIVER_COUNT).asInteger());
+
+            if (context.getProperty(DEAD_LETTER_TOPIC).isSet()) {
+                deadLetterPolicy.deadLetterTopic(context.getProperty(DEAD_LETTER_TOPIC).getValue());
+            }
+
+            builder = builder.deadLetterPolicy(deadLetterPolicy.build());
+        }
+
         return builder.subscriptionName(context.getProperty(SUBSCRIPTION_NAME).getValue())
                 .subscriptionInitialPosition(SubscriptionInitialPosition.valueOf(context.getProperty(SUBSCRIPTION_INITIAL_POSITION).getValue()))
                 .autoUpdatePartitions(context.getProperty(AUTO_UPDATE_PARTITIONS).asBoolean())
                 .autoUpdatePartitionsInterval(context.getProperty(AUTO_UPDATE_PARTITION_INTERVAL)
                         .asTimePeriod(TimeUnit.SECONDS).intValue(), TimeUnit.SECONDS)
                 .ackTimeout(context.getProperty(ACK_TIMEOUT).asTimePeriod(TimeUnit.MILLISECONDS).intValue(), TimeUnit.MILLISECONDS)
+                .negativeAckRedeliveryDelay(context.getProperty(NEGATIVE_ACK_REDELIVERY_DELAY)
+                        .asTimePeriod(TimeUnit.MICROSECONDS), TimeUnit.MICROSECONDS)
                 .autoAckOldestChunkedMessageOnQueueFull(context.getProperty(AUTO_ACK_OLDEST_CHUNKED_ON_QUEUE_FULL).asBoolean())
+                // The client stores this in milliseconds, so hand it over in milliseconds: converting to whole
+                // seconds here dropped any fraction, and turned a sub-second value into 0, which disables the
+                // expiry altogether (#225).
                 .expireTimeOfIncompleteChunkedMessage(context.getProperty(EXPIRE_TIME_OF_INCOMPLETE_CHUNKED_MESSAGE)
-                        .asTimePeriod(TimeUnit.SECONDS), TimeUnit.SECONDS)
+                        .asTimePeriod(TimeUnit.MILLISECONDS), TimeUnit.MILLISECONDS)
                 .maxPendingChunkedMessage(context.getProperty(MAX_PENDING_CHUNKED_MESSAGE).asInteger())
                 .priorityLevel(context.getProperty(PRIORITY_LEVEL).asInteger())
                 .receiverQueueSize(context.getProperty(RECEIVER_QUEUE_SIZE).asInteger())
                 .subscriptionType(SubscriptionType.valueOf(context.getProperty(SUBSCRIPTION_TYPE).getValue()))
+                .subscriptionMode(SubscriptionMode.valueOf(context.getProperty(SUBSCRIPTION_MODE).getValue()))
+                .readCompacted(context.getProperty(READ_COMPACTED).asBoolean())
+                // Both are read by the client only when a pattern was given, so they are set unconditionally
+                // rather than guarded: a topic-list subscription ignores them, and mirroring that condition
+                // here would be a second place to keep in step with the topics/pattern choice above.
+                .subscriptionTopicsMode(RegexSubscriptionMode.valueOf(context.getProperty(REGEX_SUBSCRIPTION_MODE).getValue()))
+                .patternAutoDiscoveryPeriod(context.getProperty(PATTERN_AUTO_DISCOVERY_PERIOD)
+                        .asTimePeriod(TimeUnit.SECONDS).intValue(), TimeUnit.SECONDS)
                 .replicateSubscriptionState(context.getProperty(REPLICATE_SUBSCRIPTION_STATE).asBoolean());
     }
 
@@ -674,6 +1059,38 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
         messages.clear();
 
         session.commitAsync(() -> acknowledge(consumer, committed, shared, async));
+    }
+
+    /**
+     * Rolls the session back and negatively acknowledges the messages it carried, so the broker redelivers
+     * them once the Negative Acknowledgment Redelivery Delay elapses.
+     *
+     * <p>Rolling back alone leaves the messages merely unacknowledged, and the broker cannot tell a consumer
+     * that has failed from one that is still working: it waits out the Acknowledgment Timeout - thirty seconds
+     * by default and never less than ten, by validation - before redelivering. Nothing was ever lost, but the
+     * flow stalled for that long on every write error. The negative acknowledgement says which of the two it
+     * is.
+     *
+     * @param session  the session to roll back
+     * @param consumer the consumer the messages were received from
+     * @param messages the messages carried by the rolled-back session; cleared on return
+     */
+    protected void rollbackAndRedeliver(final ProcessSession session, final Consumer<GenericRecord> consumer,
+                                        final List<Message<GenericRecord>> messages) {
+        session.rollback();
+
+        for (final Message<GenericRecord> message : messages) {
+            try {
+                consumer.negativeAcknowledge(message);
+            } catch (final RuntimeException e) {
+                // The message is unacknowledged either way, so the Acknowledgment Timeout still redelivers it;
+                // only the promptness is lost. Not worth failing a trigger whose session is already rolled back.
+                getLogger().warn("Unable to negatively acknowledge a message whose session was rolled back; it "
+                        + "will be redelivered when the Acknowledgment Timeout expires", e);
+            }
+        }
+
+        messages.clear();
     }
 
     private void acknowledge(final Consumer<GenericRecord> consumer, final List<Message<GenericRecord>> messages,

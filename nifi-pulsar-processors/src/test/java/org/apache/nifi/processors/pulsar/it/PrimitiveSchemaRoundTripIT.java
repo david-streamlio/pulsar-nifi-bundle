@@ -17,8 +17,8 @@
 package org.apache.nifi.processors.pulsar.it;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.apache.nifi.json.JsonRecordSetWriter;
 import org.apache.nifi.json.JsonTreeReader;
@@ -35,7 +35,8 @@ import org.apache.pulsar.client.api.Message;
 import org.apache.pulsar.client.api.Producer;
 import org.apache.pulsar.client.api.Schema;
 import org.apache.pulsar.client.api.SubscriptionInitialPosition;
-import org.junit.Test;
+
+import org.junit.jupiter.api.Test;
 
 /**
  * Topics whose schema is a single primitive value (#189), end to end through NiFi.
@@ -62,8 +63,8 @@ public class PrimitiveSchemaRoundTripIT extends AbstractPulsarIT {
 
         final TestRunner consumer = topicSchemaConsumer(topic, "string-e2e", null);
         assertEquals(RECORDS + 1, consumeRecords(consumer, RECORDS + 1));
-        assertTrue("the published values should come back in the named field",
-                successContent(consumer).contains("sensor-1"));
+        assertTrue(successContent(consumer).contains("sensor-1"),
+                "the published values should come back in the named field");
     }
 
     /** The same over an INT32 topic, where the value is 4 bytes rather than text. */
@@ -79,7 +80,7 @@ public class PrimitiveSchemaRoundTripIT extends AbstractPulsarIT {
 
         final TestRunner consumer = topicSchemaConsumer(topic, "int-e2e", null);
         assertEquals(RECORDS + 1, consumeRecords(consumer, RECORDS + 1));
-        assertTrue("the numbers should survive as numbers", successContent(consumer).contains("\"value\":1"));
+        assertTrue(successContent(consumer).contains("\"value\":1"), "the numbers should survive as numbers");
     }
 
     /** The field name is the user's, because it becomes a column name downstream. */
@@ -93,7 +94,7 @@ public class PrimitiveSchemaRoundTripIT extends AbstractPulsarIT {
         consumeRecords(consumer, RECORDS + 1);
 
         final String content = successContent(consumer);
-        assertTrue("the field should be named as configured, but got " + content, content.contains("\"payload\""));
+        assertTrue(content.contains("\"payload\""), "the field should be named as configured, but got " + content);
     }
 
     // ---------------------------------------------------------------- precedence
@@ -117,7 +118,7 @@ public class PrimitiveSchemaRoundTripIT extends AbstractPulsarIT {
         assertEquals(RECORDS, consumeRecords(consumer, RECORDS));
 
         final String content = successContent(consumer);
-        assertTrue("the JSON should have been parsed into fields, but got " + content, content.contains("\"reading\""));
+        assertTrue(content.contains("\"reading\""), "the JSON should have been parsed into fields, but got " + content);
         assertTrue(content.contains("\"id\""));
     }
 
@@ -136,7 +137,7 @@ public class PrimitiveSchemaRoundTripIT extends AbstractPulsarIT {
         assertEquals(RECORDS, consumeRecords(consumer, RECORDS));
 
         final String content = successContent(consumer);
-        assertTrue("the payload should be one string field, but got " + content, content.contains("\"value\""));
+        assertTrue(content.contains("\"value\""), "the payload should be one string field, but got " + content);
         consumer.assertTransferCount(ConsumePulsarRecord.REL_PARSE_FAILURE, 0);
     }
 
@@ -162,7 +163,7 @@ public class PrimitiveSchemaRoundTripIT extends AbstractPulsarIT {
 
         assertEquals(2, consumeRecords(consumer, 2));
         consumer.assertTransferCount(ConsumePulsarRecord.REL_PARSE_FAILURE, 0);
-        assertTrue("the text should be wrapped in the value field", successContent(consumer).contains("hello world"));
+        assertTrue(successContent(consumer).contains("hello world"), "the text should be wrapped in the value field");
     }
 
     /** The default is unchanged: with a reader configured, the reader still gets first refusal. */
@@ -178,7 +179,7 @@ public class PrimitiveSchemaRoundTripIT extends AbstractPulsarIT {
 
         final TestRunner consumer = topicSchemaConsumer(topic, "string-default", new JsonTreeReader());
         assertEquals(RECORDS, consumeRecords(consumer, RECORDS));
-        assertTrue("the reader should still have parsed the JSON", successContent(consumer).contains("\"reading\""));
+        assertTrue(successContent(consumer).contains("\"reading\""), "the reader should still have parsed the JSON");
     }
 
     // ---------------------------------------------------------------- publish-side guard
@@ -222,8 +223,8 @@ public class PrimitiveSchemaRoundTripIT extends AbstractPulsarIT {
                 .subscriptionName("prim-noschema").subscriptionInitialPosition(SubscriptionInitialPosition.Earliest)
                 .subscribe()) {
             final Message<byte[]> message = consumer.receive(30, java.util.concurrent.TimeUnit.SECONDS);
-            assertTrue("the record writer's output should be on the topic",
-                    new String(message.getValue(), UTF_8).contains("sensor-1"));
+            assertTrue(new String(message.getValue(), UTF_8).contains("sensor-1"),
+                    "the record writer's output should be on the topic");
         }
     }
 
