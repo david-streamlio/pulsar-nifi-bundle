@@ -16,8 +16,8 @@
  */
 package org.apache.nifi.processors.pulsar.pubsub;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -38,8 +38,8 @@ import org.apache.pulsar.client.api.Message;
 import org.apache.pulsar.client.api.RegexSubscriptionMode;
 import org.apache.pulsar.client.api.SubscriptionMode;
 import org.apache.pulsar.client.api.schema.GenericRecord;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 /**
  * Read Compacted, Subscription Mode, and the two properties that finish Topics Pattern.
@@ -54,7 +54,7 @@ public class ConsumePulsarTopicPropertiesTest extends AbstractPulsarProcessorTes
 
     private static final String TOPIC = "persistent://public/default/topic-properties";
 
-    @Before
+    @BeforeEach
     public void init() throws InitializationException {
         runner = TestRunners.newTestRunner(ConsumePulsar.class);
         addPulsarClientService();
@@ -151,16 +151,16 @@ public class ConsumePulsarTopicPropertiesTest extends AbstractPulsarProcessorTes
                     .map(ValidationResult::getExplanation)
                     .collect(Collectors.toList());
 
-            assertTrue("on " + type + " the conflict should be reported as its own reason, naming both "
-                            + "properties, but the reasons were " + reasons,
-                    reasons.stream().anyMatch(reason -> reason.contains("cannot both be set")));
+            assertTrue(reasons.stream().anyMatch(reason -> reason.contains("cannot both be set")),
+                    "on " + type + " the conflict should be reported as its own reason, naming both "
+                            + "properties, but the reasons were " + reasons);
 
             // The point of "one reason": no message may name a Subscription Type to move to, because every
             // such message contradicts the one above. Half one sends the user to Exclusive, the dead letter
             // rule sends them back to Shared, and alternating never reaches a valid state.
-            assertTrue("on " + type + " no reason may direct the user at a Subscription Type while both are "
-                            + "set, but the reasons were " + reasons,
-                    reasons.stream().noneMatch(reason -> reason.contains("but the Subscription Type is")));
+            assertTrue(reasons.stream().noneMatch(reason -> reason.contains("but the Subscription Type is")),
+                    "on " + type + " no reason may direct the user at a Subscription Type while both are "
+                            + "set, but the reasons were " + reasons);
         }
     }
 
@@ -344,10 +344,10 @@ public class ConsumePulsarTopicPropertiesTest extends AbstractPulsarProcessorTes
         runner.assertValid();
         runner.run(1, false, true);
 
-        assertEquals("exactly one warning is expected at scheduling", 1,
-                runner.getLogger().getWarnMessages().stream()
+        assertEquals(1, runner.getLogger().getWarnMessages().stream()
                         .filter(m -> m.getMsg().contains("Read Compacted is enabled"))
-                        .count());
+                        .count(),
+                "exactly one warning is expected at scheduling");
     }
 
     @Test
@@ -358,10 +358,10 @@ public class ConsumePulsarTopicPropertiesTest extends AbstractPulsarProcessorTes
 
         runner.run(1, false, true);
 
-        assertEquals("no warning is expected when the position can see the compacted view", 0,
-                runner.getLogger().getWarnMessages().stream()
+        assertEquals(0, runner.getLogger().getWarnMessages().stream()
                         .filter(m -> m.getMsg().contains("Read Compacted is enabled"))
-                        .count());
+                        .count(),
+                "no warning is expected when the position can see the compacted view");
     }
 
     /** The warning is about the combination, so it must not fire when the compacted read is off. */
@@ -372,10 +372,10 @@ public class ConsumePulsarTopicPropertiesTest extends AbstractPulsarProcessorTes
 
         runner.run(1, false, true);
 
-        assertEquals("no warning is expected without Read Compacted", 0,
-                runner.getLogger().getWarnMessages().stream()
+        assertEquals(0, runner.getLogger().getWarnMessages().stream()
                         .filter(m -> m.getMsg().contains("Read Compacted is enabled"))
-                        .count());
+                        .count(),
+                "no warning is expected without Read Compacted");
     }
 
     @Test
@@ -401,10 +401,10 @@ public class ConsumePulsarTopicPropertiesTest extends AbstractPulsarProcessorTes
         runner.assertValid();
         runner.run(1, false, true);
 
-        assertEquals("exactly one warning is expected at scheduling", 1,
-                runner.getLogger().getWarnMessages().stream()
+        assertEquals(1, runner.getLogger().getWarnMessages().stream()
                         .filter(m -> m.getMsg().contains("no cursor for a non-durable subscription"))
-                        .count());
+                        .count(),
+                "exactly one warning is expected at scheduling");
     }
 
     @Test
@@ -414,10 +414,10 @@ public class ConsumePulsarTopicPropertiesTest extends AbstractPulsarProcessorTes
 
         runner.run(1, false, true);
 
-        assertEquals("no warning is expected when the cursor is durable", 0,
-                runner.getLogger().getWarnMessages().stream()
+        assertEquals(0, runner.getLogger().getWarnMessages().stream()
                         .filter(m -> m.getMsg().contains("no cursor for a non-durable subscription"))
-                        .count());
+                        .count(),
+                "no warning is expected when the cursor is durable");
     }
 
     /** The warning is about the combination: tailing without a cursor is exactly what NonDurable is for. */
@@ -429,10 +429,10 @@ public class ConsumePulsarTopicPropertiesTest extends AbstractPulsarProcessorTes
 
         runner.run(1, false, true);
 
-        assertEquals("no warning is expected when tailing", 0,
-                runner.getLogger().getWarnMessages().stream()
+        assertEquals(0, runner.getLogger().getWarnMessages().stream()
                         .filter(m -> m.getMsg().contains("no cursor for a non-durable subscription"))
-                        .count());
+                        .count(),
+                "no warning is expected when tailing");
     }
 
     /** The two Topics Pattern properties are accepted alongside a pattern subscription. */

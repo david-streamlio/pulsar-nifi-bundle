@@ -45,11 +45,11 @@ jobs:
       # It asserts the desync, not that the image builds: the image shipping a NiFi
       # runtime that differs from the one the NARs were compiled against is the actual
       # failure, and checking it costs seconds and needs no Docker.
-      - name: Dockerfile base image matches nifi.version
+      - name: Dockerfile base image and NiFi parent match nifi.version
         run: |
           set -euo pipefail
           FROM_TAG="$(sed -n 's|^FROM apache/nifi:||p' docker-image/src/main/docker/nifi/Dockerfile)"
-          NIFI_VERSION="$(mvn -B -ntp help:evaluate -Dexpression=nifi.version -q -DforceStdout | tail -n 1 | tr -d '[:space:]')"
+          NIFI_VERSION="$(./mvnw -B -ntp help:evaluate -Dexpression=nifi.version -q -DforceStdout | tail -n 1 | tr -d '[:space:]')"
 
           if [ -z "$FROM_TAG" ]; then
             echo "::error file=docker-image/src/main/docker/nifi/Dockerfile::No 'FROM apache/nifi:<tag>' line found. If the base image was renamed, update this check too."
@@ -61,13 +61,21 @@ jobs:
             exit 1
           fi
 
-          echo "Dockerfile base image and nifi.version agree: $NIFI_VERSION"
+          # The parent POM manages the versions of everything we inherit without naming it, so a parent
+          # behind nifi.version builds against one NiFi and inherits the dependencies of another (#248).
+          PARENT_VERSION="$(./mvnw -B -ntp help:evaluate -Dexpression=project.parent.version -q -DforceStdout | tail -n 1 | tr -d '[:space:]')"
+          if [ "$PARENT_VERSION" != "$NIFI_VERSION" ]; then
+            echo "::error file=pom.xml::The nifi-extension-bundles parent is $PARENT_VERSION but nifi.version is $NIFI_VERSION. Move both together; Dependabot's grouped maven-all PR does this when it bumps them in one update."
+            exit 1
+          fi
+
+          echo "Dockerfile base image, NiFi parent and nifi.version agree: $NIFI_VERSION"
 
       # Skip GPG signing (no keys in CI) and the docker-image module (Docker build
       # is exercised by the release workflow, not on every PR). Tests still run via
       # the `package` phase.
       - name: Build and test
-        run: mvn -B -ntp clean package -Dgpg.skip=true -pl '!docker-image'
+        run: ./mvnw -B -ntp clean package -Dgpg.skip=true -pl '!docker-image'
 
       - name: Upload test reports
         if: always()

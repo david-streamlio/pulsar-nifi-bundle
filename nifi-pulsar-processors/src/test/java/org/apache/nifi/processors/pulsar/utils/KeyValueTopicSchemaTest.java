@@ -17,12 +17,12 @@
 package org.apache.nifi.processors.pulsar.utils;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertThrows;
-import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
 import java.util.Arrays;
@@ -39,7 +39,8 @@ import org.apache.pulsar.client.api.Schema;
 import org.apache.pulsar.client.impl.schema.KeyValueSchemaInfo;
 import org.apache.pulsar.common.schema.KeyValueEncodingType;
 import org.apache.pulsar.common.schema.SchemaInfo;
-import org.junit.Test;
+
+import org.junit.jupiter.api.Test;
 
 /**
  * Encoding and decoding both sides of a KeyValue topic, without a broker.
@@ -104,11 +105,11 @@ public class KeyValueTopicSchemaTest {
         final KeyValueTopicSchema.EncodedKeyValue encoded =
                 schema.encode(readingRecord("device-3", 44), info, "key", "value");
 
-        assertNotNull("a SEPARATED topic needs the key on the message", encoded.getMessageKey());
+        assertNotNull(encoded.getMessageKey(), "a SEPARATED topic needs the key on the message");
         assertEquals("device-3", Schema.STRING.decode(encoded.getMessageKey()));
-        assertEquals("the payload holds the value alone", 44,
-                ((Record) schema.decode(encoded.getPayload(), encoded.getMessageKey(), info, "key", "value")
-                        .getValue("value")).getValue("reading"));
+        assertEquals(44, ((Record) schema.decode(encoded.getPayload(), encoded.getMessageKey(), info, "key", "value")
+                        .getValue("value")).getValue("reading"),
+                "the payload holds the value alone");
     }
 
     /** INLINE puts both sides in the payload and leaves the message key free. */
@@ -120,7 +121,7 @@ public class KeyValueTopicSchemaTest {
         final KeyValueTopicSchema.EncodedKeyValue encoded =
                 schema.encode(readingRecord("device-4", 45), info, "key", "value");
 
-        assertNull("INLINE must not claim the message key", encoded.getMessageKey());
+        assertNull(encoded.getMessageKey(), "INLINE must not claim the message key");
 
         final Record decoded = schema.decode(encoded.getPayload(), null, info, "key", "value");
         assertEquals("device-4", decoded.getValue("key"));
@@ -156,8 +157,8 @@ public class KeyValueTopicSchemaTest {
         final Record value = (Record) decoded.getValue("value");
 
         assertEquals(7, value.getValue("id"));
-        assertEquals("the nested record must survive", "Ada",
-                ((Record) value.getValue("customer")).getValue("name"));
+        assertEquals("Ada", ((Record) value.getValue("customer")).getValue("name"),
+                "the nested record must survive");
     }
 
     /** A record missing either side cannot be mapped onto the topic's two schemas. */
@@ -173,8 +174,8 @@ public class KeyValueTopicSchemaTest {
 
         final IOException thrown = assertThrows(IOException.class,
                 () -> schema.encode(new MapRecord(keyOnly, values), info, "key", "value"));
-        assertTrue("the message should name the fields the record does have",
-                thrown.getMessage().contains("key"));
+        assertTrue(thrown.getMessage().contains("key"),
+                "the message should name the fields the record does have");
     }
 
     /** A payload that is not a valid INLINE frame is a decode error, not a silently truncated record. */

@@ -35,14 +35,14 @@ import org.apache.nifi.serialization.RecordSetWriterFactory;
 import org.apache.nifi.serialization.record.RecordFieldType;
 import org.apache.nifi.util.TestRunners;
 import org.apache.pulsar.client.api.PulsarClientException;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 public class TestPublishPulsarRecord extends AbstractPulsarProcessorTest<byte[]> {
 
     protected static final String TOPIC_NAME = "unit-test";
 
-    @Before
+    @BeforeEach
     public void setup() throws InitializationException {
 
         runner = TestRunners.newTestRunner(PublishPulsarRecord.class);

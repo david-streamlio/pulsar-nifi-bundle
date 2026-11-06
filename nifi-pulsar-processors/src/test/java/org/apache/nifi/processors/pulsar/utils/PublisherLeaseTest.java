@@ -26,8 +26,8 @@ import org.apache.pulsar.client.api.MessageId;
 import org.apache.pulsar.client.api.Producer;
 import org.apache.pulsar.client.api.PulsarClientException;
 import org.apache.pulsar.client.api.TypedMessageBuilder;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 
@@ -38,8 +38,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
-import static org.junit.Assert.*;
-import static org.mockito.ArgumentMatchers.*;
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 public class PublisherLeaseTest {
@@ -74,7 +73,7 @@ public class PublisherLeaseTest {
     private PublisherLease publisherLease;
     private Map<String, String> messageProperties;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         MockitoAnnotations.openMocks(this);
         publisherLease = new PublisherLease(producer, logger);
@@ -86,7 +85,7 @@ public class PublisherLeaseTest {
     @Test
     public void testConstructor() {
         PublisherLease lease = new PublisherLease(producer, logger);
-        assertNotNull("PublisherLease should be created", lease);
+        assertNotNull(lease, "PublisherLease should be created");
     }
 
     @Test
@@ -96,7 +95,7 @@ public class PublisherLeaseTest {
 
         String actualTopic = publisherLease.getTopicName();
 
-        assertEquals("Topic name should match producer's topic", expectedTopic, actualTopic);
+        assertEquals(expectedTopic, actualTopic, "Topic name should match producer's topic");
         verify(producer, times(1)).getTopic();
     }
 
@@ -106,7 +105,7 @@ public class PublisherLeaseTest {
 
         String actualTopic = leaseWithNullProducer.getTopicName();
 
-        assertNull("Topic name should be null when producer is null", actualTopic);
+        assertNull(actualTopic, "Topic name should be null when producer is null");
     }
 
     @Test
@@ -115,7 +114,7 @@ public class PublisherLeaseTest {
 
         String actualTopic = publisherLease.getTopicName();
 
-        assertNull("Topic name should be null when producer returns null", actualTopic);
+        assertNull(actualTopic, "Topic name should be null when producer returns null");
         verify(producer, times(1)).getTopic();
     }
 
@@ -247,7 +246,7 @@ public class PublisherLeaseTest {
     @Test
     public void testComplete() {
         // Initially, complete should return 0
-        assertEquals("Initial message count should be 0", 0, publisherLease.complete());
+        assertEquals(0, publisherLease.complete(), "Initial message count should be 0");
 
         // The complete() method returns the count of messages sent, but since we can't easily
         // mock the internal messagesSent counter increment (it's done inside publish methods),
@@ -305,7 +304,7 @@ public class PublisherLeaseTest {
         CompletableFuture<MessageId> result = publisherLease.sendAsync(producer, "test-key", messageProperties, "test-content".getBytes());
 
         // Verify result
-        assertNotNull("Result should not be null", result);
+        assertNotNull(result, "Result should not be null");
         verify(producer, times(1)).newMessage();
         verify(typedMessageBuilder, times(1)).properties(messageProperties);
         verify(typedMessageBuilder, times(1)).value("test-content".getBytes());
@@ -325,7 +324,7 @@ public class PublisherLeaseTest {
         CompletableFuture<MessageId> result = publisherLease.sendAsync(producer, null, messageProperties, "test-content".getBytes());
 
         // Verify result and interactions
-        assertNotNull("Result should not be null", result);
+        assertNotNull(result, "Result should not be null");
         verify(producer, times(1)).newMessage();
         verify(typedMessageBuilder, times(1)).properties(messageProperties);
         verify(typedMessageBuilder, times(1)).value("test-content".getBytes());
@@ -346,8 +345,8 @@ public class PublisherLeaseTest {
         CompletableFuture<MessageId> result = publisherLease.send(producer, "test-key", messageProperties, "test-content".getBytes());
 
         // Verify result
-        assertNotNull("Result should not be null", result);
-        assertFalse("Result should not be cancelled", result.isCancelled());
+        assertNotNull(result, "Result should not be null");
+        assertFalse(result.isCancelled(), "Result should not be cancelled");
 
         // send() executes the producer interactions asynchronously via
         // CompletableFuture.supplyAsync(...); block until the future completes before
@@ -373,7 +372,7 @@ public class PublisherLeaseTest {
         CompletableFuture<MessageId> result = publisherLease.send(producer, null, messageProperties, "test-content".getBytes());
 
         // Verify result and interactions
-        assertNotNull("Result should not be null", result);
+        assertNotNull(result, "Result should not be null");
 
         // send() executes the producer interactions asynchronously via
         // CompletableFuture.supplyAsync(...); block until the future completes before
@@ -428,7 +427,7 @@ public class PublisherLeaseTest {
             publisherLease.publish(flowFile, faultyInputStream, null, messageProperties, null, false);
             fail("Should have thrown IOException");
         } catch (IOException e) {
-            assertEquals("Exception message should match", "Test IO Exception", e.getMessage());
+            assertEquals("Test IO Exception", e.getMessage(), "Exception message should match");
         }
 
         // Verify producer was not called since reading failed

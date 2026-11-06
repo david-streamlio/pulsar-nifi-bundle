@@ -24,8 +24,8 @@ import org.apache.pulsar.client.api.MessageRoutingMode;
 import org.apache.pulsar.client.api.Producer;
 
 import org.apache.pulsar.client.api.PulsarClientException;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 
@@ -34,7 +34,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
-import static org.junit.Assert.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -45,7 +45,7 @@ public class TestPublishPulsar extends AbstractPulsarProcessorTest<byte[]> {
     @Mock
     protected Producer<byte[]> mockProducer;
 
-    @Before
+    @BeforeEach
     public void init() throws InitializationException {
         mockProducer = mock(Producer.class);
         runner = TestRunners.newTestRunner(PublishPulsar.class);
@@ -132,7 +132,7 @@ public class TestPublishPulsar extends AbstractPulsarProcessorTest<byte[]> {
         ArgumentCaptor<Map<String, Object>> configCaptor = ArgumentCaptor.forClass(Map.class);
         verify(mockClientService.getMockProducerBuilder(), times(1)).loadConf(configCaptor.capture());
         Map<String, Object> capturedConfig = configCaptor.getValue();
-        assertEquals("Chunking should be enabled in the producer configuration",
-                Boolean.TRUE, capturedConfig.get("chunkingEnabled"));
+        assertEquals(Boolean.TRUE,
+                capturedConfig.get("chunkingEnabled"), "Chunking should be enabled in the producer configuration");
     }
 }

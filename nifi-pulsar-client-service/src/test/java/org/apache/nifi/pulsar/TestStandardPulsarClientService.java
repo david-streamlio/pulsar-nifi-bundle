@@ -19,7 +19,8 @@ package org.apache.nifi.pulsar;
 import org.apache.nifi.reporting.InitializationException;
 import org.apache.nifi.util.TestRunner;
 import org.apache.nifi.util.TestRunners;
-import org.junit.Test;
+
+import org.junit.jupiter.api.Test;
 
 public class TestStandardPulsarClientService {
 

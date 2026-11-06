@@ -17,11 +17,11 @@
 package org.apache.nifi.processors.pulsar.it;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
-import static org.junit.Assert.assertArrayEquals;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.ByteArrayOutputStream;
 import java.nio.ByteBuffer;
@@ -50,7 +50,8 @@ import org.apache.pulsar.client.api.Range;
 import org.apache.pulsar.client.api.Schema;
 import org.apache.pulsar.client.api.SubscriptionInitialPosition;
 import org.apache.pulsar.client.api.SubscriptionType;
-import org.junit.Test;
+
+import org.junit.jupiter.api.Test;
 
 /**
  * The ordering key against a real broker: it has to reach the message, and on a {@code Key_Shared}
@@ -118,7 +119,7 @@ public class PublishPulsarOrderingKeyIT extends AbstractPulsarIT {
             final Message<byte[]> message = consumer.receive(30, TimeUnit.SECONDS);
             assertNotNull(message);
             assertEquals("tenant-a", message.getKey());
-            assertTrue("the message must carry an ordering key", message.hasOrderingKey());
+            assertTrue(message.hasOrderingKey(), "the message must carry an ordering key");
             assertArrayEquals("session-7".getBytes(UTF_8), message.getOrderingKey());
         }
     }
@@ -155,9 +156,9 @@ public class PublishPulsarOrderingKeyIT extends AbstractPulsarIT {
         control.setProperty(AbstractPulsarProducerProcessor.TOPIC, controlTopic);
         control.setProperty(AbstractPulsarProducerProcessor.MESSAGE_KEY, "${key}");
         final Distribution spread = publishToTwoKeySharedConsumers(control, controlTopic, false);
-        assertEquals("control: every message must have arrived", MESSAGES, spread.first + spread.second);
-        assertTrue("control: " + MESSAGES + " distinct message keys with no ordering key should reach both "
-                + "consumers, but landed " + spread, spread.first > 0 && spread.second > 0);
+        assertEquals(MESSAGES, spread.first + spread.second, "control: every message must have arrived");
+        assertTrue(spread.first > 0 && spread.second > 0, "control: " + MESSAGES + " distinct message keys with no ordering key should reach both "
+                + "consumers, but landed " + spread);
 
         // the same distinct message keys, plus one ordering key for all of them
         final String topic = topic("dispatch");
@@ -168,10 +169,10 @@ public class PublishPulsarOrderingKeyIT extends AbstractPulsarIT {
         final Distribution together = publishToTwoKeySharedConsumers(runner, topic, true);
         // arrival first: a partial drain would otherwise pass the single-consumer check vacuously and fail
         // one line later with a count mismatch, which misreads a delivery problem as a dispatch one
-        assertEquals("every message must have arrived", MESSAGES, together.first + together.second);
-        assertTrue("one ordering key must keep every message on one consumer, but they landed " + together,
-                together.first == 0 || together.second == 0);
-        assertTrue("messages sharing the ordering key must arrive in publish order", together.inOrder);
+        assertEquals(MESSAGES, together.first + together.second, "every message must have arrived");
+        assertTrue(together.first == 0 || together.second == 0,
+                "one ordering key must keep every message on one consumer, but they landed " + together);
+        assertTrue(together.inOrder, "messages sharing the ordering key must arrive in publish order");
     }
 
     /**
@@ -211,10 +212,10 @@ public class PublishPulsarOrderingKeyIT extends AbstractPulsarIT {
             final Message<byte[]> two = consumer.receive(30, TimeUnit.SECONDS);
             assertNotNull(one);
             assertNotNull(two);
-            assertTrue("a binary key travels base64-encoded and flagged", one.hasBase64EncodedKey() && two.hasBase64EncodedKey());
+            assertTrue(one.hasBase64EncodedKey() && two.hasBase64EncodedKey(), "a binary key travels base64-encoded and flagged");
             assertArrayEquals(first, one.getKeyBytes());
             assertArrayEquals(second, two.getKeyBytes());
-            assertFalse("two different byte strings must stay two different keys", one.getKey().equals(two.getKey()));
+            assertFalse(one.getKey().equals(two.getKey()), "two different byte strings must stay two different keys");
         }
     }
 

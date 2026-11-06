@@ -7,13 +7,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ### Primary Build
 ```bash
 export JAVA_HOME=`/usr/libexec/java_home -v 21`
-mvn clean package
+./mvnw clean package
 ```
 This builds the NAR files and generates a Docker image with tag `streamnative/nifi`.
 
 ### Testing
 ```bash
-mvn test
+./mvnw test
 ```
 Run unit tests across all modules.
 
@@ -44,10 +44,10 @@ This is a Maven multi-module project that provides Apache NiFi processors for Ap
 - **Utilities**: Publisher pooling, property mapping, and validation helpers
 
 ### Dependencies
-- NiFi 2.1.0
-- Apache Pulsar 3.3.7  
+- NiFi 2.11.0 (`nifi.version`; the `nifi-extension-bundles` parent must match it, and CI checks this)
+- Apache Pulsar 4.2.4 (`pulsar.version`)
 - Java 21
-- Maven build system with specialized NiFi NAR plugin
+- Maven 3.9.16+ via the wrapper (`./mvnw`), with the NiFi NAR plugin
 
 ## Docker Testing
 

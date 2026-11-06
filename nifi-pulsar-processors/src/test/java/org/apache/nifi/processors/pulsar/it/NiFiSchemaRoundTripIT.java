@@ -17,8 +17,8 @@
 package org.apache.nifi.processors.pulsar.it;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.apache.nifi.avro.AvroReader;
 import org.apache.nifi.controller.ControllerService;
@@ -40,7 +40,8 @@ import org.apache.pulsar.client.api.schema.GenericSchema;
 import org.apache.pulsar.client.api.schema.RecordSchemaBuilder;
 import org.apache.pulsar.client.api.schema.SchemaBuilder;
 import org.apache.pulsar.common.schema.SchemaType;
-import org.junit.Test;
+
+import org.junit.jupiter.api.Test;
 
 /**
  * NiFi in, NiFi out, once per schema type the bundle encodes - and what happens when the reader on the
@@ -92,14 +93,14 @@ public class NiFiSchemaRoundTripIT extends AbstractPulsarIT {
         publishRecords(topic);
 
         final TestRunner consumer = consumer(topic, "avro-match", new AvroReader(), "${avro.schema}");
-        assertEquals("every record should come back", RECORDS + SEEDED, consumeRecords(consumer));
+        assertEquals(RECORDS + SEEDED, consumeRecords(consumer), "every record should come back");
         consumer.assertTransferCount(ConsumePulsarRecord.REL_PARSE_FAILURE, 0);
 
-        assertTrue("the consumer should report the topic's schema for an AVRO topic",
-                consumer.getFlowFilesForRelationship(ConsumePulsarRecord.REL_SUCCESS).stream()
+        assertTrue(consumer.getFlowFilesForRelationship(ConsumePulsarRecord.REL_SUCCESS).stream()
                         .allMatch(ff -> ff.getAttribute("avro.schema") != null
-                                && ff.getAttribute("avro.schema").contains("Sensor")));
-        assertTrue("and the decoded values should survive", successContent(consumer).contains("sensor-1"));
+                                && ff.getAttribute("avro.schema").contains("Sensor")),
+                "the consumer should report the topic's schema for an AVRO topic");
+        assertTrue(successContent(consumer).contains("sensor-1"), "and the decoded values should survive");
     }
 
     /** JSON out, JSON back in. The wire form is text, so no schema needs to reach the reader. */
@@ -109,13 +110,13 @@ public class NiFiSchemaRoundTripIT extends AbstractPulsarIT {
         publishRecords(topic);
 
         final TestRunner consumer = consumer(topic, "json-match", new JsonTreeReader(), null);
-        assertEquals("every record should come back", RECORDS + SEEDED, consumeRecords(consumer));
+        assertEquals(RECORDS + SEEDED, consumeRecords(consumer), "every record should come back");
         consumer.assertTransferCount(ConsumePulsarRecord.REL_PARSE_FAILURE, 0);
 
-        assertTrue("the decoded values should survive", successContent(consumer).contains("sensor-1"));
-        assertTrue("avro.schema belongs to AVRO topics only",
-                consumer.getFlowFilesForRelationship(ConsumePulsarRecord.REL_SUCCESS).stream()
-                        .allMatch(ff -> ff.getAttribute("avro.schema") == null));
+        assertTrue(successContent(consumer).contains("sensor-1"), "the decoded values should survive");
+        assertTrue(consumer.getFlowFilesForRelationship(ConsumePulsarRecord.REL_SUCCESS).stream()
+                        .allMatch(ff -> ff.getAttribute("avro.schema") == null),
+                "avro.schema belongs to AVRO topics only");
     }
 
     // ---------------------------------------------------------------- mismatched pairs
@@ -130,10 +131,10 @@ public class NiFiSchemaRoundTripIT extends AbstractPulsarIT {
         publishRecords(topic);
 
         final TestRunner consumer = consumer(topic, "json-to-avro", new AvroReader(), SENSOR_AVRO_SCHEMA);
-        assertEquals("nothing should decode", 0, consumeParseFailures(consumer));
+        assertEquals(0, consumeParseFailures(consumer), "nothing should decode");
         consumer.assertTransferCount(ConsumePulsarRecord.REL_SUCCESS, 0);
-        assertTrue("the undecodable messages should be routed, not dropped or replayed forever",
-                consumer.getFlowFilesForRelationship(ConsumePulsarRecord.REL_PARSE_FAILURE).size() > 0);
+        assertTrue(consumer.getFlowFilesForRelationship(ConsumePulsarRecord.REL_PARSE_FAILURE).size() > 0,
+                "the undecodable messages should be routed, not dropped or replayed forever");
     }
 
     /** The same mistake the other way round: Avro binary on the topic, a JsonTreeReader on the way out. */
@@ -143,10 +144,10 @@ public class NiFiSchemaRoundTripIT extends AbstractPulsarIT {
         publishRecords(topic);
 
         final TestRunner consumer = consumer(topic, "avro-to-json", new JsonTreeReader(), null);
-        assertEquals("nothing should decode", 0, consumeParseFailures(consumer));
+        assertEquals(0, consumeParseFailures(consumer), "nothing should decode");
         consumer.assertTransferCount(ConsumePulsarRecord.REL_SUCCESS, 0);
-        assertTrue("the undecodable messages should be routed, not dropped or replayed forever",
-                consumer.getFlowFilesForRelationship(ConsumePulsarRecord.REL_PARSE_FAILURE).size() > 0);
+        assertTrue(consumer.getFlowFilesForRelationship(ConsumePulsarRecord.REL_PARSE_FAILURE).size() > 0,
+                "the undecodable messages should be routed, not dropped or replayed forever");
     }
 
     // ------------------------------------------------------------------ helpers
@@ -279,8 +280,8 @@ public class NiFiSchemaRoundTripIT extends AbstractPulsarIT {
         });
         runner.run(1, true, false);
 
-        assertEquals("every published message should be accounted for in parse.failure",
-                RECORDS, routedIds(runner));
+        assertEquals(RECORDS,
+                routedIds(runner), "every published message should be accounted for in parse.failure");
 
         int records = 0;
         for (final MockFlowFile flowFile : runner.getFlowFilesForRelationship(ConsumePulsarRecord.REL_SUCCESS)) {

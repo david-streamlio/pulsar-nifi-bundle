@@ -33,8 +33,8 @@ import org.apache.nifi.reporting.InitializationException;
 import org.apache.nifi.util.TestRunners;
 import org.apache.pulsar.client.api.Message;
 import org.apache.pulsar.client.api.schema.GenericRecord;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 /**
  * The parse-failure path must leave the session clean even when it cannot write.
@@ -81,7 +81,7 @@ public class ConsumePulsarRecordFailureRoutingTest extends AbstractPulsarProcess
         mockClientService.setMockMessageQueue(messages());
     }
 
-    @Before
+    @BeforeEach
     public void init() {
         // each test picks its own processor class
     }

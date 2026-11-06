@@ -16,12 +16,12 @@
  */
 package org.apache.nifi.processors.pulsar.utils;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotSame;
-import static org.junit.Assert.assertSame;
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.RETURNS_SELF;
@@ -47,9 +47,10 @@ import org.apache.pulsar.client.api.ProducerBuilder;
 import org.apache.pulsar.client.api.PulsarClient;
 import org.apache.pulsar.client.api.PulsarClientException;
 import org.apache.pulsar.client.api.Schema;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 
 /**
  * Under an exclusive <i>Producer Access Mode</i> the pool must hold <b>one</b> producer per topic. The pool
@@ -70,7 +71,7 @@ public class PublisherPoolExclusiveAccessTest {
     private ProducerBuilder<byte[]> builder;
     private final ExecutorService otherTask = Executors.newSingleThreadExecutor();
 
-    @Before
+    @BeforeEach
     public void setUp() throws PulsarClientException {
         client = mock(PulsarClient.class);
         builder = mock(ProducerBuilder.class, RETURNS_SELF);
@@ -83,7 +84,7 @@ public class PublisherPoolExclusiveAccessTest {
         }).when(builder).create();
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         otherTask.shutdownNow();
     }
@@ -118,9 +119,9 @@ public class PublisherPoolExclusiveAccessTest {
             held.close();
             final PublisherLease handedOver = waiting.get(5, TimeUnit.SECONDS);
 
-            assertSame(mode + ": the waiting task must receive the lease that was just returned", held, handedOver);
+            assertSame(held, handedOver, mode + ": the waiting task must receive the lease that was just returned");
             verify(builder, times(1)).create();
-            assertEquals(mode.toString(), 1, pool.getOpenProducerCount());
+            assertEquals(1, pool.getOpenProducerCount(), mode.toString());
             pool.close();
         }
     }
@@ -165,7 +166,7 @@ public class PublisherPoolExclusiveAccessTest {
         assertSame(lease, again);
         final CompletableFuture<PublisherLease> waiting = CompletableFuture.supplyAsync(() -> pool.obtainPublisher(TOPIC), otherTask);
         Thread.sleep(200);
-        assertFalse("a second task got the topic while its only lease was in use", waiting.isDone());
+        assertFalse(waiting.isDone(), "a second task got the topic while its only lease was in use");
 
         again.close();
         assertSame(lease, waiting.get(5, TimeUnit.SECONDS));
@@ -185,12 +186,12 @@ public class PublisherPoolExclusiveAccessTest {
         final CompletableFuture<PublisherLease> waiting = CompletableFuture.supplyAsync(
                 () -> pool.obtainPublisher("persistent://public/default/exclusive"), otherTask);
         Thread.sleep(300);
-        assertFalse("the fully-qualified spelling got its own producer while the short spelling's was in use",
-                waiting.isDone());
+        assertFalse(waiting.isDone(),
+                "the fully-qualified spelling got its own producer while the short spelling's was in use");
         verify(builder, times(1)).create();
 
         held.close();
-        assertSame("the waiting spelling receives the lease the other spelling returned", held, waiting.get(5, TimeUnit.SECONDS));
+        assertSame(held, waiting.get(5, TimeUnit.SECONDS), "the waiting spelling receives the lease the other spelling returned");
         verify(builder, times(1)).create();
     }
 
@@ -212,7 +213,8 @@ public class PublisherPoolExclusiveAccessTest {
      * stopping the processor does not free it. When the wait runs out the caller gets an exception it can turn
      * into "back to the queue", not a null it would turn into "failure".
      */
-    @Test(timeout = 10_000)
+    @Test
+    @Timeout(value = 10_000, unit = TimeUnit.MILLISECONDS, threadMode = Timeout.ThreadMode.SEPARATE_THREAD)
     public void aTaskDoesNotWaitForeverForAHeldProducer() throws Exception {
         final PublisherPool pool = new PublisherPool(mock(ComponentLog.class), Map.of("accessMode", ProducerAccessMode.Exclusive),
                 client, null, Duration.ofMillis(200));
@@ -224,8 +226,8 @@ public class PublisherPoolExclusiveAccessTest {
             fail("a second task was handed a lease while the topic's producer was in use");
         } catch (final PublisherUnavailableException expected) {
             final long waitedMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - before);
-            assertTrue("gave up after " + waitedMillis + " ms, before the wait elapsed", waitedMillis >= 200);
-            assertTrue("kept waiting for " + waitedMillis + " ms, well past the 200 ms wait", waitedMillis < 2000);
+            assertTrue(waitedMillis >= 200, "gave up after " + waitedMillis + " ms, before the wait elapsed");
+            assertTrue(waitedMillis < 2000, "kept waiting for " + waitedMillis + " ms, well past the 200 ms wait");
         }
         verify(builder, times(1)).create();
 
@@ -235,7 +237,8 @@ public class PublisherPoolExclusiveAccessTest {
     }
 
     /** Interruption while waiting is the same outcome for the caller, and the interrupt is kept for whoever set it. */
-    @Test(timeout = 10_000)
+    @Test
+    @Timeout(value = 10_000, unit = TimeUnit.MILLISECONDS, threadMode = Timeout.ThreadMode.SEPARATE_THREAD)
     public void interruptionWhileWaitingIsReportedAndPreserved() throws Exception {
         final PublisherPool pool = poolWith(ProducerAccessMode.Exclusive);
         pool.obtainPublisher(TOPIC);
@@ -245,7 +248,7 @@ public class PublisherPoolExclusiveAccessTest {
             pool.obtainPublisher(TOPIC);
             fail("an interrupted task was handed a lease");
         } catch (final PublisherUnavailableException expected) {
-            assertTrue("the interrupt flag was swallowed", Thread.interrupted());
+            assertTrue(Thread.interrupted(), "the interrupt flag was swallowed");
         }
     }
 
@@ -257,7 +260,7 @@ public class PublisherPoolExclusiveAccessTest {
             throw new PulsarClientException("broker refused");
         }).when(builder).create();
 
-        assertTrue("obtainPublisher returns null when the producer cannot be created", pool.obtainPublisher(TOPIC) == null);
+        assertTrue(pool.obtainPublisher(TOPIC) == null, "obtainPublisher returns null when the producer cannot be created");
 
         final CompletableFuture<PublisherLease> next = CompletableFuture.supplyAsync(() -> pool.obtainPublisher(TOPIC), otherTask);
         // null again (creation still fails), but promptly: the topic was not left locked by the first failure

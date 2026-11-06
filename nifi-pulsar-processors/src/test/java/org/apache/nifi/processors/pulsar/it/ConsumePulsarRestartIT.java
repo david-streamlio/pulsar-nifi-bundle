@@ -17,7 +17,7 @@
 package org.apache.nifi.processors.pulsar.it;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
-import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -34,10 +34,9 @@ import org.apache.nifi.reporting.InitializationException;
 import org.apache.nifi.util.MockFlowFile;
 import org.apache.nifi.util.TestRunner;
 import org.apache.nifi.util.TestRunners;
-import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.junit.runners.Parameterized;
-import org.junit.runners.Parameterized.Parameters;
+
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 
 /**
  * Coverage for issue #18: "When you stop and restart a consumer, some messages are skipped."
@@ -55,7 +54,6 @@ import org.junit.runners.Parameterized.Parameters;
  * Duplicates across a restart are acceptable: Pulsar redelivers anything unacknowledged, and NiFi
  * processors are at-least-once. Losing a message is not.
  */
-@RunWith(Parameterized.class)
 public class ConsumePulsarRestartIT extends AbstractPulsarIT {
 
     private static final int MESSAGE_COUNT = 60;
@@ -73,20 +71,21 @@ public class ConsumePulsarRestartIT extends AbstractPulsarIT {
     /** Hard stop so a genuinely stuck consumer fails the test rather than spinning. */
     private static final int MAX_TRIGGERS = 400;
 
-    @Parameters(name = "async={0}")
     public static Collection<Object[]> parameters() {
         return Arrays.asList(new Object[][] {{false}, {true}});
     }
 
-    private final boolean async;
+    private boolean async;
 
-    public ConsumePulsarRestartIT(final boolean async) {
+    public void initConsumePulsarRestartIT(final boolean async) {
         this.async = async;
     }
 
     /** Consume part of a topic, stop, restart on the same subscription, and account for every message. */
-    @Test
-    public void noMessagesAreSkippedAcrossARestart() throws Exception {
+    @MethodSource("parameters")
+    @ParameterizedTest(name = "async={0}")
+    public void noMessagesAreSkippedAcrossARestart(final boolean async) throws Exception {
+        initConsumePulsarRestartIT(async);
         final String topic = "persistent://public/default/restart-" + System.nanoTime();
         final String subscription = "restart-sub";
 
@@ -98,8 +97,8 @@ public class ConsumePulsarRestartIT extends AbstractPulsarIT {
                 .mapToObj(n -> "message-" + n).toArray(String[]::new));
 
         final Set<String> consumed = new LinkedHashSet<>(consume(topic, subscription, MESSAGE_COUNT / 3));
-        assertTrue("the first run should have consumed something to restart from, but got nothing",
-                !consumed.isEmpty());
+        assertTrue(!consumed.isEmpty(),
+                "the first run should have consumed something to restart from, but got nothing");
 
         // Restart: a brand new processor on the same durable subscription, drained this time.
         consumed.addAll(consume(topic, subscription, Integer.MAX_VALUE));
@@ -111,8 +110,10 @@ public class ConsumePulsarRestartIT extends AbstractPulsarIT {
      * Repeated stop/start cycles must not lose anything either - a consumer that never catches up is what
      * a small loss per restart would look like over time.
      */
-    @Test
-    public void noMessagesAreSkippedAcrossRepeatedRestarts() throws Exception {
+    @MethodSource("parameters")
+    @ParameterizedTest(name = "async={0}")
+    public void noMessagesAreSkippedAcrossRepeatedRestarts(final boolean async) throws Exception {
+        initConsumePulsarRestartIT(async);
         final String topic = "persistent://public/default/restart-many-" + System.nanoTime();
         final String subscription = "restart-many-sub";
 
@@ -139,8 +140,10 @@ public class ConsumePulsarRestartIT extends AbstractPulsarIT {
      * arrive with no consumer connected at all. If a durable subscription were losing its place, this is
      * where it would show.
      */
-    @Test
-    public void messagesPublishedWhileStoppedAreDeliveredOnRestart() throws Exception {
+    @MethodSource("parameters")
+    @ParameterizedTest(name = "async={0}")
+    public void messagesPublishedWhileStoppedAreDeliveredOnRestart(final boolean async) throws Exception {
+        initConsumePulsarRestartIT(async);
         final String topic = "persistent://public/default/restart-downtime-" + System.nanoTime();
         final String subscription = "restart-downtime-sub";
 
@@ -169,8 +172,8 @@ public class ConsumePulsarRestartIT extends AbstractPulsarIT {
                 .filter(m -> !consumed.contains(m))
                 .collect(Collectors.toList());
 
-        assertTrue("Messages were skipped " + when + ": " + missing.size() + " of " + MESSAGE_COUNT
-                + " never arrived - " + missing, missing.isEmpty());
+        assertTrue(missing.isEmpty(), "Messages were skipped " + when + ": " + missing.size() + " of " + MESSAGE_COUNT
+                + " never arrived - " + missing);
     }
 
     /**

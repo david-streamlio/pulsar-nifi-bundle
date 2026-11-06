@@ -44,11 +44,8 @@ import org.apache.pulsar.client.api.Consumer;
 import org.apache.pulsar.client.api.Message;
 import org.apache.pulsar.client.api.PulsarClientException;
 import org.apache.pulsar.client.api.schema.GenericRecord;
-import org.junit.Before;
-import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.junit.runners.Parameterized;
-import org.junit.runners.Parameterized.Parameters;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 
 /**
  * A message the processor could not hand to the flow is negatively acknowledged, not merely left unacknowledged.
@@ -62,27 +59,26 @@ import org.junit.runners.Parameterized.Parameters;
  * Runs in synchronous and asynchronous mode on a Shared and on an Exclusive subscription, matching the
  * acknowledgement suite: each combination reaches the rollback through a different path.
  */
-@RunWith(Parameterized.class)
 public class ConsumePulsarNegativeAcknowledgementTest extends AbstractPulsarProcessorTest<GenericRecord> {
 
     private static final String TOPIC = "persistent://public/default/negative-acknowledgement";
 
-    @Parameters(name = "async={0}, subscription={1}")
     public static Collection<Object[]> parameters() {
         return Arrays.asList(new Object[][] {
             {false, "Exclusive"}, {false, "Shared"}, {true, "Exclusive"}, {true, "Shared"}});
     }
 
-    private final boolean async;
-    private final String subscriptionType;
+    private boolean async;
+    private String subscriptionType;
 
-    public ConsumePulsarNegativeAcknowledgementTest(final boolean async, final String subscriptionType) {
+    public void initConsumePulsarNegativeAcknowledgementTest(final boolean async, final String subscriptionType) throws InitializationException {
         this.async = async;
         this.subscriptionType = subscriptionType;
+        init();
     }
 
-    @Before
-    public void init() throws InitializationException {
+    /** Called by each test once its parameters are set, as JUnit 4 ran @Before after the constructor. */
+    private void init() throws InitializationException {
         runner = TestRunners.newTestRunner(ConsumePulsar.class);
         addPulsarClientService();
         runner.setProperty(AbstractPulsarConsumerProcessor.TOPICS, TOPIC);
@@ -99,8 +95,10 @@ public class ConsumePulsarNegativeAcknowledgementTest extends AbstractPulsarProc
      * now rather than when the Acknowledgment Timeout expires. Before this change nothing was negatively
      * acknowledged and the flow waited out that timeout.
      */
-    @Test
-    public void messagesAreNegativelyAcknowledgedWhenTheContentCannotBeWritten() throws PulsarClientException {
+    @MethodSource("parameters")
+    @ParameterizedTest(name = "async={0}, subscription={1}")
+    public void messagesAreNegativelyAcknowledgedWhenTheContentCannotBeWritten(final boolean async, final String subscriptionType) throws PulsarClientException, InitializationException {
+        initConsumePulsarNegativeAcknowledgementTest(async, subscriptionType);
         // schedule the processor against the still-empty topic
         runner.run(1, false, true);
         mockClientService.setMockMessageQueue(messages(3, "payload"));
@@ -122,8 +120,10 @@ public class ConsumePulsarNegativeAcknowledgementTest extends AbstractPulsarProc
      * A message that reached a FlowFile is acknowledged, never negatively acknowledged. Nacking a message
      * the flow already owns would hand the same content to the flow twice.
      */
-    @Test
-    public void nothingIsNegativelyAcknowledgedWhenTheContentIsWritten() throws PulsarClientException {
+    @MethodSource("parameters")
+    @ParameterizedTest(name = "async={0}, subscription={1}")
+    public void nothingIsNegativelyAcknowledgedWhenTheContentIsWritten(final boolean async, final String subscriptionType) throws PulsarClientException, InitializationException {
+        initConsumePulsarNegativeAcknowledgementTest(async, subscriptionType);
         mockClientService.setMockMessageQueue(messages(3, "payload"));
 
         runner.run(1, true);
@@ -136,8 +136,10 @@ public class ConsumePulsarNegativeAcknowledgementTest extends AbstractPulsarProc
      * Messages with an empty payload are discarded on purpose and acknowledged, so they are not redelivered.
      * A discard is a decision, not a failure.
      */
-    @Test
-    public void discardedEmptyMessagesAreNotNegativelyAcknowledged() throws PulsarClientException {
+    @MethodSource("parameters")
+    @ParameterizedTest(name = "async={0}, subscription={1}")
+    public void discardedEmptyMessagesAreNotNegativelyAcknowledged(final boolean async, final String subscriptionType) throws PulsarClientException, InitializationException {
+        initConsumePulsarNegativeAcknowledgementTest(async, subscriptionType);
         mockClientService.setMockMessageQueue(messages(3, null));
 
         runner.run(1, true);

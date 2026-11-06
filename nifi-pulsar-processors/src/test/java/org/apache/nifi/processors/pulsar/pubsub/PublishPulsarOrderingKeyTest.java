@@ -17,10 +17,10 @@
 package org.apache.nifi.processors.pulsar.pubsub;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
-import static org.junit.Assert.assertArrayEquals;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -48,7 +48,7 @@ import org.apache.nifi.serialization.record.RecordFieldType;
 import org.apache.nifi.util.LogMessage;
 import org.apache.nifi.util.TestRunners;
 import org.apache.pulsar.client.api.TypedMessageBuilder;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 /**
@@ -276,8 +276,8 @@ public class PublishPulsarOrderingKeyTest extends AbstractPulsarProcessorTest<by
         runner.assertAllFlowFilesTransferred(PublishPulsarRecord.REL_SUCCESS, 1);
         final List<String> messageKeys = keyBytesSent(3).stream().map(bytes -> new String(bytes, UTF_8)).toList();
         assertEquals(Arrays.asList("s-1", "s-1", "s-2"), messageKeys);
-        assertEquals("the ordering key must be the field's content, identical for the two s-1 records",
-                Arrays.asList("s-1", "s-1", "s-2"), orderingKeysSent(3));
+        assertEquals(Arrays.asList("s-1", "s-1", "s-2"), orderingKeysSent(3),
+                "the ordering key must be the field's content, identical for the two s-1 records");
         verify(builder(), never()).key(any());
     }
 
@@ -293,8 +293,8 @@ public class PublishPulsarOrderingKeyTest extends AbstractPulsarProcessorTest<by
         runner.setProperty(PublishPulsarRecord.MESSAGE_KEY_FIELD, "session");
         final byte[] first = {(byte) 0xFF, (byte) 0xFE, 0x01};
         final byte[] second = {(byte) 0xFE, (byte) 0xFF, 0x01};
-        assertEquals("the two keys must be indistinguishable once decoded, or the test proves nothing",
-                new String(first, UTF_8), new String(second, UTF_8));
+        assertEquals(new String(first, UTF_8), new String(second, UTF_8),
+                "the two keys must be indistinguishable once decoded, or the test proves nothing");
 
         runner.enqueue(avroRecords(new Object[] {first, "a"}, new Object[] {second, "b"}));
         runner.run();
@@ -342,7 +342,7 @@ public class PublishPulsarOrderingKeyTest extends AbstractPulsarProcessorTest<by
         assertEquals(1, runner.getLogger().getWarnMessages().size());
         final LogMessage warning = runner.getLogger().getWarnMessages().get(0);
         final String rendered = String.format(warning.getMsg().replace("{}", "%s"), warning.getArgs());
-        assertTrue(rendered, rendered.contains("Ordering Key Field") && rendered.contains("sessionId") && rendered.contains("session"));
+        assertTrue(rendered.contains("Ordering Key Field") && rendered.contains("sessionId") && rendered.contains("session"), rendered);
     }
 
     /** The same gap existed for Message Key Field; the same warning closes it. */
@@ -359,7 +359,7 @@ public class PublishPulsarOrderingKeyTest extends AbstractPulsarProcessorTest<by
         assertEquals(1, runner.getLogger().getWarnMessages().size());
         final LogMessage warning = runner.getLogger().getWarnMessages().get(0);
         final String rendered = String.format(warning.getMsg().replace("{}", "%s"), warning.getArgs());
-        assertTrue(rendered, rendered.contains("Message Key Field") && rendered.contains("tenantId"));
+        assertTrue(rendered.contains("Message Key Field") && rendered.contains("tenantId"), rendered);
     }
 
     /** A correctly named field produces no warning, or the warning would be noise on every FlowFile. */

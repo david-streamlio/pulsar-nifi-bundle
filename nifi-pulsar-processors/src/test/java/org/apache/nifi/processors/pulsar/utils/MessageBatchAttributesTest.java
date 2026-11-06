@@ -20,9 +20,9 @@ import static org.apache.nifi.processors.pulsar.utils.MessageBatchAttributes.FIR
 import static org.apache.nifi.processors.pulsar.utils.MessageBatchAttributes.LAST_MESSAGE_ID_ATTRIBUTE;
 import static org.apache.nifi.processors.pulsar.utils.MessageBatchAttributes.MESSAGE_ID_ATTRIBUTE;
 import static org.apache.nifi.processors.pulsar.utils.MessageBatchAttributes.PROPERTY_ATTRIBUTE_PREFIX;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -30,7 +30,8 @@ import java.util.Map;
 import org.apache.nifi.processors.pulsar.pubsub.mocks.MockPulsarMessage;
 import org.apache.pulsar.client.api.Message;
 import org.apache.pulsar.client.api.schema.GenericRecord;
-import org.junit.Test;
+
+import org.junit.jupiter.api.Test;
 
 public class MessageBatchAttributesTest {
 
@@ -80,7 +81,7 @@ public class MessageBatchAttributesTest {
         Map<String, String> attributes = batch.toAttributes();
 
         assertEquals(3, batch.getMessageCount());
-        assertFalse("A multi-message FlowFile has no single message id", attributes.containsKey(MESSAGE_ID_ATTRIBUTE));
+        assertFalse(attributes.containsKey(MESSAGE_ID_ATTRIBUTE), "A multi-message FlowFile has no single message id");
         assertEquals("1:0:2", attributes.get(FIRST_MESSAGE_ID_ATTRIBUTE));
         assertEquals("1:2:2", attributes.get(LAST_MESSAGE_ID_ATTRIBUTE));
         assertEquals(2, attributes.size());
@@ -96,9 +97,9 @@ public class MessageBatchAttributesTest {
         Map<String, String> attributes = batch.toAttributes();
 
         assertEquals("app", attributes.get(PROPERTY_ATTRIBUTE_PREFIX + "source"));
-        assertFalse("A property whose value differs between messages is not published", attributes.containsKey(PROPERTY_ATTRIBUTE_PREFIX + "trace-id"));
-        assertFalse("A property missing from some messages is not published", attributes.containsKey(PROPERTY_ATTRIBUTE_PREFIX + "only-first"));
-        assertFalse("A property missing from some messages is not published", attributes.containsKey(PROPERTY_ATTRIBUTE_PREFIX + "only-last"));
+        assertFalse(attributes.containsKey(PROPERTY_ATTRIBUTE_PREFIX + "trace-id"), "A property whose value differs between messages is not published");
+        assertFalse(attributes.containsKey(PROPERTY_ATTRIBUTE_PREFIX + "only-first"), "A property missing from some messages is not published");
+        assertFalse(attributes.containsKey(PROPERTY_ATTRIBUTE_PREFIX + "only-last"), "A property missing from some messages is not published");
     }
 
     @Test
@@ -138,7 +139,7 @@ public class MessageBatchAttributesTest {
         for (Map<String, String> attributes : new Map[] {nullProperties.toAttributes(), emptyProperties.toAttributes()}) {
             assertEquals("1:0:-1", attributes.get(MESSAGE_ID_ATTRIBUTE));
             for (String key : attributes.keySet()) {
-                assertFalse("No property attribute expected but found " + key, key.startsWith(PROPERTY_ATTRIBUTE_PREFIX));
+                assertFalse(key.startsWith(PROPERTY_ATTRIBUTE_PREFIX), "No property attribute expected but found " + key);
             }
         }
     }

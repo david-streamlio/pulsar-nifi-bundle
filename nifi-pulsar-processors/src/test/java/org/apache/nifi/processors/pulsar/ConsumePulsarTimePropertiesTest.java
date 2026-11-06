@@ -16,9 +16,9 @@
  */
 package org.apache.nifi.processors.pulsar;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
 
 import java.util.concurrent.TimeUnit;
 
@@ -32,9 +32,9 @@ import org.apache.pulsar.client.api.Schema;
 import org.apache.pulsar.client.impl.ConsumerBuilderImpl;
 import org.apache.pulsar.client.impl.conf.ConsumerConfigurationData;
 import org.apache.pulsar.client.api.schema.GenericRecord;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 /**
  * Two consumer time properties reach the Pulsar client through a unit conversion, and what the client ends up
@@ -53,7 +53,7 @@ public class ConsumePulsarTimePropertiesTest {
     private TestRunner runner;
     private StandardPulsarClientService clientService;
 
-    @Before
+    @BeforeEach
     public void init() throws InitializationException {
         runner = TestRunners.newTestRunner(ConsumePulsar.class);
         // A real client against a broker that does not exist: building it opens no connection, and nothing
@@ -67,7 +67,7 @@ public class ConsumePulsarTimePropertiesTest {
         runner.setProperty(AbstractPulsarConsumerProcessor.SUBSCRIPTION_NAME, "nifi-subscription");
     }
 
-    @After
+    @AfterEach
     public void closeClient() {
         runner.disableControllerService(clientService);
     }
@@ -161,7 +161,7 @@ public class ConsumePulsarTimePropertiesTest {
             clientService.getPulsarClient().newConsumer(Schema.BYTES).autoUpdatePartitionsInterval(0, TimeUnit.SECONDS);
             fail("the client accepted a zero-second partition update interval; the validation floor may no longer be needed");
         } catch (final IllegalArgumentException expected) {
-            assertTrue(expected.getMessage(), expected.getMessage().contains("> 0"));
+            assertTrue(expected.getMessage().contains("> 0"), expected.getMessage());
         }
     }
 

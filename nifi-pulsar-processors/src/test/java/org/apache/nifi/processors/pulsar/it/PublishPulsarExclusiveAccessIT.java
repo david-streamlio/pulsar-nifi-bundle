@@ -17,7 +17,7 @@
 package org.apache.nifi.processors.pulsar.it;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
-import static org.junit.Assert.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import java.util.HashSet;
 import java.util.Set;
@@ -36,8 +36,9 @@ import org.apache.pulsar.client.api.Message;
 import org.apache.pulsar.client.api.ProducerAccessMode;
 import org.apache.pulsar.client.api.Schema;
 import org.apache.pulsar.client.api.SubscriptionInitialPosition;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 
 /**
  * An exclusive <i>Producer Access Mode</i> on a {@code PublishPulsarRecord} that runs more than one concurrent task,
@@ -62,7 +63,7 @@ public class PublishPulsarExclusiveAccessIT extends AbstractPulsarIT {
 
     private TestRunner runner;
 
-    @Before
+    @BeforeEach
     public void init() throws InitializationException {
         runner = TestRunners.newTestRunner(PublishPulsarRecord.class);
         addRealPulsarClientService(runner, "pulsar-client");
@@ -84,18 +85,21 @@ public class PublishPulsarExclusiveAccessIT extends AbstractPulsarIT {
         runner.setThreadCount(2);
     }
 
-    @Test(timeout = 120_000)
+    @Test
+    @Timeout(value = 120_000, unit = TimeUnit.MILLISECONDS, threadMode = Timeout.ThreadMode.SEPARATE_THREAD)
     public void twoTasksShareTheExclusiveProducer() throws Exception {
         twoTasksPublishEverything(ProducerAccessMode.Exclusive);
     }
 
-    @Test(timeout = 120_000)
+    @Test
+    @Timeout(value = 120_000, unit = TimeUnit.MILLISECONDS, threadMode = Timeout.ThreadMode.SEPARATE_THREAD)
     public void twoTasksDoNotFenceEachOther() throws Exception {
         twoTasksPublishEverything(ProducerAccessMode.ExclusiveWithFencing);
     }
 
     /** The timeout is the assertion here: before the fix the second task never returned from producer creation. */
-    @Test(timeout = 120_000)
+    @Test
+    @Timeout(value = 120_000, unit = TimeUnit.MILLISECONDS, threadMode = Timeout.ThreadMode.SEPARATE_THREAD)
     public void twoTasksDoNotWaitForEachOtherForever() throws Exception {
         twoTasksPublishEverything(ProducerAccessMode.WaitForExclusive);
     }
@@ -127,7 +131,7 @@ public class PublishPulsarExclusiveAccessIT extends AbstractPulsarIT {
 
         runner.assertTransferCount(PublishPulsarRecord.REL_FAILURE, 0);
         runner.assertTransferCount(PublishPulsarRecord.REL_SUCCESS, FLOWFILES);
-        assertEquals("every FlowFile must have been processed", 0, runner.getQueueSize().getObjectCount());
+        assertEquals(0, runner.getQueueSize().getObjectCount(), "every FlowFile must have been processed");
 
         final Set<String> receivedIds = new HashSet<>();
         try (Consumer<byte[]> consumer = getClient().newConsumer(Schema.BYTES)
@@ -141,7 +145,7 @@ public class PublishPulsarExclusiveAccessIT extends AbstractPulsarIT {
                 consumer.acknowledge(msg);
             }
         }
-        assertEquals(mode + ": every record must have reached the topic exactly through the one producer",
-                expectedIds, receivedIds);
+        assertEquals(expectedIds,
+                receivedIds, mode + ": every record must have reached the topic exactly through the one producer");
     }
 }

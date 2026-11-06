@@ -45,11 +45,8 @@ import org.apache.nifi.util.TestRunners;
 import org.apache.pulsar.client.api.Message;
 import org.apache.pulsar.client.api.PulsarClientException;
 import org.apache.pulsar.client.api.schema.GenericRecord;
-import org.junit.Before;
-import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.junit.runners.Parameterized;
-import org.junit.runners.Parameterized.Parameters;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 
 /**
  * Regression tests for "Consumer Message Batch Size" on {@link ConsumePulsar}: a batch of compatible messages must
@@ -59,24 +56,23 @@ import org.junit.runners.Parameterized.Parameters;
  * <p>
  * Every scenario runs with {@code Async Enabled = false} and {@code = true}: both code paths implement the batching.
  */
-@RunWith(Parameterized.class)
 public class ConsumePulsarBatchingTest extends AbstractPulsarProcessorTest<GenericRecord> {
 
     private static final String TOPIC = "persistent://public/default/events";
 
-    @Parameters(name = "async={0}")
     public static Collection<Object[]> parameters() {
         return Arrays.asList(new Object[][] {{false}, {true}});
     }
 
-    private final boolean async;
+    private boolean async;
 
-    public ConsumePulsarBatchingTest(final boolean async) {
+    public void initConsumePulsarBatchingTest(final boolean async) throws InitializationException {
         this.async = async;
+        init();
     }
 
-    @Before
-    public void init() throws InitializationException {
+    /** Called by each test once its parameters are set, as JUnit 4 ran @Before after the constructor. */
+    private void init() throws InitializationException {
         runner = TestRunners.newTestRunner(ConsumePulsar.class);
         addPulsarClientService();
         runner.setProperty(AbstractPulsarConsumerProcessor.TOPICS, TOPIC);
@@ -90,8 +86,10 @@ public class ConsumePulsarBatchingTest extends AbstractPulsarProcessorTest<Gener
 
     // ------------------------------------------------------------------------------------------------ Test 1 & 4
 
-    @Test
-    public void tenMessagesWithUniqueMessageIdsProduceOneFlowFile() throws PulsarClientException {
+    @MethodSource("parameters")
+    @ParameterizedTest(name = "async={0}")
+    public void tenMessagesWithUniqueMessageIdsProduceOneFlowFile(final boolean async) throws PulsarClientException, InitializationException {
+        initConsumePulsarBatchingTest(async);
         mockClientService.setMockMessageQueue(messages(1, 10, null));
 
         runner.run(1, true);
@@ -103,8 +101,10 @@ public class ConsumePulsarBatchingTest extends AbstractPulsarProcessorTest<Gener
 
     // ------------------------------------------------------------------------------------------------ Test 2
 
-    @Test
-    public void partialBatchProducesOneFlowFileWithTheAvailableMessages() {
+    @MethodSource("parameters")
+    @ParameterizedTest(name = "async={0}")
+    public void partialBatchProducesOneFlowFileWithTheAvailableMessages(final boolean async) throws InitializationException {
+        initConsumePulsarBatchingTest(async);
         mockClientService.setMockMessageQueue(messages(1, 4, null));
 
         runner.run(1, true);
@@ -114,8 +114,10 @@ public class ConsumePulsarBatchingTest extends AbstractPulsarProcessorTest<Gener
 
     // ------------------------------------------------------------------------------------------------ Test 3
 
-    @Test
-    public void moreMessagesThanBatchSizeProduceOneFlowFilePerBatch() {
+    @MethodSource("parameters")
+    @ParameterizedTest(name = "async={0}")
+    public void moreMessagesThanBatchSizeProduceOneFlowFilePerBatch(final boolean async) throws InitializationException {
+        initConsumePulsarBatchingTest(async);
         mockClientService.setMockMessageQueue(messages(1, 25, null));
 
         runner.run(3, true);
@@ -128,8 +130,10 @@ public class ConsumePulsarBatchingTest extends AbstractPulsarProcessorTest<Gener
 
     // ------------------------------------------------------------------------------------------------ Test 4
 
-    @Test
-    public void uniquePerMessagePropertiesDoNotSplitTheBatch() {
+    @MethodSource("parameters")
+    @ParameterizedTest(name = "async={0}")
+    public void uniquePerMessagePropertiesDoNotSplitTheBatch(final boolean async) throws InitializationException {
+        initConsumePulsarBatchingTest(async);
         List<Message<GenericRecord>> messages = new ArrayList<>();
         for (int n = 1; n <= 10; n++) {
             Map<String, String> properties = new HashMap<>();
@@ -148,8 +152,10 @@ public class ConsumePulsarBatchingTest extends AbstractPulsarProcessorTest<Gener
         flowFile.assertAttributeNotExists(PROPERTY_ATTRIBUTE_PREFIX + "trace-id");
     }
 
-    @Test
-    public void singleMessageFlowFileKeepsThePreviousAttributeContract() {
+    @MethodSource("parameters")
+    @ParameterizedTest(name = "async={0}")
+    public void singleMessageFlowFileKeepsThePreviousAttributeContract(final boolean async) throws InitializationException {
+        initConsumePulsarBatchingTest(async);
         mockClientService.setMockMessageQueue(messages(7, 7, Collections.singletonMap("source", "device-gateway")));
 
         runner.run(1, true);
@@ -162,8 +168,10 @@ public class ConsumePulsarBatchingTest extends AbstractPulsarProcessorTest<Gener
 
     // ------------------------------------------------------------------------------------------------ Test 5
 
-    @Test
-    public void identicalMappedAttributeKeepsMessagesInOneFlowFile() {
+    @MethodSource("parameters")
+    @ParameterizedTest(name = "async={0}")
+    public void identicalMappedAttributeKeepsMessagesInOneFlowFile(final boolean async) throws InitializationException {
+        initConsumePulsarBatchingTest(async);
         runner.setProperty(AbstractPulsarConsumerProcessor.MAPPED_FLOWFILE_ATTRIBUTES, "tenant");
         mockClientService.setMockMessageQueue(messages(1, 3, Collections.singletonMap("tenant", "A")));
 
@@ -177,8 +185,10 @@ public class ConsumePulsarBatchingTest extends AbstractPulsarProcessorTest<Gener
 
     // ------------------------------------------------------------------------------------------------ Test 6
 
-    @Test
-    public void changedMappedAttributeStartsANewFlowFile() {
+    @MethodSource("parameters")
+    @ParameterizedTest(name = "async={0}")
+    public void changedMappedAttributeStartsANewFlowFile(final boolean async) throws InitializationException {
+        initConsumePulsarBatchingTest(async);
         runner.setProperty(AbstractPulsarConsumerProcessor.MAPPED_FLOWFILE_ATTRIBUTES, "tenant");
         List<Message<GenericRecord>> messages = new ArrayList<>();
         messages.addAll(messages(1, 2, Collections.singletonMap("tenant", "A")));
@@ -196,8 +206,10 @@ public class ConsumePulsarBatchingTest extends AbstractPulsarProcessorTest<Gener
 
     // ------------------------------------------------------------------------------------------------ Test 7
 
-    @Test
-    public void newlineDemarcatorSeparatesMessagesWithoutTrailingDelimiter() {
+    @MethodSource("parameters")
+    @ParameterizedTest(name = "async={0}")
+    public void newlineDemarcatorSeparatesMessagesWithoutTrailingDelimiter(final boolean async) throws InitializationException {
+        initConsumePulsarBatchingTest(async);
         mockClientService.setMockMessageQueue(Arrays.asList(
                 message(1, "message1"), message(2, "message2"), message(3, "message3")));
 
@@ -208,8 +220,10 @@ public class ConsumePulsarBatchingTest extends AbstractPulsarProcessorTest<Gener
         flowFile.assertAttributeEquals(ConsumePulsar.MSG_COUNT, "3");
     }
 
-    @Test
-    public void customDemarcatorIsHonoured() {
+    @MethodSource("parameters")
+    @ParameterizedTest(name = "async={0}")
+    public void customDemarcatorIsHonoured(final boolean async) throws InitializationException {
+        initConsumePulsarBatchingTest(async);
         runner.setProperty(AbstractPulsarConsumerProcessor.MESSAGE_DEMARCATOR, "|#|");
         mockClientService.setMockMessageQueue(Arrays.asList(
                 message(1, "message1"), message(2, "message2"), message(3, "message3")));
@@ -221,8 +235,10 @@ public class ConsumePulsarBatchingTest extends AbstractPulsarProcessorTest<Gener
 
     // ------------------------------------------------------------------------------------------------ Shared subscription
 
-    @Test
-    public void sharedSubscriptionBatchesMessagesToo() throws PulsarClientException {
+    @MethodSource("parameters")
+    @ParameterizedTest(name = "async={0}")
+    public void sharedSubscriptionBatchesMessagesToo(final boolean async) throws PulsarClientException, InitializationException {
+        initConsumePulsarBatchingTest(async);
         runner.setProperty(AbstractPulsarConsumerProcessor.SUBSCRIPTION_TYPE, "Shared");
         mockClientService.setMockMessageQueue(messages(1, 10, null));
 

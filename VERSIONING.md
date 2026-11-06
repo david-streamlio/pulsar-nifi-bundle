@@ -39,7 +39,7 @@ line** rather than multiple Pulsar majors simultaneously.
 The **git tag is authoritative** for a release. The pom `<version>` on `main`
 stays at the NiFi base version (e.g. `2.1.0`); you do **not** hand-edit it or
 commit a bump before tagging. When you push a tag `vX.Y.Z[.R]`, the release
-workflow stamps the pom from the tag (`mvn versions:set -DnewVersion=X.Y.Z[.R]`)
+workflow stamps the pom from the tag (`./mvnw versions:set -DnewVersion=X.Y.Z[.R]`)
 before building, so the NARs and the Docker image are labeled to match the tag.
 There is no separate `version` file.
 

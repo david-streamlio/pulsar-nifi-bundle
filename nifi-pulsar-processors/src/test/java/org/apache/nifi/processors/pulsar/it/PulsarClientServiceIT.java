@@ -17,10 +17,10 @@
 package org.apache.nifi.processors.pulsar.it;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
 
 import org.apache.nifi.processors.pulsar.pubsub.ConsumePulsar;
 import org.apache.nifi.pulsar.PulsarClientService;
@@ -34,8 +34,8 @@ import org.apache.pulsar.client.api.Producer;
 import org.apache.pulsar.client.api.PulsarClient;
 import org.apache.pulsar.client.api.PulsarClientException;
 import org.apache.pulsar.client.api.Schema;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 /**
  * Coverage for {@link StandardPulsarClientService} against a real broker.
@@ -53,7 +53,7 @@ public class PulsarClientServiceIT extends AbstractPulsarIT {
     private TestRunner runner;
     private StandardPulsarClientService service;
 
-    @Before
+    @BeforeEach
     public void init() throws InitializationException {
         // any processor will do; the runner is only here to host the controller service
         runner = TestRunners.newTestRunner(ConsumePulsar.class);
@@ -80,7 +80,7 @@ public class PulsarClientServiceIT extends AbstractPulsarIT {
             producer.send("hello from the service".getBytes(UTF_8));
 
             final Message<byte[]> received = consumer.receive(30, java.util.concurrent.TimeUnit.SECONDS);
-            assertNotNull("no message arrived within 30s", received);
+            assertNotNull(received, "no message arrived within 30s");
             consumer.acknowledge(received);
             assertEquals("hello from the service", new String(received.getValue(), UTF_8));
         }
@@ -136,8 +136,8 @@ public class PulsarClientServiceIT extends AbstractPulsarIT {
             // happen is a silently broken service that reports a usable client.
             assertNotNull(unreachable.getPulsarClient());
         } catch (final IllegalStateException expected) {
-            assertTrue("enable should explain what went wrong, but said: " + expected.getMessage(),
-                    expected.getMessage() != null && !expected.getMessage().isEmpty());
+            assertTrue(expected.getMessage() != null && !expected.getMessage().isEmpty(),
+                    "enable should explain what went wrong, but said: " + expected.getMessage());
         }
     }
 

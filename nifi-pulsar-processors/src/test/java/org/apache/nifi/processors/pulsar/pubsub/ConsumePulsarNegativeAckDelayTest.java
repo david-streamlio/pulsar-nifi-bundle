@@ -16,8 +16,8 @@
  */
 package org.apache.nifi.processors.pulsar.pubsub;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.concurrent.TimeUnit;
 
@@ -28,8 +28,8 @@ import org.apache.nifi.util.FormatUtils;
 import org.apache.nifi.util.LogMessage;
 import org.apache.nifi.util.TestRunners;
 import org.apache.pulsar.client.api.schema.GenericRecord;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 /**
  * A negatively acknowledged message is redelivered by <i>Negative Acknowledgment Redelivery Delay</i> and by
@@ -50,7 +50,7 @@ public class ConsumePulsarNegativeAckDelayTest extends AbstractPulsarProcessorTe
     /** The floor {@code customValidate} enforces on Acknowledgment Timeout, in seconds. */
     private static final long ACK_TIMEOUT_FLOOR_SECONDS = 10;
 
-    @Before
+    @BeforeEach
     public void init() throws InitializationException {
         runner = TestRunners.newTestRunner(ConsumePulsar.class);
         addPulsarClientService();
@@ -68,10 +68,10 @@ public class ConsumePulsarNegativeAckDelayTest extends AbstractPulsarProcessorTe
         final long defaultDelayMillis = FormatUtils.getTimeDuration(
                 AbstractPulsarConsumerProcessor.NEGATIVE_ACK_REDELIVERY_DELAY.getDefaultValue(), TimeUnit.MILLISECONDS);
 
-        assertTrue("the default Negative Acknowledgment Redelivery Delay (" + defaultDelayMillis + " ms) is not shorter "
+        assertTrue(defaultDelayMillis < TimeUnit.SECONDS.toMillis(ACK_TIMEOUT_FLOOR_SECONDS),
+                "the default Negative Acknowledgment Redelivery Delay (" + defaultDelayMillis + " ms) is not shorter "
                         + "than the " + ACK_TIMEOUT_FLOOR_SECONDS + " s floor of Acknowledgment Timeout, so a write "
-                        + "failure would stall longer than the timeout it was meant to beat",
-                defaultDelayMillis < TimeUnit.SECONDS.toMillis(ACK_TIMEOUT_FLOOR_SECONDS));
+                        + "failure would stall longer than the timeout it was meant to beat");
     }
 
     /** Defaults only, which is what every flow created before the property existed looks like. */
@@ -112,9 +112,9 @@ public class ConsumePulsarNegativeAckDelayTest extends AbstractPulsarProcessorTe
         runner.run(1, false, true);
 
         final LogMessage warning = theSingleWarning();
-        assertTrue("the warning does not name both properties: " + warning.getMsg(),
-                warning.getMsg().contains("Negative Acknowledgment Redelivery Delay")
-                        && warning.getMsg().contains("Acknowledgment Timeout"));
+        assertTrue(warning.getMsg().contains("Negative Acknowledgment Redelivery Delay")
+                        && warning.getMsg().contains("Acknowledgment Timeout"),
+                "the warning does not name both properties: " + warning.getMsg());
     }
 
     /** No warning for the configurations the rule accepts, or it would be noise on every start. */
@@ -140,8 +140,8 @@ public class ConsumePulsarNegativeAckDelayTest extends AbstractPulsarProcessorTe
     }
 
     private LogMessage theSingleWarning() {
-        assertEquals("expected exactly one warning about the delay, got " + runner.getLogger().getWarnMessages(),
-                1, runner.getLogger().getWarnMessages().size());
+        assertEquals(1,
+                runner.getLogger().getWarnMessages().size(), "expected exactly one warning about the delay, got " + runner.getLogger().getWarnMessages());
         return runner.getLogger().getWarnMessages().get(0);
     }
 }
