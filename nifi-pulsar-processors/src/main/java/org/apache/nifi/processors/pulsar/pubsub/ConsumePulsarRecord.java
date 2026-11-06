@@ -51,6 +51,7 @@ import org.apache.nifi.processor.util.StandardValidators;
 import org.apache.nifi.processors.pulsar.AbstractPulsarConsumerProcessor;
 import org.apache.nifi.processors.pulsar.utils.MessageBatchAttributes;
 import org.apache.nifi.processors.pulsar.utils.KeyValueTopicSchema;
+import org.apache.nifi.processors.pulsar.utils.AvroReadOffset;
 import org.apache.nifi.processors.pulsar.utils.TopicSchemaRecordDecoder;
 import org.apache.nifi.schema.access.SchemaNotFoundException;
 import org.apache.nifi.serialization.*;
@@ -466,7 +467,13 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
                     // Either the configured strategy is the Record Reader, or the topic has no schema to
                     // decode with - a schema-less topic, or one whose schema has no record shape.
                     try {
-                        reader = readerFactory.createRecordReader(currentAttributes, new ByteArrayInputStream(data), data.length, getLogger());
+                        // A reader knows nothing of __AVRO_READ_OFFSET__, so a framed AVRO topic would hand
+                        // it the preamble as record data and get plausible garbage back (#207). Skip it here
+                        // so both strategies read the same records. Zero, and the whole payload, otherwise.
+                        final int offset = AvroReadOffset.of(readerSchemaInfo);
+                        AvroReadOffset.check(offset, data);
+                        reader = readerFactory.createRecordReader(currentAttributes,
+                                new ByteArrayInputStream(data, offset, data.length - offset), data.length - offset, getLogger());
                         currentSchema = reader.getSchema();
                     } catch (MalformedRecordException | IOException | SchemaNotFoundException e) {
                         IOUtils.closeQuietly(reader);
