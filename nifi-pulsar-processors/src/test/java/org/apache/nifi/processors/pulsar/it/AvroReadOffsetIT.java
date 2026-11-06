@@ -17,15 +17,17 @@
 package org.apache.nifi.processors.pulsar.it;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.ByteArrayOutputStream;
 
+import org.apache.nifi.avro.AvroReader;
 import org.apache.nifi.json.JsonRecordSetWriter;
 import org.apache.nifi.processors.pulsar.AbstractPulsarConsumerProcessor;
 import org.apache.nifi.processors.pulsar.pubsub.ConsumePulsarRecord;
 import org.apache.nifi.reporting.InitializationException;
+import org.apache.nifi.schema.access.SchemaAccessUtils;
 import org.apache.nifi.util.MockFlowFile;
 import org.apache.nifi.util.TestRunner;
 import org.apache.nifi.util.TestRunners;
@@ -34,7 +36,7 @@ import org.apache.pulsar.client.api.Schema;
 import org.apache.pulsar.client.api.schema.GenericRecord;
 import org.apache.pulsar.common.schema.SchemaInfo;
 import org.apache.pulsar.common.schema.SchemaType;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 /**
  * Topics whose registered schema declares {@code __AVRO_READ_OFFSET__} (#207), read through a real broker.
@@ -81,11 +83,32 @@ public class AvroReadOffsetIT extends AbstractPulsarIT {
         assertEquals(RECORDS, consumeRecords(consumer, RECORDS));
         consumer.assertTransferCount(ConsumePulsarRecord.REL_PARSE_FAILURE, 0);
 
-        final String content = successContent(consumer);
+        assertDecodedPastThePreamble(successContent(consumer));
+    }
+
+    /**
+     * The same framed topic through the default strategy: a Record Reader - an {@code AvroReader} on
+     * {@code ${avro.schema}}, as the README prescribes for an AVRO topic. The reader knows nothing of the
+     * property, so unless the processor skips the preamble before handing it the payload, it decodes the
+     * preamble as record data and finds several plausible-looking records per message.
+     */
+    @Test
+    public void aFramedTopicIsDecodedPastItsPreambleByARecordReader() throws Exception {
+        final String topic = registeredTopic("framed-reader", FRAMED_SCHEMA);
+        publishFramed(topic, PREAMBLE);
+
+        final TestRunner consumer = readerConsumer(topic, "framed-reader");
+        assertEquals(RECORDS, consumeRecords(consumer, RECORDS));
+        consumer.assertTransferCount(ConsumePulsarRecord.REL_PARSE_FAILURE, 0);
+
+        assertDecodedPastThePreamble(successContent(consumer));
+    }
+
+    private static void assertDecodedPastThePreamble(final String content) {
         for (int seq = 1; seq <= RECORDS; seq++) {
-            assertTrue("record " + seq + " should have decoded its real id, got " + content,
-                    content.contains("\"sensor-" + seq + "\""));
-            assertTrue("and its real reading", content.contains("\"reading\":" + (seq * 10)));
+            assertTrue(content.contains("\"sensor-" + seq + "\""),
+                    "record " + seq + " should have decoded its real id, got " + content);
+            assertTrue(content.contains("\"reading\":" + (seq * 10)), "and its real reading");
         }
     }
 
@@ -119,8 +142,8 @@ public class AvroReadOffsetIT extends AbstractPulsarIT {
                 PULSAR.execInContainer("bin/pulsar-admin", "schemas", "get", topic);
         final String output = result.getStdout() + result.getStderr();
 
-        assertTrue("the broker should have kept __AVRO_READ_OFFSET__, but returned:\n" + output,
-                output.contains("__AVRO_READ_OFFSET__"));
+        assertTrue(output.contains("__AVRO_READ_OFFSET__"),
+                "the broker should have kept __AVRO_READ_OFFSET__, but returned:\n" + output);
     }
 
     // ------------------------------------------------------------------ helpers
@@ -185,6 +208,34 @@ public class AvroReadOffsetIT extends AbstractPulsarIT {
 
         runner.setProperty(AbstractPulsarConsumerProcessor.PULSAR_CLIENT_SERVICE, "pulsar-client");
         runner.setProperty(ConsumePulsarRecord.MESSAGE_SCHEMA_STRATEGY, "Topic Schema");
+        runner.setProperty(ConsumePulsarRecord.RECORD_WRITER, "record-writer");
+        runner.setProperty(AbstractPulsarConsumerProcessor.TOPICS, topic);
+        runner.setProperty(AbstractPulsarConsumerProcessor.SUBSCRIPTION_NAME, subscription);
+        runner.setProperty(AbstractPulsarConsumerProcessor.SUBSCRIPTION_TYPE, "Shared");
+        runner.setProperty(AbstractPulsarConsumerProcessor.SUBSCRIPTION_INITIAL_POSITION, "Earliest");
+        runner.setProperty(AbstractPulsarConsumerProcessor.ASYNC_ENABLED, "false");
+        runner.setProperty(AbstractPulsarConsumerProcessor.CONSUMER_BATCH_SIZE, "100");
+        runner.setProperty(ConsumePulsarRecord.MAX_WAIT_TIME, "0 sec");
+        return runner;
+    }
+
+    /** The default strategy: an AvroReader whose schema comes from the consumer's own avro.schema attribute. */
+    private TestRunner readerConsumer(final String topic, final String subscription) throws InitializationException {
+        final TestRunner runner = TestRunners.newTestRunner(ConsumePulsarRecord.class);
+        addRealPulsarClientService(runner, "pulsar-client");
+
+        final AvroReader reader = new AvroReader();
+        runner.addControllerService("record-reader", reader);
+        runner.setProperty(reader, SchemaAccessUtils.SCHEMA_ACCESS_STRATEGY, "schema-text-property");
+        runner.setProperty(reader, SchemaAccessUtils.SCHEMA_TEXT, "${avro.schema}");
+        runner.enableControllerService(reader);
+
+        final JsonRecordSetWriter writer = new JsonRecordSetWriter();
+        runner.addControllerService("record-writer", writer);
+        runner.enableControllerService(writer);
+
+        runner.setProperty(AbstractPulsarConsumerProcessor.PULSAR_CLIENT_SERVICE, "pulsar-client");
+        runner.setProperty(ConsumePulsarRecord.RECORD_READER, "record-reader");
         runner.setProperty(ConsumePulsarRecord.RECORD_WRITER, "record-writer");
         runner.setProperty(AbstractPulsarConsumerProcessor.TOPICS, topic);
         runner.setProperty(AbstractPulsarConsumerProcessor.SUBSCRIPTION_NAME, subscription);

@@ -17,8 +17,10 @@
 package org.apache.nifi.processors.pulsar.utils;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 
 import org.apache.pulsar.common.schema.SchemaInfo;
+import org.apache.pulsar.common.schema.SchemaType;
 
 /**
  * How many bytes precede the Avro body in a message (#207).
@@ -68,6 +70,39 @@ public final class AvroReadOffset {
             // A schema we cannot understand should not stop the topic being read the way it always was.
             return 0;
         }
+    }
+
+    /**
+     * The offset for an AVRO topic's schema info alone, for callers that hold no parsed schema - the
+     * Record Reader path, which hands the payload to a reader that knows nothing of the property.
+     * <p>
+     * The schema definition is parsed only when it, or the schema info's properties, mention the property
+     * at all, so the cost on every topic not framed this way is a substring check.
+     *
+     * @return the number of bytes to skip; zero for anything that is not an AVRO schema
+     */
+    public static int of(final SchemaInfo schemaInfo) {
+        if (schemaInfo == null || schemaInfo.getType() != SchemaType.AVRO || schemaInfo.getSchema() == null) {
+            return 0;
+        }
+
+        final String definition = new String(schemaInfo.getSchema(), StandardCharsets.UTF_8);
+        final boolean inProperties = schemaInfo.getProperties() != null
+                && schemaInfo.getProperties().containsKey(PROPERTY);
+        if (!inProperties && !definition.contains(PROPERTY)) {
+            return 0;
+        }
+
+        org.apache.avro.Schema avroSchema = null;
+        if (definition.contains(PROPERTY)) {
+            try {
+                avroSchema = new org.apache.avro.Schema.Parser().parse(definition);
+            } catch (final RuntimeException e) {
+                // an unparseable definition leaves the reader to fail on it as it always has
+                avroSchema = null;
+            }
+        }
+        return of(avroSchema, schemaInfo);
     }
 
     /**
