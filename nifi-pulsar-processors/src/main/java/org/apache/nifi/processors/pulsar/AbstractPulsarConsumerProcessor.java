@@ -1207,5 +1207,4 @@ public abstract class AbstractPulsarConsumerProcessor<T> extends AbstractProcess
 
         return msg.getKey();
     }
-
 }

@@ -17,8 +17,8 @@
 package org.apache.nifi.processors.pulsar.it;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -38,7 +38,7 @@ import org.apache.nifi.util.MockProcessSession;
 import org.apache.nifi.util.SharedSessionState;
 import org.apache.nifi.util.TestRunner;
 import org.apache.nifi.util.TestRunners;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 /**
  * On an Exclusive or Failover subscription the processor used to acknowledge a batch cumulatively, up to its
@@ -104,14 +104,15 @@ public class ConsumePulsarNonSharedAcknowledgementIT extends AbstractPulsarIT {
                 return !runner.getFlowFilesForRelationship(ConsumePulsar.REL_SUCCESS).isEmpty();
             });
             final long m2ConsumedAfterSeconds = TimeUnit.NANOSECONDS.toSeconds(System.nanoTime() - nackedAt);
-            assertEquals(subscriptionType, List.of("m2"), received(runner));
-            assertTrue(subscriptionType + ": m2 was consumed " + m2ConsumedAfterSeconds + " s after the nack, not inside "
-                    + "the redelivery delay, so the sequence under test did not happen", m2ConsumedAfterSeconds < REDELIVERY_DELAY_SECONDS);
+            assertEquals(List.of("m2"), received(runner), subscriptionType);
+            assertTrue(m2ConsumedAfterSeconds < REDELIVERY_DELAY_SECONDS, subscriptionType + ": m2 was consumed "
+                    + m2ConsumedAfterSeconds + " s after the nack, not inside the redelivery delay, so the sequence "
+                    + "under test did not happen");
             runner.clearTransferState();
 
             // m1's redelivery is due; a cumulative acknowledgement of m2 would have taken it along
-            assertEquals(subscriptionType + ": m1 was negatively acknowledged and must be redelivered",
-                    List.of("m1"), consumeFor(runner, REDELIVERY_DELAY_SECONDS + 15));
+            assertEquals(List.of("m1"), consumeFor(runner, REDELIVERY_DELAY_SECONDS + 15),
+                    subscriptionType + ": m1 was negatively acknowledged and must be redelivered");
         }
     }
 
@@ -140,23 +141,23 @@ public class ConsumePulsarNonSharedAcknowledgementIT extends AbstractPulsarIT {
                 }
             }, "task-A");
             taskA.start();
-            assertTrue(subscriptionType + ": task A never received m1", aIsWriting.await(30, TimeUnit.SECONDS));
+            assertTrue(aIsWriting.await(30, TimeUnit.SECONDS), subscriptionType + ": task A never received m1");
 
             // task B: receives m2, writes it, commits, acknowledges - while A still holds m1
             await(subscriptionType + ": task B to consume m2 while task A holds m1", () -> {
                 runner.run(1, false, false);
                 return !runner.getFlowFilesForRelationship(ConsumePulsar.REL_SUCCESS).isEmpty();
             });
-            assertEquals(subscriptionType, List.of("m2"), received(runner));
+            assertEquals(List.of("m2"), received(runner), subscriptionType);
             runner.clearTransferState();
 
             // now A's write fails: m1 is rolled back and negatively acknowledged
             bHasAcknowledged.countDown();
             taskA.join(TimeUnit.SECONDS.toMillis(30));
-            assertTrue(subscriptionType + ": task A did not fail its write", writeFailuresLogged(runner) > 0);
+            assertTrue(writeFailuresLogged(runner) > 0, subscriptionType + ": task A did not fail its write");
 
-            assertEquals(subscriptionType + ": m1, held by task A when task B acknowledged m2, must be redelivered",
-                    List.of("m1"), consumeFor(runner, REDELIVERY_DELAY_SECONDS + 15));
+            assertEquals(List.of("m1"), consumeFor(runner, REDELIVERY_DELAY_SECONDS + 15),
+                    subscriptionType + ": m1, held by task A when task B acknowledged m2, must be redelivered");
         }
     }
 

@@ -98,8 +98,6 @@ public class ConsumePulsar extends AbstractPulsarConsumerProcessor<byte[]> {
                 final byte[] demarcatorBytes = context.getProperty(MESSAGE_DEMARCATOR).isSet() ? context.getProperty(MESSAGE_DEMARCATOR)
                     .evaluateAttributeExpressions().getValue().getBytes(StandardCharsets.UTF_8) : null;
 
-                // Cumulative acks are NOT permitted on Shared subscriptions.
-                
                 List<Message<GenericRecord>> messages = done.get();
 
                 if (CollectionUtils.isNotEmpty(messages)) {
@@ -213,8 +211,6 @@ public class ConsumePulsar extends AbstractPulsarConsumerProcessor<byte[]> {
             final byte[] demarcatorBytes = context.getProperty(MESSAGE_DEMARCATOR).isSet() ? context.getProperty(MESSAGE_DEMARCATOR)
                     .evaluateAttributeExpressions().getValue().getBytes(StandardCharsets.UTF_8) : null;
             
-            // Cumulative acks are NOT permitted on Shared subscriptions.
-
             FlowFile flowFile = null;
             OutputStream out = null;
             Message<GenericRecord> msg = null;
