@@ -78,12 +78,10 @@ public class ConsumePulsarRecordAcknowledgementTest extends AbstractPulsarProces
 
     private boolean async;
     private String subscriptionType;
-    private boolean shared;
 
     public void initConsumePulsarRecordAcknowledgementTest(final boolean async, final String subscriptionType) throws InitializationException {
         this.async = async;
         this.subscriptionType = subscriptionType;
-        this.shared = isSharedSubType(subscriptionType);
         init();
     }
 
@@ -118,8 +116,7 @@ public class ConsumePulsarRecordAcknowledgementTest extends AbstractPulsarProces
         runner.run(1, true);
 
         runner.assertAllFlowFilesTransferred(ConsumePulsarRecord.REL_SUCCESS, 1);
-        assertEquals(shared ? 3 : 1,
-                statesAtAcknowledgement.size(), "one acknowledgement per message on a Shared subscription, one cumulative acknowledgement otherwise");
+        assertEquals(3, statesAtAcknowledgement.size(), "one acknowledgement per message, whatever the subscription type (#223)");
         for (final String state : statesAtAcknowledgement) {
             assertEquals(ONE_COMMITTED_FLOWFILE, state, "a message was acknowledged before the FlowFile carrying it was committed");
         }
@@ -142,8 +139,8 @@ public class ConsumePulsarRecordAcknowledgementTest extends AbstractPulsarProces
 
         runner.assertTransferCount(ConsumePulsarRecord.REL_SUCCESS, 0);
         runner.assertTransferCount(ConsumePulsarRecord.REL_PARSE_FAILURE, 1);
-        assertEquals(shared ? 3 : 1,
-                statesAtAcknowledgement.size(), "every unparseable message is acknowledged once its parse_failure FlowFile is committed");
+        assertEquals(3, statesAtAcknowledgement.size(),
+                "every unparseable message is acknowledged once its parse_failure FlowFile is committed");
         for (final String state : statesAtAcknowledgement) {
             assertEquals(ONE_COMMITTED_FLOWFILE, state, "a message was acknowledged before the FlowFile carrying it was committed");
         }
