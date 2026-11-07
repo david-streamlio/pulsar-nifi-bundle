@@ -74,12 +74,10 @@ public class ConsumePulsarAcknowledgementTest extends AbstractPulsarProcessorTes
 
     private boolean async;
     private String subscriptionType;
-    private boolean shared;
 
     public void initConsumePulsarAcknowledgementTest(final boolean async, final String subscriptionType) throws InitializationException {
         this.async = async;
         this.subscriptionType = subscriptionType;
-        this.shared = isSharedSubType(subscriptionType);
         init();
     }
 
@@ -110,8 +108,7 @@ public class ConsumePulsarAcknowledgementTest extends AbstractPulsarProcessorTes
         runner.run(1, true);
 
         runner.assertAllFlowFilesTransferred(ConsumePulsar.REL_SUCCESS, 1);
-        assertEquals(shared ? 3 : 1,
-                statesAtAcknowledgement.size(), "one acknowledgement per message on a Shared subscription, one cumulative acknowledgement otherwise");
+        assertEquals(3, statesAtAcknowledgement.size(), "one acknowledgement per message, whatever the subscription type (#223)");
         for (final String state : statesAtAcknowledgement) {
             assertEquals(ONE_COMMITTED_FLOWFILE, state, "a message was acknowledged before the FlowFile carrying it was committed");
         }
@@ -207,13 +204,12 @@ public class ConsumePulsarAcknowledgementTest extends AbstractPulsarProcessorTes
     private void verifyAcknowledged(final int messages) throws PulsarClientException {
         final Consumer<GenericRecord> consumer = mockClientService.getMockConsumer();
 
-        if (shared) {
-            verify(consumer, times(async ? 0 : messages)).acknowledge(any(Message.class));
-            verify(consumer, times(async ? messages : 0)).acknowledgeAsync(any(Message.class));
-        } else {
-            verify(consumer, times(async ? 0 : 1)).acknowledgeCumulative(any(Message.class));
-            verify(consumer, times(async ? 1 : 0)).acknowledgeCumulativeAsync(any(Message.class));
-        }
+        // per message on every subscription type: a cumulative acknowledgement would also take whatever sits
+        // before the batch on the subscription - another task's messages, or this task's nacked ones (#223)
+        verify(consumer, times(async ? 0 : messages)).acknowledge(any(Message.class));
+        verify(consumer, times(async ? messages : 0)).acknowledgeAsync(any(Message.class));
+        verify(consumer, never()).acknowledgeCumulative(any(Message.class));
+        verify(consumer, never()).acknowledgeCumulativeAsync(any(Message.class));
     }
 
     private void verifyNothingAcknowledged() throws PulsarClientException {

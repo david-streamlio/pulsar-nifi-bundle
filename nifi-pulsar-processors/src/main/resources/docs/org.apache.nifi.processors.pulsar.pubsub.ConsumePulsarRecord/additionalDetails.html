@@ -101,7 +101,14 @@
 <p>
     A consumed message leaves this processor by exactly one route, and which one it took decides whether
     Pulsar ever delivers it again. Acknowledgement happens only after the FlowFile carrying the message is
-    committed, so a message is never acknowledged while its content could still be discarded.
+    committed, so a message is never acknowledged while its content could still be discarded, and it is per
+    message on every subscription type: each acknowledgement names exactly the messages the committed FlowFile
+    carried. A cumulative acknowledgement - which <code>Exclusive</code> and <code>Failover</code> subscriptions
+    used to get - covers everything before the batch on the subscription as well, including a message this or
+    another task had just failed to write and negatively acknowledged, and that message was then never redelivered.
+    Every task of one processor receives from the same consumer, so several tasks on an <code>Exclusive</code> or
+    <code>Failover</code> subscription share one stream; use <code>Shared</code> or <code>Key_Shared</code> for
+    more than one consumer on the subscription.
 </p>
 <table>
     <tr><th>What happened</th><th>Route</th><th>Redelivered?</th></tr>
