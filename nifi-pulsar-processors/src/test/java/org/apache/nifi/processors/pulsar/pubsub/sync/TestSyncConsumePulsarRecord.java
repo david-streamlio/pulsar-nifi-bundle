@@ -45,7 +45,7 @@ public class TestSyncConsumePulsarRecord extends TestConsumePulsarRecord {
         runner.run();
         runner.assertAllFlowFilesTransferred(ConsumePulsarRecord.REL_PARSE_FAILURE);
 
-        verify(mockClientService.getMockConsumer(), times(1)).acknowledgeCumulative(mockMessage);
+        verify(mockClientService.getMockConsumer(), times(1)).acknowledge(mockMessage);
     }
 
     @Test
@@ -62,7 +62,7 @@ public class TestSyncConsumePulsarRecord extends TestConsumePulsarRecord {
         runner.run();
         runner.assertAllFlowFilesTransferred(ConsumePulsarRecord.REL_PARSE_FAILURE);
 
-        verify(mockClientService.getMockConsumer(), times(1)).acknowledgeCumulative(mockMessage);
+        verify(mockClientService.getMockConsumer(), times(1)).acknowledge(mockMessage);
     }
 
     /*
