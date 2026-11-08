@@ -4,6 +4,7 @@
 
 | Bundle version | NiFi | Pulsar client | Java |
 |---|---|---|---|
+| `2.11.0.2` | 2.11.0 | 4.2.4 | 21 |
 | `2.11.0.1` | 2.11.0 | 4.2.4 | 21 |
 | `2.11.0` | 2.11.0 | 4.2.4 | 21 |
 | `2.10.0` | 2.10.0 | 4.2.4 | 21 |
@@ -18,8 +19,11 @@ The bundle version tracks the NiFi platform version it is built for; each releas
 line targets one Pulsar client major. See [VERSIONING.md](VERSIONING.md) for the
 full scheme, branching model, and release process.
 
-Release notes live in [`docs/release-notes/`](docs/release-notes/). `2.11.0.1` fixes two defects in
-features `2.11.0` introduced — see [its notes](docs/release-notes/2.11.0.1.md). `2.11.0` is the
+Release notes live in [`docs/release-notes/`](docs/release-notes/). `2.11.0.2` fixes a consumer that
+could lose a message on `Exclusive` and `Failover` subscriptions and one that misread framed Avro topics,
+and adds Topics Pattern, Read Compacted, Subscription Mode and ordering key options; see
+[its notes](docs/release-notes/2.11.0.2.md). `2.11.0.1` fixes two defects in features `2.11.0`
+introduced ([notes](docs/release-notes/2.11.0.1.md)). `2.11.0` is the
 platform bump ([notes](docs/release-notes/2.11.0.md)). If you are coming from
 `2.9.0` or earlier, read [the `2.10.0` notes](docs/release-notes/2.10.0.md) too: that
 release carries several behaviour changes.
