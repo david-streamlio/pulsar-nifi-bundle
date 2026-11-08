@@ -39,9 +39,13 @@
             <scope>provided</scope>
         </dependency>
         
+        <!-- The unshaded client. From Pulsar 5 the shaded pulsar-client relocates its implementation under
+             org.apache.pulsar.shade, while pulsar-client-auth-athenz still links against the unshaded one and
+             pulls it in at runtime. Pulsar's loader prefers the unshaded implementation when both are present,
+             so the shaded jar would only ever be dead weight; depend on the client that actually runs. -->
         <dependency>
             <groupId>org.apache.pulsar</groupId>
-            <artifactId>pulsar-client</artifactId>
+            <artifactId>pulsar-client-original</artifactId>
             <version>${pulsar.version}</version>
             <exclusions>
                 <exclusion>

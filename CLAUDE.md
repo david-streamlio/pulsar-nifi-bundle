@@ -44,10 +44,12 @@ This is a Maven multi-module project that provides Apache NiFi processors for Ap
 - **Utilities**: Publisher pooling, property mapping, and validation helpers
 
 ### Dependencies
-- NiFi 2.11.0 (`nifi.version`; the `nifi-extension-bundles` parent must match it, and CI checks this)
-- Apache Pulsar 4.2.4 (`pulsar.version`)
+- NiFi 2.12.0 (`nifi.version`; the `nifi-extension-bundles` parent must match it, and CI checks this)
+- Apache Pulsar 5.0.1 (`pulsar.version`), as the unshaded `pulsar-client-original`. Compile only against the
+  public client API: Pulsar 5's shaded jars relocate `org.apache.pulsar.client.impl` and `org.apache.pulsar.common`,
+  and internal classes are not a stable surface either way
 - Java 21
-- Maven 3.9.16+ via the wrapper (`./mvnw`), with the NiFi NAR plugin
+- Maven 3.10.0 via the wrapper (`./mvnw`), with the NiFi NAR plugin
 
 ## Docker Testing
 

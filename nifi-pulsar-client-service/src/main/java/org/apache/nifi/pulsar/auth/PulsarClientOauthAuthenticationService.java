@@ -16,7 +16,6 @@
  */
 package org.apache.nifi.pulsar.auth;
 
-import java.net.URL;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collections;
@@ -29,14 +28,20 @@ import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.processor.util.StandardValidators;
 import org.apache.pulsar.client.api.Authentication;
 import org.apache.pulsar.client.api.AuthenticationFactory;
-import org.apache.pulsar.client.impl.auth.oauth2.AuthenticationFactoryOAuth2;
-import org.apache.pulsar.client.impl.auth.oauth2.AuthenticationOAuth2;
 
 @Tags({"Pulsar", "client", "security", "authentication", "Oauth"})
 @CapabilityDescription("Implementation with Oauth Authentication of the PulsarClientAuthenticationService. "
         + "Provides Pulsar clients with the ability to authenticate against a "
         + "secured Apache Pulsar broker endpoint.")
 public class PulsarClientOauthAuthenticationService extends AbstractPulsarClientAuntenticationService {
+
+    /**
+     * The client's OAuth 2.0 plugin, named rather than imported. From Pulsar 5 the shaded client jars relocate
+     * {@code org.apache.pulsar.client.impl} under {@code org.apache.pulsar.shade}, so the class cannot be compiled
+     * against by its public name; {@link AuthenticationFactory#create(String, String)} resolves this name with the
+     * relocation prefix when the unshaded class is absent, so it works with either jar.
+     */
+    static final String OAUTH2_PLUGIN = "org.apache.pulsar.client.impl.auth.oauth2.AuthenticationOAuth2";
 
 	public static final PropertyDescriptor AUDIENCE = new PropertyDescriptor.Builder()
             .name("AUDIENCE")
@@ -116,10 +121,15 @@ public class PulsarClientOauthAuthenticationService extends AbstractPulsarClient
 	public Authentication getAuthentication() {
 		try {
             if (configContext.getProperty(PRIVATE_KEY_FILE).isSet()) {
-                return AuthenticationFactoryOAuth2.clientCredentials(
-                        new URL(configContext.getProperty(ISSUER_URL).evaluateAttributeExpressions().getValue()),
-                        new URL(configContext.getProperty(PRIVATE_KEY_FILE).evaluateAttributeExpressions().getValue()),
-                        configContext.getProperty(AUDIENCE).evaluateAttributeExpressions().getValue());
+                // The parameters AuthenticationFactoryOAuth2.clientCredentials(issuerUrl, credentialsUrl, audience)
+                // configured, passed through the public factory instead.
+                String json = "{" +
+                        "\"type\":\"client_credentials\"," +
+                        "\"privateKey\":\"" + configContext.getProperty(PRIVATE_KEY_FILE).evaluateAttributeExpressions().getValue() + "\"," +
+                        "\"issuerUrl\":\"" + configContext.getProperty(ISSUER_URL).evaluateAttributeExpressions().getValue() + "\"," +
+                        "\"audience\":\"" + configContext.getProperty(AUDIENCE).evaluateAttributeExpressions().getValue() + "\"" +
+                        "}";
+                return AuthenticationFactory.create(OAUTH2_PLUGIN, json);
             } else if (configContext.getProperty(CLIENT_ID).isSet() && 
                        configContext.getProperty(CLIENT_SECRET).isSet() && 
                        configContext.getProperty(ISSUER_URL).isSet()) {
@@ -145,7 +155,7 @@ public class PulsarClientOauthAuthenticationService extends AbstractPulsarClient
                         "\"audience\":\"" + audience + "\"" +
                         "}";
 
-                return AuthenticationFactory.create(AuthenticationOAuth2.class.getName(), json);
+                return AuthenticationFactory.create(OAUTH2_PLUGIN, json);
             } else {
                 getLogger().error("Unable to authenticate - either PRIVATE_KEY_FILE or all three (CLIENT_ID, CLIENT_SECRET, ISSUER_URL) must be provided");
                 return null;
