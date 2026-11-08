@@ -173,8 +173,11 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-failsafe-plugin</artifactId>
-                <!-- The NiFi parent's enforcer requires failsafe and surefire at the same version. -->
-                <version>${surefire.version}</version>
+                <!-- The NiFi parent's enforcer requires failsafe and surefire at the same version.
+                     Surefire's version comes from the Apache parent's `version.maven-surefire`, not
+                     NiFi's own `surefire.version`: from NiFi 2.12.0 the two disagree (3.5.6 vs 3.5.5),
+                     and pinning failsafe to the NiFi property fails the enforcer. -->
+                <version>${version.maven-surefire}</version>
                 <configuration>
                     <includes>
                         <include>**/*IT.java</include>
