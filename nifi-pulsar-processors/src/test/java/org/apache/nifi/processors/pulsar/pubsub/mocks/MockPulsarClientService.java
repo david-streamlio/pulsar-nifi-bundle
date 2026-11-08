@@ -28,7 +28,6 @@ import java.util.stream.Collectors;
 
 import org.apache.nifi.controller.AbstractControllerService;
 import org.apache.nifi.pulsar.PulsarClientService;
-import org.apache.pulsar.client.admin.PulsarAdmin;
 import org.apache.pulsar.client.api.CompressionType;
 import org.apache.pulsar.client.api.Consumer;
 import org.apache.pulsar.client.api.ConsumerBuilder;
@@ -63,9 +62,6 @@ public class MockPulsarClientService<T> extends AbstractControllerService implem
 
     @Mock
     PulsarClient mockClient = mock(PulsarClient.class);
-
-    @Mock
-    PulsarAdmin mockAdmin = mock(PulsarAdmin.class);
 
     // RETURNS_SELF makes every fluent builder method return the builder by
     // default, so the mock survives Pulsar client API additions (e.g. the

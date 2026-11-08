@@ -25,7 +25,6 @@ import org.apache.pulsar.client.api.ProducerBuilder;
 import org.apache.pulsar.client.api.PulsarClient;
 import org.apache.pulsar.client.api.PulsarClientException;
 import org.apache.pulsar.client.api.Schema;
-import org.apache.pulsar.common.naming.TopicName;
 
 import java.io.Closeable;
 import java.time.Duration;
@@ -209,7 +208,7 @@ public class PublisherPool implements Closeable {
      */
     static String qualified(final String topicName) {
         try {
-            return TopicName.get(topicName).toString();
+            return TopicNames.qualify(topicName);
         } catch (final IllegalArgumentException e) {
             return topicName;
         }

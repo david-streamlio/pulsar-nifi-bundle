@@ -32,6 +32,16 @@ import org.junit.jupiter.api.Test;
 
 public class PulsarClientOauthAuthenticationServiceTest {
 
+    /**
+     * The service names the plugin rather than importing it (Pulsar 5 relocates it in the shaded jars), so a wrong
+     * name would surface only at runtime; check the factory resolved it to the OAuth 2.0 plugin.
+     */
+    private static void assertIsOAuth2(final Authentication auth) {
+        assertTrue(auth.getClass().getName().endsWith(PulsarClientOauthAuthenticationService.OAUTH2_PLUGIN),
+                "Expected the OAuth 2.0 plugin, got " + auth.getClass().getName());
+        assertEquals("token", auth.getAuthMethodName());
+    }
+
     private TestRunner testRunner;
     private PulsarClientOauthAuthenticationService authService;
 
@@ -54,6 +64,7 @@ public class PulsarClientOauthAuthenticationServiceTest {
         // Verify that PRIVATE_KEY_FILE takes precedence
         Authentication auth = authService.getAuthentication();
         assertNotNull(auth, "Authentication should not be null when PRIVATE_KEY_FILE is provided");
+        assertIsOAuth2(auth);
     }
 
     @Test
@@ -68,6 +79,7 @@ public class PulsarClientOauthAuthenticationServiceTest {
 
         Authentication auth = authService.getAuthentication();
         assertNotNull(auth, "Authentication should not be null when CLIENT_ID and CLIENT_SECRET are provided");
+        assertIsOAuth2(auth);
     }
 
     @Test

@@ -51,7 +51,7 @@ public abstract class AbstractPulsarIT {
 
     /** Overridable so the image can be pinned from the build; falls back to the client version. */
     private static final DockerImageName PULSAR_IMAGE = DockerImageName
-            .parse(System.getProperty("pulsar.image", "apachepulsar/pulsar:4.2.4"))
+            .parse(System.getProperty("pulsar.image", "apachepulsar/pulsar:5.0.1"))
             .asCompatibleSubstituteFor("apachepulsar/pulsar");
 
     /**

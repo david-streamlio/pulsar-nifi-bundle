@@ -52,6 +52,7 @@ import org.apache.nifi.processors.pulsar.AbstractPulsarConsumerProcessor;
 import org.apache.nifi.processors.pulsar.utils.MessageBatchAttributes;
 import org.apache.nifi.processors.pulsar.utils.KeyValueTopicSchema;
 import org.apache.nifi.processors.pulsar.utils.AvroReadOffset;
+import org.apache.nifi.processors.pulsar.utils.TopicNames;
 import org.apache.nifi.processors.pulsar.utils.TopicSchemaRecordDecoder;
 import org.apache.nifi.schema.access.SchemaNotFoundException;
 import org.apache.nifi.serialization.*;
@@ -62,7 +63,6 @@ import org.apache.pulsar.client.api.Consumer;
 import org.apache.pulsar.client.api.Message;
 import org.apache.pulsar.client.api.PulsarClientException;
 import org.apache.pulsar.client.api.schema.GenericRecord;
-import org.apache.pulsar.common.naming.TopicName;
 import org.apache.pulsar.client.api.Schema;
 import org.apache.pulsar.common.schema.SchemaInfo;
 import org.apache.pulsar.common.schema.SchemaType;
@@ -628,8 +628,7 @@ public class ConsumePulsarRecord extends AbstractPulsarConsumerProcessor<Generic
         }
 
         try {
-            final TopicName topicName = TopicName.get(topic);
-            return topicName.isPartitioned() ? topicName.getPartitionedTopicName() : topic;
+            return TopicNames.isPartition(topic) ? TopicNames.partitionedTopicOf(topic) : topic;
         } catch (final IllegalArgumentException e) {
             // Not a well-formed Pulsar topic name: batch on the raw value rather than failing the flow.
             return topic;

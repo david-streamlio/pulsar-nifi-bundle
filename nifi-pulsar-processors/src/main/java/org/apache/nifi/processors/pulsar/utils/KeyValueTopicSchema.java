@@ -32,7 +32,7 @@ import org.apache.nifi.serialization.record.Record;
 import org.apache.nifi.serialization.record.RecordField;
 import org.apache.nifi.serialization.record.RecordFieldType;
 import org.apache.nifi.serialization.record.RecordSchema;
-import org.apache.pulsar.client.impl.schema.KeyValueSchemaInfo;
+import org.apache.pulsar.client.internal.DefaultImplementation;
 import org.apache.pulsar.common.schema.KeyValue;
 import org.apache.pulsar.common.schema.KeyValueEncodingType;
 import org.apache.pulsar.common.schema.SchemaInfo;
@@ -239,10 +239,10 @@ public class KeyValueTopicSchema {
             return;
         }
 
-        final KeyValue<SchemaInfo, SchemaInfo> schemas = KeyValueSchemaInfo.decodeKeyValueSchemaInfo(schemaInfo);
+        final KeyValue<SchemaInfo, SchemaInfo> schemas = DefaultImplementation.getDefaultImplementation().decodeKeyValueSchemaInfo(schemaInfo);
         cachedKeySchema = schemas.getKey();
         cachedValueSchema = schemas.getValue();
-        cachedEncoding = KeyValueSchemaInfo.decodeKeyValueEncodingType(schemaInfo);
+        cachedEncoding = DefaultImplementation.getDefaultImplementation().decodeKeyValueEncodingType(schemaInfo);
 
         cachedKeyAvro = avroSchemaOf(cachedKeySchema);
         cachedValueAvro = avroSchemaOf(cachedValueSchema);

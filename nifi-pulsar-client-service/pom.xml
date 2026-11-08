@@ -38,18 +38,13 @@
           <version>${project.version}</version>
         </dependency>
     
-    	 <dependency>
-            <groupId>org.apache.pulsar</groupId>
-            <artifactId>pulsar-client-all</artifactId>
-            <version>${pulsar.version}</version>
-             <exclusions>
-                 <exclusion>
-                     <groupId>org.apache.logging.log4j</groupId>
-                     <artifactId>log4j-core</artifactId>
-                 </exclusion>
-             </exclusions>
+        <!-- Used directly (StringUtils). Pulsar 4's client brought it in transitively; Pulsar 5's shades it. -->
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-lang3</artifactId>
+            <version>${commons-lang3.version}</version>
         </dependency>
-        
+
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-api</artifactId>

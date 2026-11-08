@@ -18,17 +18,13 @@ package org.apache.nifi.pulsar.auth;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 import org.apache.nifi.annotation.documentation.CapabilityDescription;
 import org.apache.nifi.annotation.documentation.Tags;
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.pulsar.client.api.Authentication;
 import org.apache.pulsar.client.api.AuthenticationFactory;
-import org.apache.pulsar.client.api.PulsarClientException.UnsupportedAuthenticationException;
-import org.apache.pulsar.client.impl.auth.AuthenticationTls;
 
 @Tags({"Pulsar", "client", "security", "authentication", "TLS"})
 @CapabilityDescription("Implementation with TLS Authentication of the PulsarClientAuthenticationService. "
@@ -70,14 +66,8 @@ public class PulsarClientTlsAuthenticationService extends AbstractPulsarClientAu
 
     @Override
     public Authentication getAuthentication() {
-        Map<String, String> authParams = new HashMap<>();
-        authParams.put("tlsCertFile", configContext.getProperty(CLIENT_CERTIFICATE).getValue());
-        authParams.put("tlsKeyFile", configContext.getProperty(CLIENT_KEY).getValue());
-        try {
-          return AuthenticationFactory.create(AuthenticationTls.class.getName(), authParams);
-        } catch (UnsupportedAuthenticationException e) {
-          getLogger().error("Unable to authenticate", e);
-          return null;
-        }
+        // The public factory rather than the AuthenticationTls class, which Pulsar 5's shaded client jars relocate.
+        return AuthenticationFactory.TLS(configContext.getProperty(CLIENT_CERTIFICATE).getValue(),
+                configContext.getProperty(CLIENT_KEY).getValue());
     }
 }
