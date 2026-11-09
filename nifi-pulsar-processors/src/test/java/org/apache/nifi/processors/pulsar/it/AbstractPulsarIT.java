@@ -16,6 +16,11 @@
  */
 package org.apache.nifi.processors.pulsar.it;
 
+import java.io.IOException;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.util.concurrent.TimeUnit;
 
 import org.apache.nifi.controller.ControllerService;
@@ -63,10 +68,31 @@ public abstract class AbstractPulsarIT {
     private static PulsarClient client;
 
     @BeforeAll
-    public static void startBroker() throws PulsarClientException {
+    public static void startBroker() throws Exception {
         PULSAR = new PulsarContainer(PULSAR_IMAGE).withStartupTimeout(java.time.Duration.ofMinutes(3));
         PULSAR.start();
+        awaitDefaultNamespace();
         client = PulsarClient.builder().serviceUrl(PULSAR.getPulsarBrokerUrl()).build();
+    }
+
+    /**
+     * The container's wait strategy only checks that the admin API answers, but standalone creates
+     * {@code public/default} a moment later. A test that touches a topic inside that window fails with
+     * "Namespace not found", so hold every class until the namespace really exists.
+     */
+    private static void awaitDefaultNamespace() throws Exception {
+        final HttpClient http = HttpClient.newHttpClient();
+        final HttpRequest request = HttpRequest.newBuilder(
+                URI.create(PULSAR.getHttpServiceUrl() + "/admin/v2/namespaces/public")).GET().build();
+
+        await("namespace public/default to exist", () -> {
+            try {
+                final HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString());
+                return response.statusCode() == 200 && response.body().contains("\"public/default\"");
+            } catch (final IOException e) {
+                return false;
+            }
+        });
     }
 
     @AfterAll
