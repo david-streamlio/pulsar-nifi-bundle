@@ -4,12 +4,17 @@
 
 | Bundle version | NiFi | Pulsar client | Java |
 |---|---|---|---|
+| `2.12.0` | 2.12.0 | 5.0.1 | 21 |
 | `2.11.0.2` | 2.11.0 | 4.2.4 | 21 |
 | `2.11.0.1` | 2.11.0 | 4.2.4 | 21 |
 | `2.11.0` | 2.11.0 | 4.2.4 | 21 |
 | `2.10.0` | 2.10.0 | 4.2.4 | 21 |
 | `2.9.0` | 2.9.0 | 4.2.2 | 21 |
 | `2.1.0` | 2.1.0 | 3.3.7 | 21 |
+
+> **Pulsar major bump in `2.12.0`:** this release line moves the Pulsar client
+> from `4.x` to `5.x` (4.2.4 → 5.0.1). Consumers who must stay on the Pulsar 4.x
+> client should pin to the `2.11.0.x` release line (`support/nifi-2.x`).
 
 > **Pulsar major bump in `2.9.0`:** this release line moves the Pulsar client
 > from `3.x` to `4.x` (3.3.7 → 4.2.2). Consumers who must stay on the Pulsar 3.x
@@ -19,10 +24,12 @@ The bundle version tracks the NiFi platform version it is built for; each releas
 line targets one Pulsar client major. See [VERSIONING.md](VERSIONING.md) for the
 full scheme, branching model, and release process.
 
-Release notes live in [`docs/release-notes/`](docs/release-notes/). `2.11.0.2` fixes a consumer that
+Release notes live in [`docs/release-notes/`](docs/release-notes/). `2.12.0` moves to NiFi 2.12.0 and
+the Pulsar 5.0.1 client, and no longer accepts V1 (`tenant/cluster/namespace/topic`) topic names; see
+[its notes](docs/release-notes/2.12.0.md). `2.11.0.2` fixes a consumer that
 could lose a message on `Exclusive` and `Failover` subscriptions and one that misread framed Avro topics,
-and adds Topics Pattern, Read Compacted, Subscription Mode and ordering key options; see
-[its notes](docs/release-notes/2.11.0.2.md). `2.11.0.1` fixes two defects in features `2.11.0`
+and adds Topics Pattern, Read Compacted, Subscription Mode and ordering key options
+([notes](docs/release-notes/2.11.0.2.md)). `2.11.0.1` fixes two defects in features `2.11.0`
 introduced ([notes](docs/release-notes/2.11.0.1.md)). `2.11.0` is the
 platform bump ([notes](docs/release-notes/2.11.0.md)). If you are coming from
 `2.9.0` or earlier, read [the `2.10.0` notes](docs/release-notes/2.10.0.md) too: that

@@ -99,12 +99,17 @@ truth — nothing needs to be committed beforehand.
 
 | Bundle version | NiFi | Pulsar client | Java |
 |---|---|---|---|
+| `2.12.0` | 2.12.0 | 5.0.1 | 21 |
 | `2.11.0.2` | 2.11.0 | 4.2.4 | 21 |
 | `2.11.0.1` | 2.11.0 | 4.2.4 | 21 |
 | `2.11.0` | 2.11.0 | 4.2.4 | 21 |
 | `2.10.0` | 2.10.0 | 4.2.4 | 21 |
 | `2.9.0` | 2.9.0 | 4.2.2 | 21 |
 | `2.1.0` | 2.1.0 | 3.3.7 | 21 |
+
+> **Pulsar major bump in `2.12.0`:** this release line moves the Pulsar client
+> from `4.x` to `5.x` (4.2.4 → 5.0.1). Consumers who must stay on the Pulsar 4.x
+> client should pin to the `2.11.0.x` release line (`support/nifi-2.x`).
 
 > **Pulsar major bump in `2.9.0`:** this release line moves the Pulsar client
 > from `3.x` to `4.x` (3.3.7 → 4.2.2). Consumers who must stay on the Pulsar 3.x
