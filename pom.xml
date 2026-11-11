@@ -94,9 +94,9 @@
         <conscrypt-openjdk.version>2.9.0</conscrypt-openjdk.version>
         <groovy-eclipse-batch.version>3.0.8-01</groovy-eclipse-batch.version>
         <grpc.version>1.41.0</grpc.version>
-        <jackson.version>2.22.4</jackson.version>
+        <jackson.version>2.23.0</jackson.version>
         <!-- Since 2.20 jackson-annotations is released per minor version only (2.22, not 2.22.4). -->
-        <jackson-annotations.version>2.22</jackson-annotations.version>
+        <jackson-annotations.version>2.23</jackson-annotations.version>
         <mockito-core.version>5.24.0</mockito-core.version>
         <nifi.version>2.12.0</nifi.version>
         <protobuf3.version>4.36.2</protobuf3.version>
