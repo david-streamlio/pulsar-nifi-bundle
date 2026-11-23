@@ -37,14 +37,23 @@ line** rather than multiple Pulsar majors simultaneously.
 ### Where the version lives
 
 The **git tag is authoritative** for a release. The pom `<version>` on `main`
-stays at the NiFi base version (e.g. `2.1.0`); you do **not** hand-edit it or
-commit a bump before tagging. When you push a tag `vX.Y.Z[.R]`, the release
-workflow stamps the pom from the tag (`./mvnw versions:set -DnewVersion=X.Y.Z[.R]`)
-before building, so the NARs and the Docker image are labeled to match the tag.
-There is no separate `version` file.
+is the placeholder `0.0.0-SNAPSHOT`, which is never released; you do **not**
+hand-edit it or commit a bump before tagging. When you push a tag `vX.Y.Z[.R]`,
+the release workflow stamps the pom from the tag
+(`./mvnw versions:set -DnewVersion=X.Y.Z[.R]`) before building, so the NARs and
+the Docker image are labeled to match the tag. There is no separate `version` file.
 
 This keeps the release flow to a single action — push a tag — with no
 version-bump commit and no chance of the artifacts disagreeing with the tag.
+
+The placeholder must never match a real release. `main` used to sit at `2.1.0`,
+which is also a release on Maven Central built against Pulsar 3.3.7, so a build of
+`main` and that release shared coordinates: `./mvnw install` replaced the real
+`2.1.0` in `~/.m2`, and tools that resolve this project's modules by coordinate,
+such as Trivy's dependency scan, could pick up the old release instead of the code
+in the checkout. A SNAPSHOT is never published to Central, and it marks a NAR built
+from `main` as a development build wherever its version is shown, including NiFi's
+UI.
 
 ## Pulsar client major
 

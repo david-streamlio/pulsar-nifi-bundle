@@ -25,7 +25,9 @@
     
     <groupId>io.streamnative.connectors</groupId>
     <artifactId>nifi-pulsar-bundle</artifactId>
-    <version>2.1.0</version>
+    <!-- A placeholder that is never released. A release takes its version from the git tag, which the
+         release workflow stamps over this one; do not bump it by hand. See VERSIONING.md. -->
+    <version>0.0.0-SNAPSHOT</version>
     <packaging>pom</packaging>
 
     <name>NiFi Pulsar Connectors :: NiFi Pulsar Bundle</name>
@@ -246,6 +248,30 @@
                 <configuration>
                     <enforceDocGeneration>true</enforceDocGeneration>
                 </configuration>
+            </plugin>
+
+            <!-- The NiFi parent bans SNAPSHOT dependencies from outside Apache NiFi, and exempts its own
+                 groups because NiFi's modules depend on each other at a SNAPSHOT between releases. Ours do
+                 the same at the 0.0.0-SNAPSHOT placeholder, so this group gets the same exemption. The rest
+                 of the rule still applies: no third-party SNAPSHOT gets in, and a release build, stamped
+                 with the tag's version, has no SNAPSHOT left to exempt. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>enforce-maven-version</id>
+                        <configuration>
+                            <rules>
+                                <requireReleaseDeps>
+                                    <excludes combine.children="append">
+                                        <exclude>io.streamnative.connectors:*</exclude>
+                                    </excludes>
+                                </requireReleaseDeps>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
 
             <plugin>

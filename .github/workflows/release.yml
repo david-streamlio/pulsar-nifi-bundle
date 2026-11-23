@@ -35,7 +35,8 @@ jobs:
 
       # The git tag is authoritative for a release: stamp the pom version from it
       # (e.g. tag v2.1.0.1 -> Maven version 2.1.0.1) so artifacts and image are
-      # labeled to match the tag. On manual dispatch (no tag) the pom is left as-is.
+      # labeled to match the tag. On manual dispatch (no tag) the pom keeps main's
+      # 0.0.0-SNAPSHOT placeholder.
       - name: Stamp version from tag
         if: github.ref_type == 'tag'
         run: ./mvnw -B -ntp versions:set -DnewVersion="${GITHUB_REF_NAME#v}" -DgenerateBackupPoms=false -DprocessAllModules=true
