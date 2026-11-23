@@ -25,7 +25,8 @@ line targets one Pulsar client major. See [VERSIONING.md](VERSIONING.md) for the
 full scheme, branching model, and release process.
 
 Release notes live in [`docs/release-notes/`](docs/release-notes/). `2.12.0` moves to NiFi 2.12.0 and
-the Pulsar 5.0.1 client, and no longer accepts V1 (`tenant/cluster/namespace/topic`) topic names; see
+the Pulsar 5.0.1 client, no longer accepts V1 (`tenant/cluster/namespace/topic`) topic names, and pins
+Guava past a HIGH CVE the Pulsar 5 client brings in; see
 [its notes](docs/release-notes/2.12.0.md). `2.11.0.2` fixes a consumer that
 could lose a message on `Exclusive` and `Failover` subscriptions and one that misread framed Avro topics,
 and adds Topics Pattern, Read Compacted, Subscription Mode and ordering key options
