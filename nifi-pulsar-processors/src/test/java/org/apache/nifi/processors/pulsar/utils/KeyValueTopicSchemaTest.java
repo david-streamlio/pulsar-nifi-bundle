@@ -37,6 +37,7 @@ import org.apache.nifi.serialization.record.RecordFieldType;
 import org.apache.nifi.serialization.record.RecordSchema;
 import org.apache.pulsar.client.api.Schema;
 import org.apache.pulsar.client.impl.schema.KeyValueSchemaInfo;
+import org.apache.pulsar.common.schema.KeyValue;
 import org.apache.pulsar.common.schema.KeyValueEncodingType;
 import org.apache.pulsar.common.schema.SchemaInfo;
 
@@ -278,7 +279,87 @@ public class KeyValueTopicSchemaTest {
         assertNull(schema.decodeKeyAsText(new byte[] {0x02}, info));
     }
 
+    // ------------------------------------------------- the schema's sides, from the public API only
+
+    /**
+     * sidesOf decodes Pulsar's storage layout itself instead of calling the client's internal decoder, so
+     * hold it to that decoder: every pairing of primitive, schemaless, AVRO (with properties) and JSON sides,
+     * under both encodings. Pulsar's own encoder and decoder are the reference here, which is why this test
+     * may use the client's internals when the main code may not.
+     */
+    @Test
+    public void sidesMatchPulsarsOwnDecoder() {
+        final Map<String, String> avroProperties = new HashMap<>();
+        avroProperties.put("__alwaysAllowNull", "true");
+        avroProperties.put("__jsr310ConversionEnabled", "false");
+
+        final SchemaInfo[] sides = {
+            Schema.STRING.getSchemaInfo(),
+            Schema.INT64.getSchemaInfo(),
+            Schema.BYTES.getSchemaInfo(),
+            SchemaInfo.builder().name("Reading").type(org.apache.pulsar.common.schema.SchemaType.AVRO)
+                    .schema(READING.getBytes(UTF_8)).properties(avroProperties).build(),
+            SchemaInfo.builder().name("Order").type(org.apache.pulsar.common.schema.SchemaType.JSON)
+                    .schema(ORDER.getBytes(UTF_8)).build(),
+        };
+
+        for (final KeyValueEncodingType encoding : KeyValueEncodingType.values()) {
+            for (final SchemaInfo key : sides) {
+                for (final SchemaInfo value : sides) {
+                    final SchemaInfo info = KeyValueSchemaInfo.encodeKeyValueSchemaInfo("kv", key, value, encoding);
+                    final String pairing = key.getType() + "/" + value.getType() + " " + encoding;
+
+                    final KeyValue<SchemaInfo, SchemaInfo> expected = KeyValueSchemaInfo.decodeKeyValueSchemaInfo(info);
+                    final KeyValue<SchemaInfo, SchemaInfo> actual = KeyValueTopicSchema.sidesOf(info);
+
+                    assertSameSide("key of " + pairing, expected.getKey(), actual.getKey());
+                    assertSameSide("value of " + pairing, expected.getValue(), actual.getValue());
+                    assertEquals(KeyValueSchemaInfo.decodeKeyValueEncodingType(info),
+                            KeyValueTopicSchema.encodingOf(info), "encoding of " + pairing);
+                }
+            }
+        }
+    }
+
+    /** A schema that names no encoding, or no type for a side, gets Pulsar's defaults: INLINE and BYTES. */
+    @Test
+    public void aSchemaThatOmitsItsEncodingAndSideTypesGetsPulsarsDefaults() {
+        final SchemaInfo full = keyValueSchema(READING, org.apache.pulsar.common.schema.SchemaType.AVRO,
+                KeyValueEncodingType.SEPARATED);
+
+        final Map<String, String> properties = new HashMap<>(full.getProperties());
+        properties.remove("kv.encoding.type");
+        properties.remove("key.schema.type");
+        properties.remove("value.schema.type");
+
+        final SchemaInfo sparse = SchemaInfo.builder().name(full.getName()).type(full.getType())
+                .schema(full.getSchema()).properties(properties).build();
+
+        assertEquals(KeyValueEncodingType.INLINE, KeyValueTopicSchema.encodingOf(sparse));
+        assertEquals(KeyValueSchemaInfo.decodeKeyValueEncodingType(sparse), KeyValueTopicSchema.encodingOf(sparse));
+
+        final KeyValue<SchemaInfo, SchemaInfo> expected = KeyValueSchemaInfo.decodeKeyValueSchemaInfo(sparse);
+        final KeyValue<SchemaInfo, SchemaInfo> actual = KeyValueTopicSchema.sidesOf(sparse);
+
+        assertEquals(org.apache.pulsar.common.schema.SchemaType.BYTES, actual.getKey().getType());
+        assertSameSide("key", expected.getKey(), actual.getKey());
+        assertSameSide("value", expected.getValue(), actual.getValue());
+    }
+
+    @Test
+    public void onlyAKeyValueSchemaHasSides() {
+        assertThrows(IllegalArgumentException.class, () -> KeyValueTopicSchema.sidesOf(Schema.STRING.getSchemaInfo()));
+    }
+
     // ------------------------------------------------------------------ helpers
+
+    private static void assertSameSide(final String side, final SchemaInfo expected, final SchemaInfo actual) {
+        assertEquals(expected.getName(), actual.getName(), side + ": name");
+        assertEquals(expected.getType(), actual.getType(), side + ": type");
+        assertTrue(Arrays.equals(expected.getSchema(), actual.getSchema()), side + ": schema bytes");
+        assertEquals(expected.getProperties(), actual.getProperties(), side + ": properties");
+    }
+
     private static SchemaInfo keyValueSchemaWithKey(final SchemaInfo key, final String valueDefinition,
             final org.apache.pulsar.common.schema.SchemaType valueType, final KeyValueEncodingType encoding) {
         final SchemaInfo value = SchemaInfo.builder().name("V").type(valueType)

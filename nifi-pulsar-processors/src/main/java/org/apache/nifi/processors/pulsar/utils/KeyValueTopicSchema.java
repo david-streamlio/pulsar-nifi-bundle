@@ -20,9 +20,11 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeMap;
 
 import org.apache.nifi.avro.AvroTypeUtil;
 import org.apache.nifi.serialization.SimpleRecordSchema;
@@ -32,12 +34,13 @@ import org.apache.nifi.serialization.record.Record;
 import org.apache.nifi.serialization.record.RecordField;
 import org.apache.nifi.serialization.record.RecordFieldType;
 import org.apache.nifi.serialization.record.RecordSchema;
-import org.apache.pulsar.client.internal.DefaultImplementation;
 import org.apache.pulsar.common.schema.KeyValue;
 import org.apache.pulsar.common.schema.KeyValueEncodingType;
 import org.apache.pulsar.common.schema.SchemaInfo;
 import org.apache.pulsar.common.schema.SchemaType;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 /**
@@ -56,6 +59,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
  * <p>
  * The length-prefixed {@code INLINE} format is Pulsar's, so {@link KeyValue#encode} and
  * {@link KeyValue#decode} are used rather than reimplementing it.
+ * <p>
+ * The topic's schema is split into its two sides here too, from the layout Pulsar stores it in (see
+ * {@code sidesOf}), using only the public client API. The client's own decoder is reachable only through
+ * {@code org.apache.pulsar.client.internal}, which is not a stable surface across Pulsar majors.
  */
 public class KeyValueTopicSchema {
 
@@ -239,10 +246,10 @@ public class KeyValueTopicSchema {
             return;
         }
 
-        final KeyValue<SchemaInfo, SchemaInfo> schemas = DefaultImplementation.getDefaultImplementation().decodeKeyValueSchemaInfo(schemaInfo);
+        final KeyValue<SchemaInfo, SchemaInfo> schemas = sidesOf(schemaInfo);
         cachedKeySchema = schemas.getKey();
         cachedValueSchema = schemas.getValue();
-        cachedEncoding = DefaultImplementation.getDefaultImplementation().decodeKeyValueEncodingType(schemaInfo);
+        cachedEncoding = encodingOf(schemaInfo);
 
         cachedKeyAvro = avroSchemaOf(cachedKeySchema);
         cachedValueAvro = avroSchemaOf(cachedValueSchema);
@@ -257,6 +264,81 @@ public class KeyValueTopicSchema {
         cachedDefinition = definition;
         cachedKeyField = keyField;
         cachedValueField = valueField;
+    }
+
+    /*
+     * How Pulsar stores a KEY_VALUE schema (KeyValueSchemaInfo in the client). The two sides' schema bytes are
+     * the schema data, length-prefixed in the same layout as an INLINE payload. Each side's name, type and
+     * properties, and the encoding, are in the schema's properties, the side properties as a JSON object of
+     * strings. This is the format the schema registry stores, so it cannot change without breaking every
+     * KeyValue topic already registered.
+     */
+    private static final String KV_ENCODING_TYPE = "kv.encoding.type";
+    private static final String SCHEMA_NAME = ".schema.name";
+    private static final String SCHEMA_TYPE = ".schema.type";
+    private static final String SCHEMA_PROPERTIES = ".schema.properties";
+
+    /**
+     * The key's schema and the value's schema of a KeyValue topic, as Pulsar's own decoder gives them: a side
+     * with no recorded type is BYTES, and one with no recorded name is named "".
+     *
+     * @throws IllegalArgumentException if the schema is not a KeyValue schema or a side is unreadable
+     */
+    static KeyValue<SchemaInfo, SchemaInfo> sidesOf(final SchemaInfo schemaInfo) {
+        if (!supports(schemaInfo)) {
+            throw new IllegalArgumentException("Not a KeyValue schema");
+        }
+
+        final Map<String, String> properties = schemaInfo.getProperties();
+
+        return KeyValue.decode(schemaInfo.getSchema(), (keyBytes, valueBytes) ->
+                new KeyValue<>(sideOf(properties, "key", keyBytes), sideOf(properties, "value", valueBytes)));
+    }
+
+    /** INLINE when the schema does not say, which is the default Pulsar applies too. */
+    static KeyValueEncodingType encodingOf(final SchemaInfo schemaInfo) {
+        final String encoding = schemaInfo.getProperties().get(KV_ENCODING_TYPE);
+
+        return encoding == null || encoding.isEmpty()
+                ? KeyValueEncodingType.INLINE
+                : KeyValueEncodingType.valueOf(encoding);
+    }
+
+    private static SchemaInfo sideOf(final Map<String, String> parentProperties, final String side,
+            final byte[] schema) {
+        return SchemaInfo.builder()
+                .name(parentProperties.getOrDefault(side + SCHEMA_NAME, ""))
+                .type(SchemaType.valueOf(parentProperties.getOrDefault(side + SCHEMA_TYPE, SchemaType.BYTES.name())))
+                .schema(schema)
+                .properties(sidePropertiesOf(parentProperties.get(side + SCHEMA_PROPERTIES), side))
+                .build();
+    }
+
+    /** Sorted, as Pulsar's decoder returns them. Pulsar only ever writes string values here. */
+    private static Map<String, String> sidePropertiesOf(final String json, final String side) {
+        if (json == null || json.isEmpty()) {
+            return Collections.emptyMap();
+        }
+
+        final JsonNode object;
+        try {
+            object = JSON.readTree(json);
+        } catch (final JsonProcessingException e) {
+            throw new IllegalArgumentException("The " + side + " schema's properties are not valid JSON: " + json, e);
+        }
+
+        if (!object.isObject()) {
+            throw new IllegalArgumentException("The " + side + " schema's properties are not a JSON object: " + json);
+        }
+
+        final Map<String, String> properties = new TreeMap<>();
+        for (final Map.Entry<String, JsonNode> property : object.properties()) {
+            if (!property.getValue().isNull()) {
+                properties.put(property.getKey(), property.getValue().asText());
+            }
+        }
+
+        return properties;
     }
 
     /** Each side keeps the shape its own schema describes: a scalar stays a scalar, a record a record. */
