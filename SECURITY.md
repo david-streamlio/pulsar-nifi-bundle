@@ -89,5 +89,6 @@ This repository scans itself on a schedule, independently of anything reported:
 - **CodeQL** — static analysis of this repository's own Java source
   (`.github/workflows/codeql.yml`)
 
-Accepted findings are recorded with a reason in [`.trivyignore`](.trivyignore) rather than
-suppressed silently.
+Both Trivy scans fail on HIGH and CRITICAL findings that have a fix. Accepted findings are
+recorded in [`.trivyignore.yaml`](.trivyignore.yaml), each with a statement and a review date
+after which it stops applying, rather than suppressed silently.

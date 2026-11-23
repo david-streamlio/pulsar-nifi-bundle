@@ -12,8 +12,10 @@ name: Security Scan
 # tab as SARIF, so findings accumulate somewhere reviewable instead of scrolling
 # past in a log.
 #
-# Accepted findings belong in .trivyignore with a reason and a review date - not
-# suppressed silently here.
+# Both jobs fail on HIGH and CRITICAL findings that have a fix. Accepted findings
+# belong in .trivyignore.yaml with a statement, a review date and, where the finding
+# is tied to specific files, their paths - not suppressed silently here. Every scan
+# step below reads that file through `trivyignores`.
 on:
   schedule:
     # Mondays at 07:00 UTC.
@@ -69,6 +71,7 @@ jobs:
           scan-ref: .
           scanners: vuln
           skip-dirs: '**/target'
+          trivyignores: .trivyignore.yaml
           format: sarif
           output: trivy-deps.sarif
           exit-code: '0'
@@ -88,6 +91,7 @@ jobs:
           scan-ref: .
           scanners: vuln
           skip-dirs: '**/target'
+          trivyignores: .trivyignore.yaml
           format: table
           severity: HIGH,CRITICAL
           ignore-unfixed: true
@@ -114,20 +118,17 @@ jobs:
       - name: Build image
         run: ./mvnw -B -ntp clean package -Dgpg.skip=true -DskipTests
 
+      # Same two passes as the dependency job: everything to the Security tab, then
+      # the gate.
       - name: Scan image (SARIF)
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: image
           image-ref: streamnative/nifi:latest
           scanners: vuln
+          trivyignores: .trivyignore.yaml
           format: sarif
           output: trivy-image.sarif
-          # REPORT-ONLY, deliberately. A NiFi base image carries a full JRE and OS
-          # userland, so the first scans will report a long tail of upstream CVEs
-          # that no change in this repository can fix. Gating on them now would
-          # leave the job permanently red, which just teaches everyone to ignore
-          # it. Triage the baseline into .trivyignore first, then set this to '1'
-          # so regressions actually stop the run.
           exit-code: '0'
 
       - name: Upload image findings
@@ -136,3 +137,25 @@ jobs:
         with:
           sarif_file: trivy-image.sarif
           category: trivy-image
+
+      # The image carries NiFi's whole runtime - a Debian userland, a JRE and
+      # NiFi's own jars - so it reports a long tail of upstream CVEs. The gate
+      # stays meaningful because of how that tail splits:
+      #   - Debian packages with a fix are installed by the Dockerfile's upgrade
+      #     step, so they never reach this gate.
+      #   - Findings with no fix yet (Debian's "affected", "fix_deferred",
+      #     "will_not_fix") are skipped by ignore-unfixed: nothing can act on them.
+      #   - What is left is fixable and either ours to fix or a decision to record
+      #     in .trivyignore.yaml - NiFi's own jars, say, which only a NiFi release
+      #     can update.
+      - name: Fail on HIGH or CRITICAL
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: image
+          image-ref: streamnative/nifi:latest
+          scanners: vuln
+          trivyignores: .trivyignore.yaml
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'

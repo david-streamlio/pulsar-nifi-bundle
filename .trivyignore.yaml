@@ -1,0 +1,53 @@
+# Accepted Trivy findings, read by every scan in .github/workflows/security-scan.yml
+# (through trivy-action's `trivyignores`). For a local scan, pass
+# `--ignorefile .trivyignore.yaml`.
+#
+# Every entry here is a decision, not a mute. Each one carries:
+#
+#   statement   why this does not affect this bundle, or why we cannot act on it
+#   expired_at  the review date. After it the entry stops applying and the scan
+#               goes red again, so an acceptance nobody revisits does not outlive
+#               its reason.
+#   paths       the files the finding is accepted in, whenever it is tied to
+#               specific files. The same CVE turning up anywhere else - in this
+#               bundle's own dependencies, say - is still reported.
+#
+# Prefer fixing over ignoring. Reach for this file when the finding is in the
+# apache/nifi base image with no newer base available, or when the vulnerable
+# code path is provably unreachable from this bundle.
+#
+# Both scans fail the run on HIGH and CRITICAL findings that have a fix
+# (ignore-unfixed). Findings without one still go to the Security tab, but cannot
+# fail the run, since there is nothing to upgrade to yet.
+
+vulnerabilities:
+  # Jackson 2.22.2 inside NiFi 2.12.0 itself: the bootstrap classpath and the
+  # bundled NiFi Toolkit, both shipped by the apache/nifi base image. Fixed in
+  # 2.22.3. This bundle's own NARs ship Jackson 2.23.0 and are not affected, and
+  # only a NiFi release can update these jars. Delete these four entries when
+  # nifi.version moves past 2.12.0; the paths name the 2.22.2 jars, so they stop
+  # matching then anyway.
+  - id: CVE-2026-89407
+    paths:
+      - opt/nifi/nifi-current/lib/bootstrap/jackson-core-2.22.2.jar
+      - opt/nifi/nifi-toolkit-current/lib/jackson-core-2.22.2.jar
+    statement: Jackson inside the NiFi 2.12.0 runtime, not this bundle; fixed by a NiFi release.
+    expired_at: 2027-02-23
+  - id: CVE-2026-89425
+    paths:
+      - opt/nifi/nifi-current/lib/bootstrap/jackson-core-2.22.2.jar
+      - opt/nifi/nifi-toolkit-current/lib/jackson-core-2.22.2.jar
+    statement: Jackson inside the NiFi 2.12.0 runtime, not this bundle; fixed by a NiFi release.
+    expired_at: 2027-02-23
+  - id: CVE-2026-91776
+    paths:
+      - opt/nifi/nifi-current/lib/bootstrap/jackson-databind-2.22.2.jar
+      - opt/nifi/nifi-toolkit-current/lib/jackson-databind-2.22.2.jar
+    statement: Jackson inside the NiFi 2.12.0 runtime, not this bundle; fixed by a NiFi release.
+    expired_at: 2027-02-23
+  - id: CVE-2026-91777
+    paths:
+      - opt/nifi/nifi-current/lib/bootstrap/jackson-databind-2.22.2.jar
+      - opt/nifi/nifi-toolkit-current/lib/jackson-databind-2.22.2.jar
+    statement: Jackson inside the NiFi 2.12.0 runtime, not this bundle; fixed by a NiFi release.
+    expired_at: 2027-02-23
