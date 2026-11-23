@@ -38,15 +38,37 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      - name: Set up JDK 21
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      # Trivy resolves a module's dependency on a sibling module (nifi-pulsar-processors ->
+      # nifi-pulsar-client-service-api, say) by its coordinates, not from this checkout. main stays at
+      # 2.1.0 (see VERSIONING.md), and io.streamnative.connectors:*:2.1.0 is an old release on Maven
+      # Central built against Pulsar 3.3.7, so without this step the scan reports that release's
+      # dependencies (protobuf-java 3.20.3, for one) instead of ours. Installing first puts this
+      # checkout's poms, and every pom they depend on, in ~/.m2, which Trivy reads before going remote.
+      # That also keeps the scan off Maven Central, whose rate limiting (HTTP 429) otherwise leaves
+      # parts of the tree unresolved and silently unscanned.
+      - name: Install this checkout's poms for Trivy to resolve
+        run: ./mvnw -B -ntp install -DskipTests -Dgpg.skip=true -pl '!docker-image'
+
       # Two passes over the same cached database. The first records everything
       # for the Security tab; the second decides whether the run goes red. They
       # are split because the SARIF must upload even when the gate fails.
+      #
+      # target/ is skipped: after the install it holds built jars, and this job scans the dependency
+      # tree as declared. What ships in the image is the image job's concern.
       - name: Scan dependency tree (SARIF)
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
           scan-ref: .
           scanners: vuln
+          skip-dirs: '**/target'
           format: sarif
           output: trivy-deps.sarif
           exit-code: '0'
@@ -65,6 +87,7 @@ jobs:
           scan-type: fs
           scan-ref: .
           scanners: vuln
+          skip-dirs: '**/target'
           format: table
           severity: HIGH,CRITICAL
           ignore-unfixed: true
