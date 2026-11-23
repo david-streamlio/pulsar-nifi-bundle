@@ -1,7 +1,7 @@
 name: Integration Tests
 
-# Runs the Testcontainers-backed integration tests (*IT.java) against a real Pulsar broker
-# on every pull request and every push to main.
+# Runs the Testcontainers-backed integration tests (*IT.java) against real Pulsar brokers - one per
+# supported broker line - on every pull request and every push to main.
 #
 # These are deliberately a separate workflow from CI: they need a Docker daemon and take
 # appreciably longer than the unit tests, so keeping them apart preserves the fast
@@ -23,11 +23,30 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  integration-test:
-    # This name is referenced by branch protection as a required check - keep it stable.
-    name: Integration Tests (Java 21)
+  broker:
+    # The same suite against each broker line we support. The bundle ships one Pulsar client
+    # (pulsar.version), but users run it against older brokers too, and a client/broker mismatch only
+    # shows up against a real broker of that version.
+    name: Integration Tests (${{ matrix.broker }} broker)
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    strategy:
+      # Let every broker finish: telling a client bug from a broker-version incompatibility needs both
+      # results, and a red leg would otherwise cancel the green one.
+      fail-fast: false
+      matrix:
+        include:
+          # The broker matching the client: no override, so it follows the pom's pulsar.image, which
+          # is kept in step with pulsar.version.
+          - broker: Pulsar 5
+            id: pulsar-5
+            image: ''
+          # The previous major's LTS line, which is what Pulsar 4 deployments run. Named explicitly
+          # rather than through a Maven profile: a mistyped -P only warns, and the leg would then pass
+          # against the Pulsar 5 broker without anyone noticing.
+          - broker: Pulsar 4 LTS
+            id: pulsar-4-lts
+            image: apachepulsar/pulsar:4.0.14
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -58,8 +77,13 @@ jobs:
       # then fails with "invalid reference format". Take the last line and check it looks like an image.
       - name: Pre-pull the Pulsar image
         continue-on-error: true
+        env:
+          MATRIX_IMAGE: ${{ matrix.image }}
         run: |
-          IMAGE="$(./mvnw -B -ntp help:evaluate -Dexpression=pulsar.image -q -DforceStdout 2>/dev/null | tail -n 1 | tr -d '[:space:]')"
+          IMAGE="$MATRIX_IMAGE"
+          if [ -z "$IMAGE" ]; then
+            IMAGE="$(./mvnw -B -ntp help:evaluate -Dexpression=pulsar.image -q -DforceStdout 2>/dev/null | tail -n 1 | tr -d '[:space:]')"
+          fi
           echo "Resolved Pulsar image: '$IMAGE'"
 
           if [ -z "$IMAGE" ] || printf '%s' "$IMAGE" | grep -qv '^[a-z0-9._/-]\+:[A-Za-z0-9._-]\+$'; then
@@ -71,13 +95,32 @@ jobs:
 
       # `verify` is what runs Failsafe; `package` (used by the CI workflow) stops short of it.
       - name: Run integration tests
-        run: ./mvnw -B -ntp verify -Dgpg.skip=true -pl nifi-pulsar-processors -am
+        env:
+          MATRIX_IMAGE: ${{ matrix.image }}
+        run: ./mvnw -B -ntp verify -Dgpg.skip=true -pl nifi-pulsar-processors -am ${MATRIX_IMAGE:+"-Dpulsar.image=$MATRIX_IMAGE"}
 
       - name: Upload failsafe reports
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: failsafe-reports
+          name: failsafe-reports-${{ matrix.id }}
           path: '**/target/failsafe-reports/*.xml'
           if-no-files-found: ignore
           retention-days: 7
+
+  integration-test:
+    # This name is referenced by branch protection as a required check - keep it stable. It stands in
+    # for the broker matrix, whose job names carry the broker and so cannot be required one by one.
+    name: Integration Tests (Java 21)
+    needs: broker
+    # Must run when the matrix fails: a required check that is skipped counts as passed.
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every broker to pass
+        env:
+          RESULT: ${{ needs.broker.result }}
+        run: |
+          echo "Broker matrix: $RESULT"
+          test "$RESULT" = success
