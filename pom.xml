@@ -94,6 +94,7 @@
         <conscrypt-openjdk.version>2.9.0</conscrypt-openjdk.version>
         <groovy-eclipse-batch.version>3.0.8-01</groovy-eclipse-batch.version>
         <grpc.version>1.41.0</grpc.version>
+        <guava.version>33.7.2-jre</guava.version>
         <jackson.version>2.23.0</jackson.version>
         <!-- Since 2.20 jackson-annotations is released per minor version only (2.22, not 2.22.4). -->
         <jackson-annotations.version>2.23</jackson-annotations.version>
@@ -168,6 +169,15 @@
                 <groupId>com.fasterxml.jackson.core</groupId>
                 <artifactId>jackson-databind</artifactId>
                 <version>${jackson.version}</version>
+            </dependency>
+            <!-- pulsar-client-original 5.0.1 brings Guava 33.7.1-jre, which has a HIGH CVE fixed in 33.7.2
+                 (CVE-2026-102554, denial of service through unthrottled allocation during deserialization).
+                 Guava is transitive only, so Dependabot will not propose this. Drop this entry once the
+                 Pulsar client brings a fixed Guava itself. -->
+            <dependency>
+                <groupId>com.google.guava</groupId>
+                <artifactId>guava</artifactId>
+                <version>${guava.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>
