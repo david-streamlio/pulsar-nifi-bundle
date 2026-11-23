@@ -551,7 +551,13 @@ need no Docker. They run from `./mvnw verify`:
 ```
 
 The broker image is pinned by the `pulsar.image` property in the root pom and kept in step with
-`pulsar.version`.
+`pulsar.version`. CI also runs the same suite against a Pulsar 4.0 LTS broker, since the bundle's
+Pulsar 5 client is used against older brokers too; the exact image is in the broker matrix of
+`.github/workflows/integration-tests.yml`. To run that locally, override the image:
+
+```
+./mvnw verify -Dpulsar.image=apachepulsar/pulsar:4.0.14
+```
 
 > **Docker 29 and newer:** docker-java (bundled with Testcontainers) negotiates API version 1.32 by
 > default, which Docker 29+ rejects with *"client version 1.32 is too old. Minimum supported API

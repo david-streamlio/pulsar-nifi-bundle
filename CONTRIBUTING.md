@@ -38,6 +38,15 @@ need no Docker; Failsafe runs them from `./mvnw verify`.
 **If you are changing anything that depends on broker behaviour, add or extend an integration
 test.** If you cannot run them locally, say so in the pull request so a reviewer knows to check.
 
+CI runs the suite twice: against the broker matching the client (`pulsar.image` in the root pom) and
+against the Pulsar 4.0 LTS broker named in `.github/workflows/integration-tests.yml`. A test that
+needs a broker feature newer than 4.0 should check the broker version and skip, not fail, on the older
+leg. To reproduce the older leg locally:
+
+```
+./mvnw verify -Dpulsar.image=apachepulsar/pulsar:4.0.14
+```
+
 ### Docker 29 and newer
 
 docker-java, which Testcontainers uses, negotiates API version 1.32 by default, and Docker 29+
