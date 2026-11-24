@@ -17,6 +17,23 @@
 FROM apache/nifi:2.12.0
 
 #############################################################################
+# Apply Debian security updates
+#############################################################################
+# apache/nifi:<version> is built once per NiFi release and never rebuilt, so its
+# Debian packages only age: a few weeks in, the scan finds HIGH and CRITICAL CVEs
+# that Debian has long since fixed. Upgrading here picks those fixes up on every
+# build - the weekly scan and each release - without moving off the NiFi runtime
+# the NARs are compiled against. It updates installed packages only; nothing new
+# is installed.
+USER root
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y \
+       -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+USER nifi
+
+#############################################################################
 # Add the custom NAR files
 #############################################################################
 
