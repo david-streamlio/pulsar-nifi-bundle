@@ -96,7 +96,7 @@
         <conscrypt-openjdk.version>2.9.0</conscrypt-openjdk.version>
         <groovy-eclipse-batch.version>3.0.8-01</groovy-eclipse-batch.version>
         <grpc.version>1.41.0</grpc.version>
-        <guava.version>33.7.2-jre</guava.version>
+        <guava.version>33.8.0-jre</guava.version>
         <jackson.version>2.23.0</jackson.version>
         <!-- Since 2.20 jackson-annotations is released per minor version only (2.22, not 2.22.4). -->
         <jackson-annotations.version>2.23</jackson-annotations.version>
